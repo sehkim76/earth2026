@@ -1,0 +1,281 @@
+generator client {
+  provider      = "prisma-client"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "rhel-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model ARMissionEvent {
+  EventKey      String? @db.VarChar(255)
+  ARMissionKey  String? @db.VarChar(255)
+  EventType     String? @db.VarChar(255)
+  EventURI      String? @db.VarChar(255)
+  QuizCount     Int?
+  int_param1    Int?
+  string_param1 String? @db.VarChar(1255)
+  string_param2 String? @db.VarChar(1255)
+  string_param3 String? @db.VarChar(1255)
+  string_param4 String? @db.VarChar(255)
+  id            Int     @id @default(autoincrement())
+  string_param5 String  @db.VarChar(255)
+  string_param6 String  @db.VarChar(255)
+
+  @@index([ARMissionKey], map: "ARMissionKey")
+}
+
+model ARMissionEventPoolTable {
+  id          Int    @id @default(autoincrement())
+  EventType   String @db.VarChar(255)
+  EventURI    String @db.VarChar(255)
+  description String @db.VarChar(255)
+}
+
+model ARMissionGPS {
+  location            String? @db.VarChar(255)
+  ARMissionKey        String? @db.VarChar(255)
+  EventKey            String? @db.VarChar(255)
+  locationname        String? @db.VarChar(255)
+  SpotPrefab          String? @db.VarChar(255)
+  SpotVisitedPrefab   String? @db.VarChar(255)
+  MinimapMarkerPrefab String? @db.VarChar(255)
+  id                  Int     @id @default(autoincrement())
+
+  @@index([ARMissionKey], map: "ARMissionKey")
+}
+
+model ARMissionUserScore {
+  score        Int?
+  EventKey     String?   @db.VarChar(255)
+  EventSubKey  String?   @db.VarChar(255)
+  answer       String?   @db.VarChar(255)
+  scoredate    DateTime? @db.DateTime(0)
+  UserId       String?   @db.VarChar(255)
+  ARMissionKey String?   @db.VarChar(255)
+  ScoreId      Int       @id @default(autoincrement())
+  islastscore  Int?
+}
+
+model AddressableResourceWithThumbnail {
+  id            Int     @id @default(autoincrement())
+  ARMissionKey  String? @db.VarChar(255)
+  ThumbnailURL  String? @db.VarChar(255)
+  ResourceLabel String? @db.VarChar(255)
+  description   String? @db.VarChar(500)
+  title         String? @db.VarChar(255)
+  ResourceId    String? @db.VarChar(255)
+  Active        Int?    @default(0)
+  soundURL      String  @db.VarChar(255)
+  PricePerDay   Int?    @default(100)
+  author        String  @db.VarChar(255)
+}
+
+model CMSCategoryNameTable {
+  id       Int    @id @default(autoincrement())
+  Category String @db.VarChar(255)
+  Name     String @db.VarChar(255)
+  DeepLink String @db.VarChar(255)
+}
+
+model CMSTable {
+  id          Int    @id @default(autoincrement())
+  ServiceCode String @db.VarChar(255)
+  ResourceId  String @db.VarChar(255)
+  Title       String @db.VarChar(255)
+  Category    String @db.VarChar(255)
+}
+
+model ElevenLabsAgentWidgetTable {
+  id           Int     @id @default(autoincrement())
+  ARMissionKey String? @db.VarChar(255)
+  FileName     String? @db.VarChar(255)
+  ImageURL     String? @db.VarChar(255)
+  AgentCode    String? @db.VarChar(255)
+}
+
+model LockTable {
+  id           Int       @id @default(autoincrement())
+  ARMissionKey String    @db.VarChar(255)
+  userId       String    @db.VarChar(255)
+  isLock       Boolean   @default(false)
+  updated_at   DateTime? @default(now()) @db.Timestamp(0)
+}
+
+model MissionResources {
+  ARMissionKey    String? @db.VarChar(255)
+  resourceId      String? @db.VarChar(255)
+  resourceUrl     String? @db.VarChar(255)
+  resourceVersion Int?
+  type            String? @db.VarChar(255)
+  id              Int     @id @default(autoincrement())
+
+  @@index([ARMissionKey], map: "ARMissionKey")
+}
+
+model MissionScenario {
+  progressId    String          @id @db.VarChar(255)
+  scenarioData  String?         @db.Text
+  MissionStatus MissionStatus[]
+}
+
+model MissionStatus {
+  UserId          String?          @db.VarChar(255)
+  ARMissionKey    String?          @db.VarChar(255)
+  progressId      String?          @db.VarChar(255)
+  id              Int              @id @default(autoincrement())
+  MissionUser     MissionUser?     @relation(fields: [UserId], references: [userId], onDelete: NoAction, map: "MissionStatus_ibfk_1")
+  MissionScenario MissionScenario? @relation(fields: [progressId], references: [progressId], onDelete: NoAction, onUpdate: NoAction, map: "MissionStatus_ibfk_3")
+
+  @@index([ARMissionKey], map: "ARMissionKey")
+  @@index([UserId], map: "UserId")
+  @@index([progressId], map: "progressId")
+}
+
+model MissionTable {
+  ARMissionKey         String    @db.VarChar(255)
+  ARMissionName        String?   @db.VarChar(255)
+  StartDate            DateTime? @db.DateTime(0)
+  EndDate              DateTime? @db.DateTime(0)
+  LeftTopGPS           String?   @db.VarChar(255)
+  RightBottomGPS       String?   @db.VarChar(255)
+  StartMethod          Int?
+  LeftTopGPS_Start     String?   @db.VarChar(255)
+  RightBottomGPS_Start String?   @db.VarChar(255)
+  teamplay             Boolean?
+  openscore            Int?
+  QuizRevisitEnabled   Int?      @db.TinyInt
+  PrefabRevisitEnabled Int?      @db.TinyInt
+  hasEdBox             Boolean?  @default(false)
+  hasQR                Boolean?  @default(false)
+  hasCMS               Int?      @default(0)
+  hasTerritory         Boolean?  @default(false)
+  id                   Int       @id @default(autoincrement())
+  isUpdating           Int?      @default(0)
+}
+
+model MissionTeam {
+  ARMissionKey String? @db.VarChar(255)
+  userId       String? @db.VarChar(255)
+  teamId       String? @db.VarChar(255)
+  classId      String? @db.VarChar(255)
+  Features     String? @db.VarChar(255)
+  id           Int     @id @default(autoincrement())
+}
+
+model MissionUser {
+  userId              String          @id @db.VarChar(255)
+  password            String          @db.VarChar(255)
+  nickname            String          @db.VarChar(255)
+  code                String?         @db.VarChar(255)
+  email               String          @db.VarChar(255)
+  createdate          DateTime?       @db.DateTime(0)
+  score               Int?
+  ARMissionKey        String?         @db.VarChar(255)
+  MainSceneName       String?         @db.VarChar(255)
+  device_id           String?         @db.VarChar(255)
+  Features            String?         @db.VarChar(255)
+  access_time         DateTime?       @db.DateTime(0)
+  location            String?         @db.VarChar(255)
+  edboxModel          String?         @db.VarChar(255)
+  isCMSAdmin          Int?            @default(0)
+  is_system_admin     Int?            @default(0)
+  SubscriberCode      String?         @db.VarChar(255)
+  data                Json?
+  lat                 Decimal?        @db.Decimal(9, 6)
+  lon                 Decimal?        @db.Decimal(9, 6)
+  location_updated_at DateTime?       @db.DateTime(0)
+  location_cell       String?         @db.VarChar(16)
+  MissionStatus       MissionStatus[]
+
+  @@index([ARMissionKey, lat, lon], map: "idx_missionuser_armission_lat_lon")
+  @@index([ARMissionKey, location_updated_at], map: "idx_missionuser_armission_loc_updated_at")
+  @@index([location_cell, location_updated_at], map: "idx_missionuser_cell_updated_at")
+}
+
+model NoticeTable {
+  id            Int       @id @default(autoincrement())
+  ARMissionKey  String    @db.VarChar(255)
+  Notice        String    @db.VarChar(1255)
+  NoticeEndDate DateTime? @default(now()) @db.DateTime(0)
+}
+
+model PrefabInstanceTable {
+  ARMissionKey  String?   @db.VarChar(255)
+  PrefabEventId String?   @db.VarChar(255)
+  userId        String?   @db.VarChar(255)
+  InstanceId    String?   @db.VarChar(255)
+  LastOpTime    DateTime? @db.DateTime(0)
+  string_param1 String?   @db.VarChar(255)
+  string_param2 String?   @db.VarChar(255)
+  string_param3 String?   @db.VarChar(255)
+  string_param4 String?   @db.VarChar(255)
+  string_param5 String?   @db.VarChar(255)
+  string_param6 String?   @db.VarChar(255)
+  id            Int       @id @default(autoincrement())
+}
+
+model ProfileTable {
+  id                 Int    @id @default(autoincrement())
+  Title              String @db.VarChar(255)
+  ProfileThumbnail   String @db.VarChar(255)
+  SubscribingService String @db.VarChar(255)
+  ProfileData        String @db.VarChar(1255)
+  PriceDiscount      Float? @default(1) @db.Float
+}
+
+model SubscriberTable {
+  id                  Int       @id @default(autoincrement())
+  Title               String    @db.VarChar(255)
+  SubscriberThumbnail String    @db.VarChar(255)
+  SubscribingServices String    @db.VarChar(1255)
+  SubscribingEndDate  DateTime? @default(now()) @db.DateTime(0)
+  SubscriberCode      String    @db.VarChar(255)
+}
+
+/// 무법자 발자국 (동별 100m 셀 방문 횟수 — 분산 배회용).
+model TerritoryNeutralTrail {
+  id        Int    @id @default(autoincrement())
+  dong      String @db.VarChar(32)
+  gx        Int
+  gy        Int
+  count     Int    @default(1)
+  updatedAt BigInt
+
+  @@unique([dong, gx, gy], map: "neutral_trail_dong_cell")
+  @@index([dong], map: "neutral_trail_dong")
+}
+
+/// 영토전 중립 부대 (동별 최대 5기, 5분마다 1기 스폰, 동 영역 배회).
+model TerritoryNeutralUnit {
+  id           Int    @id @default(autoincrement())
+  dong         String @db.VarChar(32)
+  anchorLat    Float
+  anchorLon    Float
+  lat          Float
+  lon          Float
+  destLat      Float
+  destLon      Float
+  legStartedAt BigInt
+  legEndsAt    BigInt
+  quizKey      String @db.VarChar(255)
+  quizTitle    String @db.VarChar(255)
+  createdAt    BigInt
+  updatedAt    BigInt
+  /// 목적지까지 서버 경로 JSON ([[lat,lon],...], 없으면 직선 다리).
+  path         String? @db.Text
+  /// 저장 경로 위 진행 인덱스 하한 (역행 방지용, 경로 교체 시 0으로 초기화).
+  pathIdx      Int      @default(0)
+
+  @@index([dong], map: "neutral_unit_dong")
+}
+
+model VersionTable {
+  id             Int    @id @default(autoincrement())
+  ServiceCode    String @db.VarChar(255)
+  LatestVersion  String @db.VarChar(255)
+  SubscriberCode String @db.VarChar(255)
+  Description    String @db.VarChar(255)
+}

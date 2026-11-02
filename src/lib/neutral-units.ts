@@ -1,0 +1,799 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import prisma from "@/lib/prismadb";
+import type { TerritoryNeutralUnit } from "@/generated/prisma/client";
+import { withNamedLock } from "@/lib/territory";
+import {
+  dongBboxServer,
+  ensureDongBoundary,
+  ensureDongRaster,
+  isInDongServer,
+  isWalkableServer,
+  setRasterBaseUrl,
+  snapToWalkableServer,
+} from "@/lib/server-walkable";
+import { findServerRoute, setGraphBaseUrl } from "@/lib/server-graph";
+
+/** 래스터·그래프 기준 URL (API 라우트에서 요청 origin으로 설정). */
+export const setNeutralRasterBaseUrl = (origin: string): void => {
+  setRasterBaseUrl(origin);
+  setGraphBaseUrl(origin);
+};
+
+/** 중립 부대 규칙: 5분마다 1기 스폰, 시속 4km 배회. 상한은 이동가능면적 비례 (좌2동=20기 기준, 최대 50기). */
+export const NEUTRAL_UNIT_PER_DONG_CAP = 20;
+const REFERENCE_DONG = "71637012B36687171546688";
+const REFERENCE_DONG_CAP = 20;
+const NEUTRAL_UNIT_MAX_PER_DONG = 50;
+import dongWalkableArea from "../../public/boundaries/dong-walkable-area.json" assert { type: "json" };
+
+// 중립성(동사무소 등) 위치 — 스폰 기준점용. key의 동 ID와 래스터 동 ID는 동일 체계다.
+import korOffices from "../../public/boundaries/kor_offices.json" assert { type: "json" };
+
+let officesByDong: Map<string, Array<{ lat: number; lon: number }>> | null = null;
+const getOfficesInDong = (dong: string): Array<{ lat: number; lon: number }> => {
+  if (!officesByDong) {
+    const map = new Map<string, Array<{ lat: number; lon: number }>>();
+    const rows = korOffices as unknown as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      if (typeof row !== "object" || row === null) {
+        continue;
+      }
+      const key = typeof row.key === "string" ? row.key : "";
+      const id = key.startsWith("neutral-") ? key.slice("neutral-".length) : "";
+      const lat = typeof row.lat === "number" ? row.lat : NaN;
+      const lon = typeof row.lon === "number" ? row.lon : NaN;
+      if (!id || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        continue;
+      }
+      const list = map.get(id);
+      if (list) {
+        list.push({ lat, lon });
+      } else {
+        map.set(id, [{ lat, lon }]);
+      }
+    }
+    officesByDong = map;
+  }
+  return officesByDong.get(dong) ?? [];
+};
+
+const dongCapCache = new Map<string, number>();
+/** 동별 상한: 좌2동 20기를 기준 이동가능면적 비례, 상한 50기. */
+export const capForDong = (dong: string): number => {
+  const cached = dongCapCache.get(dong);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const areas = dongWalkableArea as unknown as Record<string, unknown>;
+  const refArea = Number(areas[REFERENCE_DONG]);
+  const area = Number(areas[dong]);
+  let cap = REFERENCE_DONG_CAP;
+  if (Number.isFinite(refArea) && refArea > 0 && Number.isFinite(area) && area >= 0) {
+    cap = Math.round((REFERENCE_DONG_CAP * area) / refArea);
+  }
+  cap = Math.max(1, Math.min(NEUTRAL_UNIT_MAX_PER_DONG, cap));
+  dongCapCache.set(dong, cap);
+  return cap;
+};
+export const NEUTRAL_UNIT_SPAWN_INTERVAL_MS = 5 * 60 * 1000;
+export const NEUTRAL_UNIT_SPEED_MPS = 4000 / 3600;
+const SPAWN_RADIUS_M = 200;
+const WANDER_RADIUS_M = 350;
+export const NEUTRAL_UNIT_NAME_PREFIX = "무법자";
+
+export interface NeutralUnitView {
+  id: number;
+  dong: string;
+  lat: number;
+  lon: number;
+  fromLat: number;
+  fromLon: number;
+  destLat: number;
+  destLon: number;
+  startedAt: number;
+  endsAt: number;
+  moving: boolean;
+  quizKey: string;
+  quizTitle: string;
+}
+
+// quiz_titles.json: { "Quiz/xxx.json": "제목" } — 검증된 풀(quiz_pool.json) 우선, 없으면 전체에서.
+// quiz_pool.json은 scripts/audit-quiz-pool.mjs로 재생성 (출제 불가 135개 제외됨).
+let quizPool: Array<{ key: string; title: string }> | null = null;
+const loadQuizPool = (): Array<{ key: string; title: string }> => {
+  if (quizPool) {
+    return quizPool;
+  }
+  try {
+    const rawPool = readFileSync(join(process.cwd(), "public/boundaries/quiz_pool.json"), "utf-8");
+    const parsed = JSON.parse(rawPool) as unknown;
+    if (Array.isArray(parsed)) {
+      const next = parsed.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null) {
+          return [];
+        }
+        const row = entry as Record<string, unknown>;
+        return typeof row.key === "string" && typeof row.title === "string" && row.key.length > 0
+          ? [{ key: row.key, title: row.title }]
+          : [];
+      });
+      if (next.length > 0) {
+        quizPool = next;
+        return quizPool;
+      }
+    }
+  } catch {
+    // 폴백: 전체 타이틀
+  }
+  try {
+    const raw = readFileSync(join(process.cwd(), "public/boundaries/quiz_titles.json"), "utf-8");
+    const record = JSON.parse(raw) as Record<string, unknown>;
+    // 출제 가능한 CSV + 단일 문항 JSON (퀴즈 페이지와 동일 조건).
+    const next = Object.entries(record).flatMap(([key, title]) =>
+      typeof title === "string" && title.length > 0 && /^Quiz\/[^/]+\.(csv|json)$/i.test(key)
+        ? [{ key, title }]
+        : [],
+    );
+    quizPool = next.length > 0 ? next : [];
+  } catch {
+    quizPool = [];
+  }
+  return quizPool;
+};
+
+const pickQuiz = (): { key: string; title: string } => {
+  const pool = loadQuizPool();
+  if (pool.length === 0) {
+    return { key: "", title: "" };
+  }
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
+const offsetLatLon = (lat: number, lon: number, maxM: number): { lat: number; lon: number } => {
+  const angle = Math.random() * Math.PI * 2;
+  const dist = Math.sqrt(Math.random()) * maxM;
+  const dLat = (dist * Math.cos(angle)) / 110540;
+  const dLon = (dist * Math.sin(angle)) / (111320 * Math.cos((lat * Math.PI) / 180));
+  return { lat: lat + dLat, lon: lon + dLon };
+};
+
+/**
+ * 도로 위 + 동 경계 안 스냅 (경계 데이터 없으면 도로 조건만, 둘 다 없으면 null).
+ */
+const snapInDong = async (
+  dong: string,
+  lat: number,
+  lon: number,
+  radiusM: number,
+): Promise<{ lat: number; lon: number } | null> => {
+  await ensureDongBoundary();
+  const snapped = await snapToWalkableServer(dong, lat, lon, radiusM);
+  if (!snapped) {
+    return null;
+  }
+  if (isInDongServer(dong, snapped.lat, snapped.lon) === false) {
+    return null;
+  }
+  return snapped;
+};
+
+/**
+ * 목적지 선정 (규칙 4): 동 bbox 안에서 임의 지점 20곳을 도로 위로 스냅해,
+ * 다른 무법자들의 현 위치와 가장 먼 곳을 목적지로 삼는다. 동 안으로만 잡는다.
+ */
+const pickFarthestDest = async (
+  dong: string,
+  others: Array<{ lat: number; lon: number }>,
+  avoid?: { lat: number; lon: number },
+): Promise<Array<{ lat: number; lon: number }>> => {
+  await ensureDongBoundary();
+  try {
+    await ensureDongRaster(dong);
+  } catch {
+    // 로드 실패해도 계속한다.
+  }
+  const bbox = dongBboxServer(dong);
+  if (!bbox) {
+    return [];
+  }
+  const scored: Array<{ dest: { lat: number; lon: number }; sep: number }> = [];
+  for (let i = 0; i < 20; i += 1) {
+    const raw = {
+      lat: bbox.minLat + Math.random() * (bbox.maxLat - bbox.minLat),
+      lon: bbox.minLon + Math.random() * (bbox.maxLon - bbox.minLon),
+    };
+    const dest = await snapInDong(dong, raw.lat, raw.lon, 300);
+    if (!dest) {
+      continue;
+    }
+    // 직전 출발지 근처(200m)는 제외한다 — 온 길 되돌아가기 방지.
+    if (avoid && distM(dest.lat, dest.lon, avoid.lat, avoid.lon) < 200) {
+      continue;
+    }
+    let sep = Number.POSITIVE_INFINITY;
+    for (const o of others) {
+      const d = distM(dest.lat, dest.lon, o.lat, o.lon);
+      if (d < sep) {
+        sep = d;
+      }
+    }
+    if (sep === Number.POSITIVE_INFINITY) {
+      sep = 10000;
+    }
+    scored.push({ dest, sep });
+  }
+  // 먼 순 상위 3개 (경로 실패 시 다음 후보로 재시도용).
+  scored.sort((a, b) => b.sep - a.sep);
+  return scored.slice(0, 3).map((s) => s.dest);
+};
+
+/** path JSON 파싱 (실패 시 null). */
+const parseStoredPath = (raw: string | null): Array<{ lat: number; lon: number }> | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr) || arr.length < 2) {
+      return null;
+    }
+    const pts: Array<{ lat: number; lon: number }> = [];
+    for (const p of arr) {
+      if (typeof p !== "object" || p === null) {
+        return null;
+      }
+      const { lat, lon } = p as { lat?: unknown; lon?: unknown };
+      if (typeof lat !== "number" || typeof lon !== "number" || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
+      pts.push({ lat, lon });
+    }
+    return pts;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * 경로 설정 (규칙 3: 부대 이동 경로 알고리즘 = 서버 findServerRoute 그대로).
+ * 동 밖으로 나가는 부분은 잘라 동 안에서만 이동한다 (규칙 2).
+ * 실패 시 null (대기).
+ */
+const routeInDong = async (
+  dong: string,
+  fromLat: number,
+  fromLon: number,
+  destLat: number,
+  destLon: number,
+  unitId?: number,
+): Promise<Array<{ lat: number; lon: number }> | null> => {
+  // 클리핑 판정 전 래스터 로드 (미로드 null 통과로 바깥 경로가 생기는 것 방지).
+  try {
+    await ensureDongRaster(dong);
+  } catch {
+    // 로드 실패해도 계속한다.
+  }
+  const result = await findServerRoute(fromLat, fromLon, destLat, destLon);
+  if (!result.ok || result.path.length < 2) {
+    console.debug(
+      `[neutral] routefail id=${unitId ?? "-"} from=(${fromLat.toFixed(5)},${fromLon.toFixed(5)}) to=(${destLat.toFixed(5)},${destLon.toFixed(5)}) reason=${result.ok ? "short" : result.reason}`,
+    );
+    return null;
+  }
+  // 동 안 클리핑: 앞에서부터 동 안인 점만 유지한다.
+  const clipped: Array<{ lat: number; lon: number }> = [];
+  let clipBreak = "";
+  for (const p of result.path) {
+    if (isInDongServer(dong, p.lat, p.lon) === false) {
+      clipBreak = "out_of_dong";
+      break;
+    }
+    if (isWalkableServer(dong, p.lat, p.lon) === false) {
+      clipBreak = "unwalkable";
+      break;
+    }
+    clipped.push(p);
+  }
+  if (clipped.length < 2) {
+    console.debug(
+      "[neutral] clipfail id=" + (unitId ?? "-") + " path=" + result.path.length + " kept=" + clipped.length + " at=" + clipBreak,
+    );
+    return null;
+  }
+  return clipped;
+};
+
+/** path 위 현재 위치에서 stepM 앞 점을 다음 다리 목적지로 삼는다.
+ * 다리 자체는 직선 보간이라 짧게 끊어야 도로를 벗어나지 않는다. */
+const LEG_STEP_M = 150;
+const nextLegDest = (
+  path: Array<{ lat: number; lon: number }>,
+  curLat: number,
+  curLon: number,
+  fromIdx = 0,
+): { dest: { lat: number; lon: number }; idx: number } | null => {
+  const kx = 111320 * Math.cos((curLat * Math.PI) / 180);
+  // fromIdx 이전으로는 돌아가지 않는다 (역행 방지).
+  let bestIdx = Math.min(fromIdx, path.length - 1);
+  let bestD2 = Number.POSITIVE_INFINITY;
+  for (let i = fromIdx; i < path.length; i += 1) {
+    const p = path[i] as { lat: number; lon: number };
+    const d2 = ((p.lon - curLon) * kx) ** 2 + ((p.lat - curLat) * 110540) ** 2;
+    if (d2 < bestD2) {
+      bestD2 = d2;
+      bestIdx = i;
+    }
+  }
+  let acc = 0;
+  for (let i = bestIdx + 1; i < path.length; i += 1) {
+    const a = path[i - 1] as { lat: number; lon: number };
+    const b = path[i] as { lat: number; lon: number };
+    const segLen = Math.hypot((b.lon - a.lon) * kx, (b.lat - a.lat) * 110540);
+    acc += segLen;
+    // 꺾이는 점이 있으면 다리를 거기서 끊는다 (코너 숏컷 방지).
+    // 직선 구간은 LEG_STEP_M까지 길게 유지한다.
+    const c = path[i + 1] as { lat: number; lon: number } | undefined;
+    if (c) {
+      const v1x = (b.lon - a.lon) * kx;
+      const v1y = (b.lat - a.lat) * 110540;
+      const v2x = (c.lon - b.lon) * kx;
+      const v2y = (c.lat - b.lat) * 110540;
+      const n1 = Math.hypot(v1x, v1y);
+      const n2 = Math.hypot(v2x, v2y);
+      if (n1 > 0 && n2 > 0) {
+        const cosA = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / (n1 * n2)));
+        if (Math.acos(cosA) >= (30 * Math.PI) / 180) {
+          if (distM(curLat, curLon, b.lat, b.lon) >= 20) {
+            return { dest: { lat: b.lat, lon: b.lon }, idx: i };
+          }
+        }
+      }
+    }
+    if (acc >= LEG_STEP_M) {
+      // 정확히 LEG_STEP_M 지점으로 보간한다 (점 간격이 넓어도 다리를 짧게).
+      const back = Math.max(0, acc - LEG_STEP_M);
+      const t = segLen <= 0 ? 1 : Math.max(0, Math.min(1, 1 - back / segLen));
+      const cand = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+      // 경로가 루프백해 후보가 제자리(20m 안)면 스킵하고 더 앞을 탐색한다.
+      // 그대로 반환하면 10초짜리 제자리 다리가 무한 반복된다.
+      if (distM(curLat, curLon, cand.lat, cand.lon) >= 20) {
+        return { dest: cand, idx: bestIdx };
+      }
+    }
+  }
+  const last = path[path.length - 1] as { lat: number; lon: number };
+  // 최종 목적지 근처(20m)면 도착으로 본다.
+  if (distM(curLat, curLon, last.lat, last.lon) < 20) {
+    return null;
+  }
+  return { dest: last, idx: path.length - 1 };
+};
+
+// 발자국 100m 셀 (동별 분산 배회용).
+const TRAIL_CELL_M = 100;
+const trailCellOf = (lat: number, lon: number): { gx: number; gy: number } => ({
+  gx: Math.floor((lat * 110540) / TRAIL_CELL_M),
+  gy: Math.floor((lon * 111320 * Math.cos((lat * Math.PI) / 180)) / TRAIL_CELL_M),
+});
+const trailKeyOf = (lat: number, lon: number): string => {
+  const c = trailCellOf(lat, lon);
+  return `${c.gx},${c.gy}`;
+};
+
+const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number => {
+  const rad = Math.PI / 180;
+  const dLat = (bLat - aLat) * rad;
+  const dLon = (bLon - aLon) * rad;
+  const h =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(aLat * rad) * Math.cos(bLat * rad) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+const lerpPos = (
+  fromLat: number,
+  fromLon: number,
+  destLat: number,
+  destLon: number,
+  startedAt: number,
+  endsAt: number,
+  now: number,
+): { lat: number; lon: number; arrived: boolean } => {
+  if (now >= endsAt || endsAt <= startedAt) {
+    return { lat: destLat, lon: destLon, arrived: true };
+  }
+  const t = (now - startedAt) / (endsAt - startedAt);
+  return {
+    lat: fromLat + (destLat - fromLat) * t,
+    lon: fromLon + (destLon - fromLon) * t,
+    arrived: false,
+  };
+};
+
+/**
+ * 해당 동의 중립 부대를 조회한다. 부 side-effect:
+ * - 5기 미만 + 마지막 생성 후 5분 경과 시 1기 스폰 (요청자 근처 200m, 랜덤 퀴즈 부착)
+ * - 도착한 다리는 다음 배회 다리로 연결한다 (서버 권위, 쓰기 없음이 원칙이나 다리 연결만 갱신)
+ * 전국 동시 처리가 아니라 "폴링하는 플레이어가 있는 동"만 처리하므로 비용이 한정된다.
+ *
+ * 라우팅(HTTP·수십 초 가능)은 락 밖에서 계획하고, 락 안에서는 검증+적용만 한다.
+ * 라우팅을 락 안에서 하면 락 점유(20초 tx 타임아웃 초과)가 연쇄 500을 만든다.
+ */
+interface NeutralLegPlan {
+  baseLat: number;
+  baseLon: number;
+  destLat: number;
+  destLon: number;
+  pathJson: string | null;
+  pathIdx: number;
+  waitMs: number;
+  legMs: number;
+  expectLegEndsAt: bigint;
+}
+
+interface NeutralSpawnPlan {
+  at: { lat: number; lon: number };
+  dest: { lat: number; lon: number };
+  pathJson: string | null;
+  quizKey: string;
+  quizTitle: string;
+}
+
+const neutralOthersOf = (
+  rows: TerritoryNeutralUnit[],
+  now: number,
+  excludeId?: number,
+): Array<{ lat: number; lon: number }> =>
+  rows
+    .filter((r) => r.id !== excludeId)
+    .map((r) => {
+      const pos = lerpPos(r.lat, r.lon, r.destLat, r.destLon, Number(r.legStartedAt), Number(r.legEndsAt), now);
+      return { lat: pos.lat, lon: pos.lon };
+    });
+
+/** 락 밖에서 실행: 도착한 다리의 다음 다리 계획을 세운다 (라우팅 포함, DB 쓰기 없음). */
+const planNeutralLeg = async (
+  r: TerritoryNeutralUnit,
+  rows: TerritoryNeutralUnit[],
+  dong: string,
+  now: number,
+): Promise<NeutralLegPlan> => {
+  const anchorLat = r.anchorLat;
+  const anchorLon = r.anchorLon;
+  let baseLat = r.destLat;
+  let baseLon = r.destLon;
+  if (
+    isWalkableServer(dong, baseLat, baseLon) === false ||
+    isInDongServer(dong, baseLat, baseLon) === false
+  ) {
+    const fixed = await snapInDong(dong, anchorLat, anchorLon, WANDER_RADIUS_M);
+    if (fixed) {
+      baseLat = fixed.lat;
+      baseLon = fixed.lon;
+    }
+  }
+  // 저장 경로 위를 전진한다. 이전 다리 목적지 이후부터 탐색해 역행을 막는다.
+  console.debug(
+    `[neutral] arrived id=${r.id} base=(${baseLat.toFixed(5)},${baseLon.toFixed(5)}) prevDest=(${r.destLat.toFixed(5)},${r.destLon.toFixed(5)}) hasPath=${r.path ? r.path.length : 0}`,
+  );
+  let storedPath = parseStoredPath(r.path);
+  // DB에 저장된 진행 인덱스를 하한으로 쓴다.
+  // 지리적 근접만으로는 루프 구간에서 이전 구간으로 역행한다.
+  let fromIdx = typeof r.pathIdx === "number" ? r.pathIdx : 0;
+  if (storedPath) {
+    const kx = 111320 * Math.cos((baseLat * Math.PI) / 180);
+    let bestD2 = Number.POSITIVE_INFINITY;
+    for (let i = fromIdx; i < storedPath.length; i += 1) {
+      const pt = storedPath[i] as { lat: number; lon: number };
+      const d2 = ((pt.lon - r.destLon) * kx) ** 2 + ((pt.lat - r.destLat) * 110540) ** 2;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        fromIdx = i;
+      }
+    }
+  }
+  let finalLeg = storedPath ? nextLegDest(storedPath, baseLat, baseLon, fromIdx) : null;
+  let pathIdx = fromIdx;
+  let finalDest = finalLeg ? finalLeg.dest : null;
+  if (finalLeg) {
+    pathIdx = finalLeg.idx;
+  }
+  let pathJson: string | null = r.path;
+  if (!finalDest) {
+    // 최종 목적지 도착(또는 경로 없음): 새 목적지 + 새 경로.
+    // 후보 순서대로 경로 성공할 때까지 시도한다.
+    // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
+    let goals = await pickFarthestDest(dong, neutralOthersOf(rows, now, r.id), { lat: r.lat, lon: r.lon });
+    if (goals.length > 1) {
+      // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
+      // 다른 개체의 저장 경로 300m 안도 제외한다 (일렬종대 방지).
+      const otherPaths: Array<Array<{ lat: number; lon: number }>> = [];
+      for (const o of rows) {
+        if (o.id === r.id || !o.path) {
+          continue;
+        }
+        const p = parseStoredPath(o.path);
+        if (p && p.length >= 2) {
+          otherPaths.push(p);
+        }
+      }
+      const nearOwn = (g: { lat: number; lon: number }): boolean =>
+        !!storedPath &&
+        storedPath.length >= 2 &&
+        storedPath.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < 300);
+      const nearOther = (g: { lat: number; lon: number }): boolean =>
+        otherPaths.some((path) => path.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < 300));
+      const away = goals.filter((g) => !nearOwn(g) && !nearOther(g));
+      if (away.length > 0) {
+        goals = away;
+      }
+    }
+    console.debug(
+      `[neutral] newgoal id=${r.id} goals=${goals.length}`,
+    );
+    let fresh: Array<{ lat: number; lon: number }> | null = null;
+    for (const goal of goals) {
+      fresh = await routeInDong(dong, baseLat, baseLon, goal.lat, goal.lon, r.id);
+      if (fresh && fresh.length >= 2) {
+        break;
+      }
+      fresh = null;
+    }
+    // 원거리 후보가 전부 실패하면 근거리(100~500m 링) 폴백: 제자리 고착 방지.
+    // base 자체 스냅은 제자리(50m 안)가 돼 버리므로 링 위 임의점을 스냅한다.
+    if (!fresh) {
+      for (let t = 0; t < 5 && !fresh; t += 1) {
+        const ang = Math.random() * Math.PI * 2;
+        const d = 150 + Math.random() * 350;
+        const cand = {
+          lat: baseLat + (d / 111320) * Math.sin(ang),
+          lon: baseLon + (d / (111320 * Math.cos((baseLat * Math.PI) / 180))) * Math.cos(ang),
+        };
+        const near = await snapInDong(dong, cand.lat, cand.lon, 200);
+        if (near && distM(baseLat, baseLon, near.lat, near.lon) > 50) {
+          console.debug(`[neutral] neargoal id=${r.id}`);
+          const routed = await routeInDong(dong, baseLat, baseLon, near.lat, near.lon, r.id);
+          if (routed && routed.length >= 2) {
+            fresh = routed;
+          }
+        }
+      }
+    }
+    console.debug(`[neutral] newroute id=${r.id} pts=${fresh ? fresh.length : 0}`);
+    if (fresh && fresh.length >= 2) {
+      storedPath = fresh;
+      pathJson = JSON.stringify(fresh);
+      pathIdx = 0;
+      finalLeg = nextLegDest(fresh, baseLat, baseLon);
+      finalDest = finalLeg ? finalLeg.dest : null;
+      if (finalLeg) {
+        pathIdx = finalLeg.idx;
+      }
+    } else {
+      // 전부 실패: 동 경계 구석에 갇힌 상태. 스폰 앵커 근처로 재배치한다.
+      const fixed = await snapInDong(dong, anchorLat, anchorLon, WANDER_RADIUS_M);
+      if (fixed) {
+        console.debug(`[neutral] relocate id=${r.id}`);
+        baseLat = fixed.lat;
+        baseLon = fixed.lon;
+        storedPath = null;
+        pathJson = null;
+        pathIdx = 0;
+      }
+    }
+  }
+  const dest = finalDest ?? { lat: baseLat, lon: baseLon };
+  const waitMs = finalDest ? 0 : 60_000;
+  const legMs = Math.max(
+    10_000,
+    (distM(baseLat, baseLon, dest.lat, dest.lon) / NEUTRAL_UNIT_SPEED_MPS) * 1000,
+  );
+  return {
+    baseLat,
+    baseLon,
+    destLat: dest.lat,
+    destLon: dest.lon,
+    pathJson,
+    pathIdx,
+    waitMs,
+    legMs,
+    expectLegEndsAt: r.legEndsAt,
+  };
+};
+
+/** 락 밖에서 실행: 스폰 계획을 세운다 (라우팅 포함, DB 쓰기 없음). 조건 불충족이면 null. */
+const planNeutralSpawn = async (
+  rows: TerritoryNeutralUnit[],
+  dong: string,
+  nearLat: number,
+  nearLon: number,
+  now: number,
+): Promise<NeutralSpawnPlan | null> => {
+  const newest = rows.length > 0 ? rows[rows.length - 1] : null;
+  if (
+    rows.length >= capForDong(dong) ||
+    (newest && now - Number(newest.createdAt) < NEUTRAL_UNIT_SPAWN_INTERVAL_MS)
+  ) {
+    return null;
+  }
+  // 스폰 지점: 해당 동의 중립성 중 랜덤 1곳에서 가장 가까운 이동가능영역 위.
+  // (중립성 주변 200m에 도로가 없으면 요청 지점 기준으로 폴백한다.)
+  const offices = getOfficesInDong(dong);
+  const base =
+    offices.length > 0
+      ? (offices[Math.floor(Math.random() * offices.length)] ?? { lat: nearLat, lon: nearLon })
+      : { lat: nearLat, lon: nearLon };
+  const at =
+    (await snapInDong(dong, base.lat, base.lon, SPAWN_RADIUS_M)) ??
+    (offices.length > 0 ? await snapInDong(dong, nearLat, nearLon, SPAWN_RADIUS_M) : null);
+  if (!at) {
+    return null;
+  }
+  const quiz = pickQuiz();
+  // 목적지: 동 내부에서 모든 무법자와 가장 먼 이동가능영역 (규칙 4).
+  // 경로: 부대 이동 알고리즘 그대로 (규칙 3). 후보 순서대로 경로 성공할 때까지 시도한다.
+  const goals = await pickFarthestDest(dong, neutralOthersOf(rows, now));
+  let path: Array<{ lat: number; lon: number }> | null = null;
+  for (const goal of goals) {
+    path = await routeInDong(dong, at.lat, at.lon, goal.lat, goal.lon);
+    if (path && path.length >= 2) {
+      break;
+    }
+    path = null;
+  }
+  const firstLeg = path ? nextLegDest(path, at.lat, at.lon) : null;
+  const dest = firstLeg ? firstLeg.dest : at;
+  return {
+    at: { lat: at.lat, lon: at.lon },
+    dest: { lat: dest.lat, lon: dest.lon },
+    pathJson: path ? JSON.stringify(path) : null,
+    quizKey: quiz.key,
+    quizTitle: quiz.title.slice(0, 255),
+  };
+};
+export const listNeutralUnits = async (
+  dong: string,
+  nearLat: number,
+  nearLon: number,
+): Promise<NeutralUnitView[]> => {
+  const now = Date.now();
+  const code = dong.trim();
+  if (!code || !Number.isFinite(nearLat) || !Number.isFinite(nearLon)) {
+    return [];
+  }
+  const startedAt = Date.now();
+  // 1단계(락 밖): 스냅샷 조회 + 라우팅 포함 계획 수립.
+  const snapshot = await prisma.territoryNeutralUnit.findMany({
+    where: { dong: code },
+    orderBy: { createdAt: "asc" },
+  });
+  const spawnPlan = await planNeutralSpawn(snapshot, code, nearLat, nearLon, now);
+  const legPlans = new Map<number, NeutralLegPlan>();
+  for (const r of snapshot) {
+    if (now >= Number(r.legEndsAt)) {
+      legPlans.set(r.id, await planNeutralLeg(r, snapshot, code, now));
+    }
+  }
+  // 2단계(락 안): 검증 후 적용만 — 수십 초 걸리던 라우팅이 빠져 락 점유가 ms 단위다.
+  return withNamedLock(`neutral:${code}`, async (tx) => {
+    const rows = await tx.territoryNeutralUnit.findMany({
+      where: { dong: code },
+      orderBy: { createdAt: "asc" },
+    });
+    // 기존 행 중 출제 불가 키(JSON 등)는 playable CSV로 교체한다 (치유 1회성).
+    for (const r of rows) {
+      if (/^Quiz\/[^/]+\.(csv|json)$/i.test(r.quizKey)) {
+        continue;
+      }
+      const quiz = pickQuiz();
+      if (!quiz.key) {
+        continue;
+      }
+      await tx.territoryNeutralUnit.update({
+        where: { id: r.id },
+        data: { quizKey: quiz.key, quizTitle: quiz.title.slice(0, 255), updatedAt: BigInt(now) },
+      });
+      r.quizKey = quiz.key;
+      r.quizTitle = quiz.title.slice(0, 255);
+    }
+    // 스폰: 계획이 있으면 최신 스냅샷 기준으로 재검증 후 생성한다.
+    if (spawnPlan) {
+      const newest = rows.length > 0 ? rows[rows.length - 1] : null;
+      if (
+        rows.length < capForDong(code) &&
+        (!newest || now - Number(newest.createdAt) >= NEUTRAL_UNIT_SPAWN_INTERVAL_MS)
+      ) {
+        const legMs = Math.max(
+          10_000,
+          (distM(spawnPlan.at.lat, spawnPlan.at.lon, spawnPlan.dest.lat, spawnPlan.dest.lon) /
+            NEUTRAL_UNIT_SPEED_MPS) *
+            1000,
+        );
+        const created = await tx.territoryNeutralUnit.create({
+          data: {
+            dong: code,
+            anchorLat: spawnPlan.at.lat,
+            anchorLon: spawnPlan.at.lon,
+            lat: spawnPlan.at.lat,
+            lon: spawnPlan.at.lon,
+            destLat: spawnPlan.dest.lat,
+            destLon: spawnPlan.dest.lon,
+            legStartedAt: BigInt(now),
+            legEndsAt: BigInt(now + Math.round(legMs)),
+            quizKey: spawnPlan.quizKey,
+            quizTitle: spawnPlan.quizTitle.slice(0, 255),
+            createdAt: BigInt(now),
+            updatedAt: BigInt(now),
+            path: spawnPlan.pathJson,
+          },
+        });
+        rows.push(created);
+      }
+    }
+    // 배회: 락 밖에서 세운 계획을 검증 후 적용한다.
+    // 다른 폴링이 먼저 다리를 연결했으면(legEndsAt 변경) 이번 계획은 버린다.
+    for (const r of rows) {
+      const plan = legPlans.get(r.id);
+      if (!plan || Number(r.legEndsAt) !== Number(plan.expectLegEndsAt)) {
+        continue;
+      }
+      const ended = now + Math.round(plan.legMs) + plan.waitMs;
+      await tx.territoryNeutralUnit.update({
+        where: { id: r.id },
+        data: {
+          lat: plan.baseLat,
+          lon: plan.baseLon,
+          destLat: plan.destLat,
+          destLon: plan.destLon,
+          legStartedAt: BigInt(now),
+          legEndsAt: BigInt(ended),
+          updatedAt: BigInt(now),
+          path: plan.pathJson,
+          pathIdx: plan.pathIdx,
+        },
+      });
+      r.lat = plan.baseLat;
+      r.lon = plan.baseLon;
+      r.destLat = plan.destLat;
+      r.destLon = plan.destLon;
+      r.legStartedAt = BigInt(now);
+      r.legEndsAt = BigInt(ended);
+      r.path = plan.pathJson;
+      r.pathIdx = plan.pathIdx;
+    }
+    return rows.map((r) => {
+      const pos = lerpPos(
+        r.lat,
+        r.lon,
+        r.destLat,
+        r.destLon,
+        Number(r.legStartedAt),
+        Number(r.legEndsAt),
+        now,
+      );
+      return {
+        id: r.id,
+        dong: r.dong,
+        lat: pos.lat,
+        lon: pos.lon,
+        fromLat: r.lat,
+        fromLon: r.lon,
+        destLat: r.destLat,
+        destLon: r.destLon,
+        startedAt: Number(r.legStartedAt),
+        endsAt: Number(r.legEndsAt),
+        moving: !pos.arrived,
+        quizKey: r.quizKey,
+        quizTitle: r.quizTitle,
+        path: parseStoredPath(r.path),
+      };
+    });
+  }).finally(() => {
+    // 200ms 초과 시에만 서버 로그에 남긴다 (성능 감시용).
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > 200) {
+      console.log(`[perf] neutral slow dong=${code} ${elapsed}ms`);
+    }
+  });
+};

@@ -1,0 +1,338 @@
+[
+  {
+    "iso": "WORLD",
+    "level": "country",
+    "url": "/boundaries/world_countries.geojson",
+    "count": 5,
+    "bbox": [
+      5,
+      18,
+      145,
+      71
+    ]
+  },
+  {
+    "iso": "KOR",
+    "level": "sido",
+    "url": "/boundaries/kor_sido.geojson",
+    "count": 17,
+    "bbox": [
+      124,
+      33,
+      132,
+      43
+    ]
+  },
+  {
+    "iso": "KOR",
+    "level": "sigungu",
+    "url": "/boundaries/kor_sigungu.geojson",
+    "count": 229,
+    "bbox": [
+      124,
+      33,
+      132,
+      43
+    ]
+  },
+  {
+    "iso": "KOR",
+    "level": "dong",
+    "url": "/boundaries/kor_dong.geojson",
+    "count": 3504,
+    "bbox": [
+      124,
+      33,
+      132,
+      43
+    ]
+  },
+  {
+    "iso": "JPN",
+    "level": "sido",
+    "url": "/boundaries/jpn_sido.geojson",
+    "count": 47,
+    "bbox": [
+      129,
+      31,
+      145,
+      45
+    ]
+  },
+  {
+    "iso": "JPN",
+    "level": "dong",
+    "url": "/boundaries/jpn_dong.geojson",
+    "count": 1742,
+    "bbox": [
+      129,
+      31,
+      145,
+      45
+    ]
+  },
+  {
+    "iso": "JPN",
+    "level": "prefecture",
+    "url": "/boundaries/jpn_prefectures.geojson",
+    "count": 5,
+    "bbox": [
+      129,
+      31,
+      145,
+      45
+    ]
+  },
+  {
+    "iso": "USA",
+    "level": "sido",
+    "url": "/boundaries/usa_sido.geojson",
+    "count": 56,
+    "bbox": [
+      -125,
+      24,
+      -66,
+      49
+    ]
+  },
+  {
+    "iso": "USA",
+    "level": "dong",
+    "url": "/boundaries/usa_dong.geojson",
+    "count": 3233,
+    "bbox": [
+      -125,
+      24,
+      -66,
+      49
+    ]
+  },
+  {
+    "iso": "USA",
+    "level": "state",
+    "url": "/boundaries/usa_states.geojson",
+    "count": 5,
+    "bbox": [
+      -170,
+      19,
+      -66,
+      71
+    ]
+  },
+  {
+    "iso": "CHN",
+    "level": "sido",
+    "url": "/boundaries/chn_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "CHN",
+    "level": "sigungu",
+    "url": "/boundaries/chn_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "CHN",
+    "level": "dong",
+    "url": "/boundaries/chn_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "VNM",
+    "level": "sido",
+    "url": "/boundaries/vnm_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "VNM",
+    "level": "sigungu",
+    "url": "/boundaries/vnm_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "VNM",
+    "level": "dong",
+    "url": "/boundaries/vnm_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "THA",
+    "level": "sido",
+    "url": "/boundaries/tha_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "THA",
+    "level": "sigungu",
+    "url": "/boundaries/tha_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "THA",
+    "level": "dong",
+    "url": "/boundaries/tha_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "DEU",
+    "level": "sido",
+    "url": "/boundaries/deu_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "DEU",
+    "level": "sigungu",
+    "url": "/boundaries/deu_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "DEU",
+    "level": "dong",
+    "url": "/boundaries/deu_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "FRA",
+    "level": "sido",
+    "url": "/boundaries/fra_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "FRA",
+    "level": "sigungu",
+    "url": "/boundaries/fra_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "FRA",
+    "level": "dong",
+    "url": "/boundaries/fra_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "GBR",
+    "level": "sido",
+    "url": "/boundaries/gbr_sido.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "GBR",
+    "level": "sigungu",
+    "url": "/boundaries/gbr_sigungu.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  {
+    "iso": "GBR",
+    "level": "dong",
+    "url": "/boundaries/gbr_dong.geojson",
+    "count": 0,
+    "bbox": [
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+]

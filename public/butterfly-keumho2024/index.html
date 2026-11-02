@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>나비 - 금호강2024</title>
+  <meta itemprop="name" content="나비 - 금호강2024">
+  <meta name="twitter:title" content="나비 - 금호강2024">
+  <meta property="og:title" content="나비 - 금호강2024">
+  <meta property="og:site_name" content="나비 - 금호강2024">
+  <meta name="description" content="">
+  <meta itemprop="description" content="">
+  <meta property="og:description" content="">
+  <meta name="twitter:description" content="">
+  <script crossorigin="anonymous" src="./external/scripts/8frame-1.3.0.min.js"></script>
+  <script crossorigin="anonymous" src="./external/xrextras/xrextras.js"></script>
+  <script crossorigin="anonymous" src="./external/landing-page/landing-page.js"></script>
+  <script crossorigin="anonymous" src="./external/xr/xr.js" async="true" data-preload-chunks="face, slam"></script>
+  <meta name="xrart:renderer" content="aframe:1.3.0" />
+  <meta name="xrart:package" content="@8thwall.xrextras" />
+  <meta name="xrart:package" content="@8thwall.landing-page" />
+  <meta property="og:image" content="https://i.giphy.com/media/rAi32DNlsWNpItOpDr/giphy.gif" />
+  <script src="./external/scripts/aframe-extras-6.1.1.min.js"></script>
+</head>
+
+<body>
+  <script src="bundle.js"></script>
+  <div id="backbar" class="button-container"><a id="back_link"
+      href="uniwebview://close?xrartweb=butter2am&score=10"><img class="external-link-img" src="assets/back.png"
+        alt="External Page" /></a></div>
+  <div class="score-container">
+    <h2 id="score_value"></h2>
+  </div>
+  <div class="timer-container">
+    <h2 id="timer_value"></h2>
+  </div>
+  <div id="gameover_panel" class="game-finish-container">
+    <div class="game-finish-container-inside"><br />축하합니다.<br /><br />
+      <div id="gameover_text">Text</div><br /><a id="score_link"
+        href="uniwebview://close?xrartweb=butter2am&score=1"><img class="exit-link-img" src="assets/exit.png"
+          alt="External Page" /></a>
+    </div>
+  </div>
+  <div class="over"><span id="promptText">Tap To Place Model</span></div><a-scene tap-place landing-page
+    xrextras-loading xrextras-runtime-error renderer="colorManagement:true" xrweb="
+    allowedDevices: any;
+    defaultEnvironmentFogIntensity: 0.5; 
+    defaultEnvironmentFloorTexture: #groundTex; 
+    defaultEnvironmentFloorColor: #FFF;
+    defaultEnvironmentSkyBottomColor: #B4C4CC; 
+    defaultEnvironmentSkyTopColor: #5ac8fa;
+    defaultEnvironmentSkyGradientStrength: 0.5;"><a-assets><img id="groundTex" src="assets/sand.jpg" /><a-asset-item
+        id="tigerModel"
+        src="assets/animated_flying_fluttering_butterfly_loop.glb/animated_flying_fluttering_butterfly_loop.glb"></a-asset-item><a-asset-item
+        id="awayModel" src="assets/butterfly_flyaway.glb/butterfly_flyaway.glb"></a-asset-item><a-asset-item
+        id="yellowAway" src="assets/yellow_away.glb"></a-asset-item><a-asset-item id="purpleAway"
+        src="assets/purple_away.glb"></a-asset-item></a-assets><xrextras-capture-button></xrextras-capture-button><xrextras-capture-preview></xrextras-capture-preview><a-camera
+      id="camera" position="0 8 8" raycaster="objects: .cantap" cursor="
+      fuse: false;
+      rayOrigin: mouse;"></a-camera><a-entity light="
+      type: directional;
+      intensity: 0.8;
+      castShadow: true;
+      shadowMapHeight:2048;
+      shadowMapWidth:2048;
+      shadowCameraTop: 40;
+      shadowCameraBottom: -40;
+      shadowCameraRight: 40;
+      shadowCameraLeft: -40;
+      target: #camera" xrextras-attach="target: camera; offset: 8 15 4" position="1 4.3 2.5" shadow></a-entity><a-light
+      type="ambient" intensity="0.5"></a-light><a-box id="ground" class="cantap" scale="1000 2 1000"
+      position="0 -0.99 0" material="shader: shadow; transparent: true; opacity: 0.4" shadow></a-box></a-scene>
+</body>
+
+</html>
