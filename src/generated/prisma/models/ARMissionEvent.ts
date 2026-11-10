@@ -303,7 +303,6 @@ export type ARMissionEventOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   string_param5?: Prisma.SortOrder
   string_param6?: Prisma.SortOrder
-  _relevance?: Prisma.ARMissionEventOrderByRelevanceInput
 }
 
 export type ARMissionEventWhereUniqueInput = Prisma.AtLeast<{
@@ -474,12 +473,6 @@ export type ARMissionEventUncheckedUpdateManyInput = {
   string_param6?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type ARMissionEventOrderByRelevanceInput = {
-  fields: Prisma.ARMissionEventOrderByRelevanceFieldEnum | Prisma.ARMissionEventOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ARMissionEventCountOrderByAggregateInput = {
   EventKey?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -582,7 +575,37 @@ export type ARMissionEventSelect<ExtArgs extends runtime.Types.Extensions.Intern
   string_param6?: boolean
 }, ExtArgs["result"]["aRMissionEvent"]>
 
+export type ARMissionEventSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  EventKey?: boolean
+  ARMissionKey?: boolean
+  EventType?: boolean
+  EventURI?: boolean
+  QuizCount?: boolean
+  int_param1?: boolean
+  string_param1?: boolean
+  string_param2?: boolean
+  string_param3?: boolean
+  string_param4?: boolean
+  id?: boolean
+  string_param5?: boolean
+  string_param6?: boolean
+}, ExtArgs["result"]["aRMissionEvent"]>
 
+export type ARMissionEventSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  EventKey?: boolean
+  ARMissionKey?: boolean
+  EventType?: boolean
+  EventURI?: boolean
+  QuizCount?: boolean
+  int_param1?: boolean
+  string_param1?: boolean
+  string_param2?: boolean
+  string_param3?: boolean
+  string_param4?: boolean
+  id?: boolean
+  string_param5?: boolean
+  string_param6?: boolean
+}, ExtArgs["result"]["aRMissionEvent"]>
 
 export type ARMissionEventSelectScalar = {
   EventKey?: boolean
@@ -737,6 +760,30 @@ export interface ARMissionEventDelegate<ExtArgs extends runtime.Types.Extensions
   createMany<T extends ARMissionEventCreateManyArgs>(args?: Prisma.SelectSubset<T, ARMissionEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ARMissionEvents and returns the data saved in the database.
+   * @param {ARMissionEventCreateManyAndReturnArgs} args - Arguments to create many ARMissionEvents.
+   * @example
+   * // Create many ARMissionEvents
+   * const aRMissionEvent = await prisma.aRMissionEvent.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ARMissionEvents and only return the `EventKey`
+   * const aRMissionEventWithEventKeyOnly = await prisma.aRMissionEvent.createManyAndReturn({
+   *   select: { EventKey: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ARMissionEventCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ARMissionEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionEventPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ARMissionEvent.
    * @param {ARMissionEventDeleteArgs} args - Arguments to delete one ARMissionEvent.
    * @example
@@ -799,6 +846,36 @@ export interface ARMissionEventDelegate<ExtArgs extends runtime.Types.Extensions
    * 
    */
   updateMany<T extends ARMissionEventUpdateManyArgs>(args: Prisma.SelectSubset<T, ARMissionEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ARMissionEvents and returns the data updated in the database.
+   * @param {ARMissionEventUpdateManyAndReturnArgs} args - Arguments to update many ARMissionEvents.
+   * @example
+   * // Update many ARMissionEvents
+   * const aRMissionEvent = await prisma.aRMissionEvent.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ARMissionEvents and only return the `EventKey`
+   * const aRMissionEventWithEventKeyOnly = await prisma.aRMissionEvent.updateManyAndReturn({
+   *   select: { EventKey: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ARMissionEventUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ARMissionEventUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionEventPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ARMissionEvent.
@@ -1210,6 +1287,25 @@ export type ARMissionEventCreateManyArgs<ExtArgs extends runtime.Types.Extension
 }
 
 /**
+ * ARMissionEvent createManyAndReturn
+ */
+export type ARMissionEventCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionEvent
+   */
+  select?: Prisma.ARMissionEventSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionEvent
+   */
+  omit?: Prisma.ARMissionEventOmit<ExtArgs> | null
+  /**
+   * The data used to create many ARMissionEvents.
+   */
+  data: Prisma.ARMissionEventCreateManyInput | Prisma.ARMissionEventCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ARMissionEvent update
  */
 export type ARMissionEventUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1235,6 +1331,32 @@ export type ARMissionEventUpdateArgs<ExtArgs extends runtime.Types.Extensions.In
  * ARMissionEvent updateMany
  */
 export type ARMissionEventUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ARMissionEvents.
+   */
+  data: Prisma.XOR<Prisma.ARMissionEventUpdateManyMutationInput, Prisma.ARMissionEventUncheckedUpdateManyInput>
+  /**
+   * Filter which ARMissionEvents to update
+   */
+  where?: Prisma.ARMissionEventWhereInput
+  /**
+   * Limit how many ARMissionEvents to update.
+   */
+  limit?: number
+}
+
+/**
+ * ARMissionEvent updateManyAndReturn
+ */
+export type ARMissionEventUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionEvent
+   */
+  select?: Prisma.ARMissionEventSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionEvent
+   */
+  omit?: Prisma.ARMissionEventOmit<ExtArgs> | null
   /**
    * The data used to update ARMissionEvents.
    */

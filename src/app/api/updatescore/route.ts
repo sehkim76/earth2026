@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { acquirePgLock } from "@/lib/pg-advisory-lock";
+
 import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
@@ -34,11 +36,11 @@ export async function GET(request: Request) {
   const missionKey = user.ARMissionKey.trim();
 
   const result = await prisma.$queryRaw<Array<{ totalScore: number | bigint }>>`
-    SELECT COALESCE(SUM(s.score), 0) AS totalScore
-    FROM ARMissionUserScore s
-    WHERE TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+    SELECT COALESCE(SUM(s.score), 0) AS "totalScore"
+    FROM "ARMissionUserScore" s
+    WHERE TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
       AND COALESCE(s.islastscore, 0) = 1
-      AND s.UserId = ${userId}
+      AND s."UserId" = ${userId}
   `;
 
   const rawScore = result[0]?.totalScore;
@@ -96,25 +98,6 @@ const getPrismaErrorCode = (error: unknown): string | null => {
 
   const withCode = error as { code?: unknown };
   return typeof withCode.code === "string" ? withCode.code : null;
-};
-
-const toLockStatus = (value: unknown): number => {
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return 0;
 };
 
 const isRetryablePrismaError = (error: unknown): boolean => {
@@ -309,14 +292,8 @@ export async function POST(request: Request) {
           label: "neutral score transaction",
           requestId,
           fn: () => prisma.$transaction(async (tx) => {
-            const lockResult = await tx.$queryRaw<Array<{ locked: number | null }>>`
-              SELECT GET_LOCK(${lockKey}, 5) AS locked
-            `;
-            if (toLockStatus(lockResult[0]?.locked) !== 1) {
-              throw new Error("score lock acquire failed");
-            }
-            try {
-              await tx.aRMissionUserScore.updateMany({
+            await acquirePgLock(tx, lockKey);
+            await tx.aRMissionUserScore.updateMany({
                 where: {
                   UserId: userId,
                   EventKey: eventKey,
@@ -340,9 +317,6 @@ export async function POST(request: Request) {
                   ScoreId: true,
                 },
               });
-            } finally {
-              await tx.$queryRaw`SELECT RELEASE_LOCK(${lockKey})`;
-            }
           }, {
             maxWait: 10000,
             timeout: 20000,
@@ -382,22 +356,10 @@ export async function POST(request: Request) {
       requestId,
       fn: () => prisma.$transaction(async (tx) => {
       console.log(`[updatescore:${requestId}] acquiring lock`, { lockKey });
-      const lockResult = await tx.$queryRaw<Array<{ locked: number | null }>>`
-        SELECT GET_LOCK(${lockKey}, 5) AS locked
-      `;
-      const locked = toLockStatus(lockResult[0]?.locked);
-
-      if (locked !== 1) {
-        console.warn(`[updatescore:${requestId}] lock acquire failed`, {
-          lockResult,
-          locked,
-        });
-        throw new Error("score lock acquire failed");
-      }
+      await acquirePgLock(tx, lockKey);
 
       console.log(`[updatescore:${requestId}] lock acquired`);
 
-      try {
         const resetResult = await tx.aRMissionUserScore.updateMany({
           where: {
             UserId: userId,
@@ -433,12 +395,6 @@ export async function POST(request: Request) {
         });
 
         return created;
-      } finally {
-        await tx.$queryRaw`
-          SELECT RELEASE_LOCK(${lockKey}) AS released
-        `;
-        console.log(`[updatescore:${requestId}] lock released`);
-      }
     }, {
       maxWait: 10000,
       timeout: 20000,

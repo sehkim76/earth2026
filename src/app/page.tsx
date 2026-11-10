@@ -24,7 +24,7 @@ export default async function Home({ searchParams }: HomeProps) {
     const session = await getSafeServerSession({ returnTo: "/" });
 
     if (session?.user?.nickname) {
-        redirect('/ranking');
+        redirect('/map');
     }
 
     const params = (await searchParams) ?? {};

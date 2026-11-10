@@ -12,37 +12,10 @@ export default function QRPage() {
         onScan={(decodedText) => {
           console.log("decoded:", decodedText);
 
-          const appendFromParam = (target: string) => {
-            try {
-              const parsed = target.startsWith("http")
-                ? new URL(target)
-                : new URL(target, window.location.origin);
-
-              if (!parsed.pathname.startsWith("/quiz/")) {
-                return target;
-              }
-
-              if (!parsed.searchParams.has("from")) {
-                parsed.searchParams.set("from", "qr");
-              }
-
-              if (target.startsWith("http")) {
-                return parsed.toString();
-              }
-
-              return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-            } catch {
-              return target;
-            }
-          };
+          const appendFromParam = (target: string) => target;
 
           if (decodedText.startsWith("http")) {
-            window.location.href = appendFromParam(decodedText);
-            return;
-          }
-
-          if (decodedText.startsWith("/quiz/")) {
-            router.push(appendFromParam(decodedText));
+            window.location.href = decodedText;
             return;
           }
 

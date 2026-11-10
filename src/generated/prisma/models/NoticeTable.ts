@@ -214,7 +214,6 @@ export type NoticeTableOrderByWithRelationInput = {
   ARMissionKey?: Prisma.SortOrder
   Notice?: Prisma.SortOrder
   NoticeEndDate?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.NoticeTableOrderByRelevanceInput
 }
 
 export type NoticeTableWhereUniqueInput = Prisma.AtLeast<{
@@ -295,12 +294,6 @@ export type NoticeTableUncheckedUpdateManyInput = {
   NoticeEndDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
-export type NoticeTableOrderByRelevanceInput = {
-  fields: Prisma.NoticeTableOrderByRelevanceFieldEnum | Prisma.NoticeTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type NoticeTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -339,7 +332,19 @@ export type NoticeTableSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   NoticeEndDate?: boolean
 }, ExtArgs["result"]["noticeTable"]>
 
+export type NoticeTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  Notice?: boolean
+  NoticeEndDate?: boolean
+}, ExtArgs["result"]["noticeTable"]>
 
+export type NoticeTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  Notice?: boolean
+  NoticeEndDate?: boolean
+}, ExtArgs["result"]["noticeTable"]>
 
 export type NoticeTableSelectScalar = {
   id?: boolean
@@ -476,6 +481,30 @@ export interface NoticeTableDelegate<ExtArgs extends runtime.Types.Extensions.In
   createMany<T extends NoticeTableCreateManyArgs>(args?: Prisma.SelectSubset<T, NoticeTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many NoticeTables and returns the data saved in the database.
+   * @param {NoticeTableCreateManyAndReturnArgs} args - Arguments to create many NoticeTables.
+   * @example
+   * // Create many NoticeTables
+   * const noticeTable = await prisma.noticeTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many NoticeTables and only return the `id`
+   * const noticeTableWithIdOnly = await prisma.noticeTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends NoticeTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, NoticeTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$NoticeTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a NoticeTable.
    * @param {NoticeTableDeleteArgs} args - Arguments to delete one NoticeTable.
    * @example
@@ -538,6 +567,36 @@ export interface NoticeTableDelegate<ExtArgs extends runtime.Types.Extensions.In
    * 
    */
   updateMany<T extends NoticeTableUpdateManyArgs>(args: Prisma.SelectSubset<T, NoticeTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more NoticeTables and returns the data updated in the database.
+   * @param {NoticeTableUpdateManyAndReturnArgs} args - Arguments to update many NoticeTables.
+   * @example
+   * // Update many NoticeTables
+   * const noticeTable = await prisma.noticeTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more NoticeTables and only return the `id`
+   * const noticeTableWithIdOnly = await prisma.noticeTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends NoticeTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, NoticeTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$NoticeTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one NoticeTable.
@@ -940,6 +999,25 @@ export type NoticeTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.I
 }
 
 /**
+ * NoticeTable createManyAndReturn
+ */
+export type NoticeTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the NoticeTable
+   */
+  select?: Prisma.NoticeTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the NoticeTable
+   */
+  omit?: Prisma.NoticeTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many NoticeTables.
+   */
+  data: Prisma.NoticeTableCreateManyInput | Prisma.NoticeTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * NoticeTable update
  */
 export type NoticeTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -965,6 +1043,32 @@ export type NoticeTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inter
  * NoticeTable updateMany
  */
 export type NoticeTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update NoticeTables.
+   */
+  data: Prisma.XOR<Prisma.NoticeTableUpdateManyMutationInput, Prisma.NoticeTableUncheckedUpdateManyInput>
+  /**
+   * Filter which NoticeTables to update
+   */
+  where?: Prisma.NoticeTableWhereInput
+  /**
+   * Limit how many NoticeTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * NoticeTable updateManyAndReturn
+ */
+export type NoticeTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the NoticeTable
+   */
+  select?: Prisma.NoticeTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the NoticeTable
+   */
+  omit?: Prisma.NoticeTableOmit<ExtArgs> | null
   /**
    * The data used to update NoticeTables.
    */

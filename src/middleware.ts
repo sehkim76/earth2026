@@ -14,5 +14,5 @@ export default withAuth(
 );
 
 export const config = {
-  matcher: ["/quiz/:path*", "/games/:path*", "/games", "/map"],
+  matcher: ["/map"],
 };

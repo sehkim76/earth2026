@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { acquirePgLock } from "@/lib/pg-advisory-lock";
 
 import { getServerSession } from "next-auth";
 
@@ -86,28 +86,12 @@ export function currentSeasonId(now = Date.now()): number {
 
 export type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
-const toLockStatus = (value: unknown): number => {
-  if (typeof value === "bigint") return Number(value);
-  if (typeof value === "number") return value;
-  return 0;
-};
-
-/** updatescore와 동일한 GET_LOCK 패턴. fn 내부는 전부 tx로 수행한다. */
+/** updatescore와 동일한 pg_advisory_xact_lock 패턴. fn 내부는 전부 tx로 수행한다. */
 export async function withNamedLock<T>(name: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
-  const lockKey = createHash("sha1").update(name).digest("hex");
   return prisma.$transaction(
     async (tx) => {
-      const lockResult = await tx.$queryRaw<Array<{ locked: number | null }>>`
-        SELECT GET_LOCK(${lockKey}, 5) AS locked
-      `;
-      if (toLockStatus(lockResult[0]?.locked) !== 1) {
-        throw new Error("territory lock acquire failed");
-      }
-      try {
-        return await fn(tx as Tx);
-      } finally {
-        await tx.$queryRaw`SELECT RELEASE_LOCK(${lockKey})`;
-      }
+      await acquirePgLock(tx, name);
+      return fn(tx as Tx);
     },
     { maxWait: 10000, timeout: 20000 },
   );
@@ -197,9 +181,9 @@ export async function spendInfluence(
     return true;
   }
   const affected = await (db as typeof prisma).$executeRaw`
-    UPDATE MissionUser
+    UPDATE "MissionUser"
     SET score = COALESCE(score, 0) - ${cost}
-    WHERE userId = ${userId} AND COALESCE(score, 0) >= ${cost}
+    WHERE "userId" = ${userId} AND COALESCE(score, 0) >= ${cost}
   `;
   return Number(affected) === 1;
 }
@@ -215,9 +199,9 @@ export async function grantInfluence(
     return;
   }
   await (db as typeof prisma).$executeRaw`
-    UPDATE MissionUser
+    UPDATE "MissionUser"
     SET score = LEAST(${INFLUENCE_CAP}, COALESCE(score, 0) + ${gain})
-    WHERE userId = ${userId}
+    WHERE "userId" = ${userId}
   `;
 }
 
@@ -232,9 +216,9 @@ export async function loseInfluence(
     return;
   }
   await (db as typeof prisma).$executeRaw`
-    UPDATE MissionUser
+    UPDATE "MissionUser"
     SET score = GREATEST(0, COALESCE(score, 0) - ${loss})
-    WHERE userId = ${userId}
+    WHERE "userId" = ${userId}
   `;
 }
 
@@ -277,18 +261,18 @@ export async function getUserStats(
   const client = db as typeof prisma;
   const [aggRows, duelRows] = await Promise.all([
     client.$queryRaw<Array<{ visits: bigint | number | null; contribution: bigint | number | null; lastActive: Date | null }>>`
-      SELECT COUNT(DISTINCT CASE WHEN COALESCE(s.score, 0) >= 1 THEN TRIM(s.EventKey) END) AS visits,
-             COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS contribution,
-             MAX(s.scoredate) AS lastActive
-      FROM ARMissionUserScore s
-      WHERE s.UserId = ${userId}
-        AND TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+      SELECT COUNT(DISTINCT CASE WHEN COALESCE(s.score, 0) >= 1 THEN TRIM(s."EventKey") END) AS "visits",
+             COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS "contribution",
+             MAX(s.scoredate) AS "lastActive"
+      FROM "ARMissionUserScore" s
+      WHERE s."UserId" = ${userId}
+        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
     `,
     client.$queryRaw<Array<{ wins: bigint | number | null }>>`
-      SELECT COUNT(*) AS wins
-      FROM ARMissionUserScore s
-      WHERE s.UserId = ${userId}
-        AND TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+      SELECT COUNT(*) AS "wins"
+      FROM "ARMissionUserScore" s
+      WHERE s."UserId" = ${userId}
+        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
         AND s.answer LIKE ${"duel:win:%"}
     `,
   ]);
@@ -386,10 +370,10 @@ async function isTopContributor(
   missionKey: string,
 ): Promise<boolean> {
   const rows = await db.$queryRaw<Array<{ userId: string | null; c: bigint | number | null }>>`
-    SELECT s.UserId AS userId, COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS c
-    FROM ARMissionUserScore s
-    WHERE TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
-    GROUP BY s.UserId
+    SELECT s."UserId" AS "userId", COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS c
+    FROM "ARMissionUserScore" s
+    WHERE TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
+    GROUP BY s."UserId"
   `;
   const mine = rows.find((r) => r.userId === userId);
   const myScore = Number(mine?.c ?? 0);
@@ -926,12 +910,12 @@ export async function readBestScores(
   const rows = await (db as typeof prisma).$queryRaw<
     Array<{ ek: string | null; m: bigint | number | null }>
   >`
-    SELECT TRIM(s.EventKey) AS ek, MAX(s.score) AS m
-    FROM ARMissionUserScore s
-    WHERE s.UserId = ${userId}
-      AND TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+    SELECT TRIM(s."EventKey") AS ek, MAX(s.score) AS m
+    FROM "ARMissionUserScore" s
+    WHERE s."UserId" = ${userId}
+      AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
       AND s.scoredate >= ${since}
-      AND TRIM(COALESCE(s.EventKey, '')) NOT LIKE 'castle-%'
+      AND TRIM(COALESCE(s."EventKey", '')) NOT LIKE 'castle-%'
       AND s.answer IS NULL
     GROUP BY ek
   `;

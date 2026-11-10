@@ -11,7 +11,7 @@ type NearbyPlayerResponse = {
   lat: number;
   lon: number;
   updatedAt: string;
-  selectedCharacter: "pyramid" | "walking" | "fallenAngel";
+  selectedCharacter: "walking" | "fallenAngel";
 };
 
 const toNumber = (value: unknown): number | null => {
@@ -82,20 +82,20 @@ export async function GET(request: Request) {
   }
 
   const rows = (await prisma.$queryRaw`
-    SELECT userId,
+    SELECT "userId",
            nickname,
            lat,
            lon,
-           location_updated_at as updatedAt,
+           location_updated_at AS "updatedAt",
            data
-    FROM MissionUser
-    WHERE userId <> ${userId}
-      AND ARMissionKey = ${missionKey}
+    FROM "MissionUser"
+    WHERE "userId" <> ${userId}
+      AND "ARMissionKey" = ${missionKey}
       AND location_updated_at >= ${sinceTime}
       AND lat IS NOT NULL
       AND lon IS NOT NULL
-      AND lat BETWEEN ${south.toFixed(6)} AND ${north.toFixed(6)}
-      AND lon BETWEEN ${west.toFixed(6)} AND ${east.toFixed(6)}
+      AND lat BETWEEN ${south} AND ${north}
+      AND lon BETWEEN ${west} AND ${east}
     ORDER BY location_updated_at DESC
     LIMIT ${limit}
   `) as {

@@ -16,7 +16,11 @@ export default $config({
     async run() {
         const site = new sst.aws.Nextjs("Web", {
         path: ".",
-        domain: "armission.xrart.kr",
+        domain: {
+          name: "tribes.oceanwalk.kr",
+          dns: false,
+          cert: "arn:aws:acm:us-east-1:022520097536:certificate/489b1fdb-6a39-404e-9148-1c9fb3004e9a",
+        },
 
         server: {
             architecture: "x86_64",

@@ -36,10 +36,6 @@ import {
   type Tx,
 } from "@/lib/territory";
 
-const S3_STORAGE_BASE =
-  process.env.NEXT_PUBLIC_XRART_S3_STORAGE ||
-  "https://armissionchallenge.s3.ap-northeast-2.amazonaws.com";
-
 const parseNumber = (value: unknown): number | null => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -195,19 +191,14 @@ export async function POST(request: Request) {
   }
 
   // 이벤트 선택(poolId 우선, 없으면 직접 URL 폴백).
-  // pool:<id> = 풀 테이블 행, s3:<key> = S3 Quiz/ 문제풀 직접 지정.
+  // pool:<id> = 풀 테이블 행. (S3 직접 지정 제거됨)
   // QuizType 풀은 문제풀 CSV 검증, URLType 풀은 웹이벤트(URL) 그대로 사용한다.
   let resolvedPoolUrl = poolUrl;
   let castleEventType = "quiztype";
   if (poolId !== null) {
     if (poolId.startsWith("s3:")) {
-      const s3Key = poolId.slice(3);
-      if (!/^Quiz\/[^/]+\.csv$/i.test(s3Key)) {
-        return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
-      }
-      castleEventType = "quiztype";
-      resolvedPoolUrl = `${S3_STORAGE_BASE}/${s3Key}`;
-    } else {
+      return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
+    } {
       const tableId = poolId.startsWith("pool:")
         ? Number(poolId.slice(5))
         : Number(poolId);

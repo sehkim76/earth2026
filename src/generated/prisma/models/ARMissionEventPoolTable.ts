@@ -214,7 +214,6 @@ export type ARMissionEventPoolTableOrderByWithRelationInput = {
   EventType?: Prisma.SortOrder
   EventURI?: Prisma.SortOrder
   description?: Prisma.SortOrder
-  _relevance?: Prisma.ARMissionEventPoolTableOrderByRelevanceInput
 }
 
 export type ARMissionEventPoolTableWhereUniqueInput = Prisma.AtLeast<{
@@ -295,12 +294,6 @@ export type ARMissionEventPoolTableUncheckedUpdateManyInput = {
   description?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type ARMissionEventPoolTableOrderByRelevanceInput = {
-  fields: Prisma.ARMissionEventPoolTableOrderByRelevanceFieldEnum | Prisma.ARMissionEventPoolTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ARMissionEventPoolTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   EventType?: Prisma.SortOrder
@@ -339,7 +332,19 @@ export type ARMissionEventPoolTableSelect<ExtArgs extends runtime.Types.Extensio
   description?: boolean
 }, ExtArgs["result"]["aRMissionEventPoolTable"]>
 
+export type ARMissionEventPoolTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  EventType?: boolean
+  EventURI?: boolean
+  description?: boolean
+}, ExtArgs["result"]["aRMissionEventPoolTable"]>
 
+export type ARMissionEventPoolTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  EventType?: boolean
+  EventURI?: boolean
+  description?: boolean
+}, ExtArgs["result"]["aRMissionEventPoolTable"]>
 
 export type ARMissionEventPoolTableSelectScalar = {
   id?: boolean
@@ -476,6 +481,30 @@ export interface ARMissionEventPoolTableDelegate<ExtArgs extends runtime.Types.E
   createMany<T extends ARMissionEventPoolTableCreateManyArgs>(args?: Prisma.SelectSubset<T, ARMissionEventPoolTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ARMissionEventPoolTables and returns the data saved in the database.
+   * @param {ARMissionEventPoolTableCreateManyAndReturnArgs} args - Arguments to create many ARMissionEventPoolTables.
+   * @example
+   * // Create many ARMissionEventPoolTables
+   * const aRMissionEventPoolTable = await prisma.aRMissionEventPoolTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ARMissionEventPoolTables and only return the `id`
+   * const aRMissionEventPoolTableWithIdOnly = await prisma.aRMissionEventPoolTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ARMissionEventPoolTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ARMissionEventPoolTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionEventPoolTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ARMissionEventPoolTable.
    * @param {ARMissionEventPoolTableDeleteArgs} args - Arguments to delete one ARMissionEventPoolTable.
    * @example
@@ -538,6 +567,36 @@ export interface ARMissionEventPoolTableDelegate<ExtArgs extends runtime.Types.E
    * 
    */
   updateMany<T extends ARMissionEventPoolTableUpdateManyArgs>(args: Prisma.SelectSubset<T, ARMissionEventPoolTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ARMissionEventPoolTables and returns the data updated in the database.
+   * @param {ARMissionEventPoolTableUpdateManyAndReturnArgs} args - Arguments to update many ARMissionEventPoolTables.
+   * @example
+   * // Update many ARMissionEventPoolTables
+   * const aRMissionEventPoolTable = await prisma.aRMissionEventPoolTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ARMissionEventPoolTables and only return the `id`
+   * const aRMissionEventPoolTableWithIdOnly = await prisma.aRMissionEventPoolTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ARMissionEventPoolTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ARMissionEventPoolTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionEventPoolTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ARMissionEventPoolTable.
@@ -940,6 +999,25 @@ export type ARMissionEventPoolTableCreateManyArgs<ExtArgs extends runtime.Types.
 }
 
 /**
+ * ARMissionEventPoolTable createManyAndReturn
+ */
+export type ARMissionEventPoolTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionEventPoolTable
+   */
+  select?: Prisma.ARMissionEventPoolTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionEventPoolTable
+   */
+  omit?: Prisma.ARMissionEventPoolTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many ARMissionEventPoolTables.
+   */
+  data: Prisma.ARMissionEventPoolTableCreateManyInput | Prisma.ARMissionEventPoolTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ARMissionEventPoolTable update
  */
 export type ARMissionEventPoolTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -965,6 +1043,32 @@ export type ARMissionEventPoolTableUpdateArgs<ExtArgs extends runtime.Types.Exte
  * ARMissionEventPoolTable updateMany
  */
 export type ARMissionEventPoolTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ARMissionEventPoolTables.
+   */
+  data: Prisma.XOR<Prisma.ARMissionEventPoolTableUpdateManyMutationInput, Prisma.ARMissionEventPoolTableUncheckedUpdateManyInput>
+  /**
+   * Filter which ARMissionEventPoolTables to update
+   */
+  where?: Prisma.ARMissionEventPoolTableWhereInput
+  /**
+   * Limit how many ARMissionEventPoolTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * ARMissionEventPoolTable updateManyAndReturn
+ */
+export type ARMissionEventPoolTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionEventPoolTable
+   */
+  select?: Prisma.ARMissionEventPoolTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionEventPoolTable
+   */
+  omit?: Prisma.ARMissionEventPoolTableOmit<ExtArgs> | null
   /**
    * The data used to update ARMissionEventPoolTables.
    */

@@ -5,8 +5,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model ARMissionEvent {
@@ -24,7 +25,7 @@ model ARMissionEvent {
   string_param5 String  @db.VarChar(255)
   string_param6 String  @db.VarChar(255)
 
-  @@index([ARMissionKey], map: "ARMissionKey")
+  @@index([ARMissionKey], map: "idx_armevent_armissionkey")
 }
 
 model ARMissionEventPoolTable {
@@ -44,7 +45,7 @@ model ARMissionGPS {
   MinimapMarkerPrefab String? @db.VarChar(255)
   id                  Int     @id @default(autoincrement())
 
-  @@index([ARMissionKey], map: "ARMissionKey")
+  @@index([ARMissionKey], map: "idx_armgps_armissionkey")
 }
 
 model ARMissionUserScore {
@@ -52,7 +53,7 @@ model ARMissionUserScore {
   EventKey     String?   @db.VarChar(255)
   EventSubKey  String?   @db.VarChar(255)
   answer       String?   @db.VarChar(255)
-  scoredate    DateTime? @db.DateTime(0)
+  scoredate    DateTime? @db.Timestamp(0)
   UserId       String?   @db.VarChar(255)
   ARMissionKey String?   @db.VarChar(255)
   ScoreId      Int       @id @default(autoincrement())
@@ -112,7 +113,7 @@ model MissionResources {
   type            String? @db.VarChar(255)
   id              Int     @id @default(autoincrement())
 
-  @@index([ARMissionKey], map: "ARMissionKey")
+  @@index([ARMissionKey], map: "idx_missionres_armissionkey")
 }
 
 model MissionScenario {
@@ -129,7 +130,7 @@ model MissionStatus {
   MissionUser     MissionUser?     @relation(fields: [UserId], references: [userId], onDelete: NoAction, map: "MissionStatus_ibfk_1")
   MissionScenario MissionScenario? @relation(fields: [progressId], references: [progressId], onDelete: NoAction, onUpdate: NoAction, map: "MissionStatus_ibfk_3")
 
-  @@index([ARMissionKey], map: "ARMissionKey")
+  @@index([ARMissionKey], map: "idx_missionstatus_armissionkey")
   @@index([UserId], map: "UserId")
   @@index([progressId], map: "progressId")
 }
@@ -137,8 +138,8 @@ model MissionStatus {
 model MissionTable {
   ARMissionKey         String    @db.VarChar(255)
   ARMissionName        String?   @db.VarChar(255)
-  StartDate            DateTime? @db.DateTime(0)
-  EndDate              DateTime? @db.DateTime(0)
+  StartDate            DateTime? @db.Timestamp(0)
+  EndDate              DateTime? @db.Timestamp(0)
   LeftTopGPS           String?   @db.VarChar(255)
   RightBottomGPS       String?   @db.VarChar(255)
   StartMethod          Int?
@@ -146,8 +147,8 @@ model MissionTable {
   RightBottomGPS_Start String?   @db.VarChar(255)
   teamplay             Boolean?
   openscore            Int?
-  QuizRevisitEnabled   Int?      @db.TinyInt
-  PrefabRevisitEnabled Int?      @db.TinyInt
+  QuizRevisitEnabled   Int?      @db.SmallInt
+  PrefabRevisitEnabled Int?      @db.SmallInt
   hasEdBox             Boolean?  @default(false)
   hasQR                Boolean?  @default(false)
   hasCMS               Int?      @default(0)
@@ -171,13 +172,13 @@ model MissionUser {
   nickname            String          @db.VarChar(255)
   code                String?         @db.VarChar(255)
   email               String          @db.VarChar(255)
-  createdate          DateTime?       @db.DateTime(0)
+  createdate          DateTime?       @db.Timestamp(0)
   score               Int?
   ARMissionKey        String?         @db.VarChar(255)
   MainSceneName       String?         @db.VarChar(255)
   device_id           String?         @db.VarChar(255)
   Features            String?         @db.VarChar(255)
-  access_time         DateTime?       @db.DateTime(0)
+  access_time         DateTime?       @db.Timestamp(0)
   location            String?         @db.VarChar(255)
   edboxModel          String?         @db.VarChar(255)
   isCMSAdmin          Int?            @default(0)
@@ -186,7 +187,7 @@ model MissionUser {
   data                Json?
   lat                 Decimal?        @db.Decimal(9, 6)
   lon                 Decimal?        @db.Decimal(9, 6)
-  location_updated_at DateTime?       @db.DateTime(0)
+  location_updated_at DateTime?       @db.Timestamp(0)
   location_cell       String?         @db.VarChar(16)
   MissionStatus       MissionStatus[]
 
@@ -199,7 +200,7 @@ model NoticeTable {
   id            Int       @id @default(autoincrement())
   ARMissionKey  String    @db.VarChar(255)
   Notice        String    @db.VarChar(1255)
-  NoticeEndDate DateTime? @default(now()) @db.DateTime(0)
+  NoticeEndDate DateTime? @default(now()) @db.Timestamp(0)
 }
 
 model PrefabInstanceTable {
@@ -207,7 +208,7 @@ model PrefabInstanceTable {
   PrefabEventId String?   @db.VarChar(255)
   userId        String?   @db.VarChar(255)
   InstanceId    String?   @db.VarChar(255)
-  LastOpTime    DateTime? @db.DateTime(0)
+  LastOpTime    DateTime? @db.Timestamp(0)
   string_param1 String?   @db.VarChar(255)
   string_param2 String?   @db.VarChar(255)
   string_param3 String?   @db.VarChar(255)
@@ -223,7 +224,7 @@ model ProfileTable {
   ProfileThumbnail   String @db.VarChar(255)
   SubscribingService String @db.VarChar(255)
   ProfileData        String @db.VarChar(1255)
-  PriceDiscount      Float? @default(1) @db.Float
+  PriceDiscount      Float? @default(1) @db.DoublePrecision
 }
 
 model SubscriberTable {
@@ -231,7 +232,7 @@ model SubscriberTable {
   Title               String    @db.VarChar(255)
   SubscriberThumbnail String    @db.VarChar(255)
   SubscribingServices String    @db.VarChar(1255)
-  SubscribingEndDate  DateTime? @default(now()) @db.DateTime(0)
+  SubscribingEndDate  DateTime? @default(now()) @db.Timestamp(0)
   SubscriberCode      String    @db.VarChar(255)
 }
 

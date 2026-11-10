@@ -214,7 +214,6 @@ export type CMSCategoryNameTableOrderByWithRelationInput = {
   Category?: Prisma.SortOrder
   Name?: Prisma.SortOrder
   DeepLink?: Prisma.SortOrder
-  _relevance?: Prisma.CMSCategoryNameTableOrderByRelevanceInput
 }
 
 export type CMSCategoryNameTableWhereUniqueInput = Prisma.AtLeast<{
@@ -295,12 +294,6 @@ export type CMSCategoryNameTableUncheckedUpdateManyInput = {
   DeepLink?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type CMSCategoryNameTableOrderByRelevanceInput = {
-  fields: Prisma.CMSCategoryNameTableOrderByRelevanceFieldEnum | Prisma.CMSCategoryNameTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type CMSCategoryNameTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   Category?: Prisma.SortOrder
@@ -339,7 +332,19 @@ export type CMSCategoryNameTableSelect<ExtArgs extends runtime.Types.Extensions.
   DeepLink?: boolean
 }, ExtArgs["result"]["cMSCategoryNameTable"]>
 
+export type CMSCategoryNameTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Category?: boolean
+  Name?: boolean
+  DeepLink?: boolean
+}, ExtArgs["result"]["cMSCategoryNameTable"]>
 
+export type CMSCategoryNameTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Category?: boolean
+  Name?: boolean
+  DeepLink?: boolean
+}, ExtArgs["result"]["cMSCategoryNameTable"]>
 
 export type CMSCategoryNameTableSelectScalar = {
   id?: boolean
@@ -476,6 +481,30 @@ export interface CMSCategoryNameTableDelegate<ExtArgs extends runtime.Types.Exte
   createMany<T extends CMSCategoryNameTableCreateManyArgs>(args?: Prisma.SelectSubset<T, CMSCategoryNameTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many CMSCategoryNameTables and returns the data saved in the database.
+   * @param {CMSCategoryNameTableCreateManyAndReturnArgs} args - Arguments to create many CMSCategoryNameTables.
+   * @example
+   * // Create many CMSCategoryNameTables
+   * const cMSCategoryNameTable = await prisma.cMSCategoryNameTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many CMSCategoryNameTables and only return the `id`
+   * const cMSCategoryNameTableWithIdOnly = await prisma.cMSCategoryNameTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends CMSCategoryNameTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, CMSCategoryNameTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CMSCategoryNameTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a CMSCategoryNameTable.
    * @param {CMSCategoryNameTableDeleteArgs} args - Arguments to delete one CMSCategoryNameTable.
    * @example
@@ -538,6 +567,36 @@ export interface CMSCategoryNameTableDelegate<ExtArgs extends runtime.Types.Exte
    * 
    */
   updateMany<T extends CMSCategoryNameTableUpdateManyArgs>(args: Prisma.SelectSubset<T, CMSCategoryNameTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more CMSCategoryNameTables and returns the data updated in the database.
+   * @param {CMSCategoryNameTableUpdateManyAndReturnArgs} args - Arguments to update many CMSCategoryNameTables.
+   * @example
+   * // Update many CMSCategoryNameTables
+   * const cMSCategoryNameTable = await prisma.cMSCategoryNameTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more CMSCategoryNameTables and only return the `id`
+   * const cMSCategoryNameTableWithIdOnly = await prisma.cMSCategoryNameTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends CMSCategoryNameTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, CMSCategoryNameTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CMSCategoryNameTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one CMSCategoryNameTable.
@@ -940,6 +999,25 @@ export type CMSCategoryNameTableCreateManyArgs<ExtArgs extends runtime.Types.Ext
 }
 
 /**
+ * CMSCategoryNameTable createManyAndReturn
+ */
+export type CMSCategoryNameTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the CMSCategoryNameTable
+   */
+  select?: Prisma.CMSCategoryNameTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the CMSCategoryNameTable
+   */
+  omit?: Prisma.CMSCategoryNameTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many CMSCategoryNameTables.
+   */
+  data: Prisma.CMSCategoryNameTableCreateManyInput | Prisma.CMSCategoryNameTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * CMSCategoryNameTable update
  */
 export type CMSCategoryNameTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -965,6 +1043,32 @@ export type CMSCategoryNameTableUpdateArgs<ExtArgs extends runtime.Types.Extensi
  * CMSCategoryNameTable updateMany
  */
 export type CMSCategoryNameTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update CMSCategoryNameTables.
+   */
+  data: Prisma.XOR<Prisma.CMSCategoryNameTableUpdateManyMutationInput, Prisma.CMSCategoryNameTableUncheckedUpdateManyInput>
+  /**
+   * Filter which CMSCategoryNameTables to update
+   */
+  where?: Prisma.CMSCategoryNameTableWhereInput
+  /**
+   * Limit how many CMSCategoryNameTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * CMSCategoryNameTable updateManyAndReturn
+ */
+export type CMSCategoryNameTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the CMSCategoryNameTable
+   */
+  select?: Prisma.CMSCategoryNameTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the CMSCategoryNameTable
+   */
+  omit?: Prisma.CMSCategoryNameTableOmit<ExtArgs> | null
   /**
    * The data used to update CMSCategoryNameTables.
    */

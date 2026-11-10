@@ -232,7 +232,6 @@ export type MissionTeamOrderByWithRelationInput = {
   classId?: Prisma.SortOrderInput | Prisma.SortOrder
   Features?: Prisma.SortOrderInput | Prisma.SortOrder
   id?: Prisma.SortOrder
-  _relevance?: Prisma.MissionTeamOrderByRelevanceInput
 }
 
 export type MissionTeamWhereUniqueInput = Prisma.AtLeast<{
@@ -333,12 +332,6 @@ export type MissionTeamUncheckedUpdateManyInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
-export type MissionTeamOrderByRelevanceInput = {
-  fields: Prisma.MissionTeamOrderByRelevanceFieldEnum | Prisma.MissionTeamOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type MissionTeamCountOrderByAggregateInput = {
   ARMissionKey?: Prisma.SortOrder
   userId?: Prisma.SortOrder
@@ -385,7 +378,23 @@ export type MissionTeamSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   id?: boolean
 }, ExtArgs["result"]["missionTeam"]>
 
+export type MissionTeamSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  userId?: boolean
+  teamId?: boolean
+  classId?: boolean
+  Features?: boolean
+  id?: boolean
+}, ExtArgs["result"]["missionTeam"]>
 
+export type MissionTeamSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  userId?: boolean
+  teamId?: boolean
+  classId?: boolean
+  Features?: boolean
+  id?: boolean
+}, ExtArgs["result"]["missionTeam"]>
 
 export type MissionTeamSelectScalar = {
   ARMissionKey?: boolean
@@ -526,6 +535,30 @@ export interface MissionTeamDelegate<ExtArgs extends runtime.Types.Extensions.In
   createMany<T extends MissionTeamCreateManyArgs>(args?: Prisma.SelectSubset<T, MissionTeamCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many MissionTeams and returns the data saved in the database.
+   * @param {MissionTeamCreateManyAndReturnArgs} args - Arguments to create many MissionTeams.
+   * @example
+   * // Create many MissionTeams
+   * const missionTeam = await prisma.missionTeam.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many MissionTeams and only return the `ARMissionKey`
+   * const missionTeamWithARMissionKeyOnly = await prisma.missionTeam.createManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends MissionTeamCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, MissionTeamCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionTeamPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a MissionTeam.
    * @param {MissionTeamDeleteArgs} args - Arguments to delete one MissionTeam.
    * @example
@@ -588,6 +621,36 @@ export interface MissionTeamDelegate<ExtArgs extends runtime.Types.Extensions.In
    * 
    */
   updateMany<T extends MissionTeamUpdateManyArgs>(args: Prisma.SelectSubset<T, MissionTeamUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more MissionTeams and returns the data updated in the database.
+   * @param {MissionTeamUpdateManyAndReturnArgs} args - Arguments to update many MissionTeams.
+   * @example
+   * // Update many MissionTeams
+   * const missionTeam = await prisma.missionTeam.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more MissionTeams and only return the `ARMissionKey`
+   * const missionTeamWithARMissionKeyOnly = await prisma.missionTeam.updateManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends MissionTeamUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, MissionTeamUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionTeamPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one MissionTeam.
@@ -992,6 +1055,25 @@ export type MissionTeamCreateManyArgs<ExtArgs extends runtime.Types.Extensions.I
 }
 
 /**
+ * MissionTeam createManyAndReturn
+ */
+export type MissionTeamCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionTeam
+   */
+  select?: Prisma.MissionTeamSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionTeam
+   */
+  omit?: Prisma.MissionTeamOmit<ExtArgs> | null
+  /**
+   * The data used to create many MissionTeams.
+   */
+  data: Prisma.MissionTeamCreateManyInput | Prisma.MissionTeamCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * MissionTeam update
  */
 export type MissionTeamUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1017,6 +1099,32 @@ export type MissionTeamUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inter
  * MissionTeam updateMany
  */
 export type MissionTeamUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update MissionTeams.
+   */
+  data: Prisma.XOR<Prisma.MissionTeamUpdateManyMutationInput, Prisma.MissionTeamUncheckedUpdateManyInput>
+  /**
+   * Filter which MissionTeams to update
+   */
+  where?: Prisma.MissionTeamWhereInput
+  /**
+   * Limit how many MissionTeams to update.
+   */
+  limit?: number
+}
+
+/**
+ * MissionTeam updateManyAndReturn
+ */
+export type MissionTeamUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionTeam
+   */
+  select?: Prisma.MissionTeamSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionTeam
+   */
+  omit?: Prisma.MissionTeamOmit<ExtArgs> | null
   /**
    * The data used to update MissionTeams.
    */

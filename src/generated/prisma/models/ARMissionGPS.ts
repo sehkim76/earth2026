@@ -250,7 +250,6 @@ export type ARMissionGPSOrderByWithRelationInput = {
   SpotVisitedPrefab?: Prisma.SortOrderInput | Prisma.SortOrder
   MinimapMarkerPrefab?: Prisma.SortOrderInput | Prisma.SortOrder
   id?: Prisma.SortOrder
-  _relevance?: Prisma.ARMissionGPSOrderByRelevanceInput
 }
 
 export type ARMissionGPSWhereUniqueInput = Prisma.AtLeast<{
@@ -371,12 +370,6 @@ export type ARMissionGPSUncheckedUpdateManyInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
-export type ARMissionGPSOrderByRelevanceInput = {
-  fields: Prisma.ARMissionGPSOrderByRelevanceFieldEnum | Prisma.ARMissionGPSOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ARMissionGPSCountOrderByAggregateInput = {
   location?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -431,7 +424,27 @@ export type ARMissionGPSSelect<ExtArgs extends runtime.Types.Extensions.Internal
   id?: boolean
 }, ExtArgs["result"]["aRMissionGPS"]>
 
+export type ARMissionGPSSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  location?: boolean
+  ARMissionKey?: boolean
+  EventKey?: boolean
+  locationname?: boolean
+  SpotPrefab?: boolean
+  SpotVisitedPrefab?: boolean
+  MinimapMarkerPrefab?: boolean
+  id?: boolean
+}, ExtArgs["result"]["aRMissionGPS"]>
 
+export type ARMissionGPSSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  location?: boolean
+  ARMissionKey?: boolean
+  EventKey?: boolean
+  locationname?: boolean
+  SpotPrefab?: boolean
+  SpotVisitedPrefab?: boolean
+  MinimapMarkerPrefab?: boolean
+  id?: boolean
+}, ExtArgs["result"]["aRMissionGPS"]>
 
 export type ARMissionGPSSelectScalar = {
   location?: boolean
@@ -576,6 +589,30 @@ export interface ARMissionGPSDelegate<ExtArgs extends runtime.Types.Extensions.I
   createMany<T extends ARMissionGPSCreateManyArgs>(args?: Prisma.SelectSubset<T, ARMissionGPSCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ARMissionGPS and returns the data saved in the database.
+   * @param {ARMissionGPSCreateManyAndReturnArgs} args - Arguments to create many ARMissionGPS.
+   * @example
+   * // Create many ARMissionGPS
+   * const aRMissionGPS = await prisma.aRMissionGPS.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ARMissionGPS and only return the `location`
+   * const aRMissionGPSWithLocationOnly = await prisma.aRMissionGPS.createManyAndReturn({
+   *   select: { location: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ARMissionGPSCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ARMissionGPSCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionGPSPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ARMissionGPS.
    * @param {ARMissionGPSDeleteArgs} args - Arguments to delete one ARMissionGPS.
    * @example
@@ -638,6 +675,36 @@ export interface ARMissionGPSDelegate<ExtArgs extends runtime.Types.Extensions.I
    * 
    */
   updateMany<T extends ARMissionGPSUpdateManyArgs>(args: Prisma.SelectSubset<T, ARMissionGPSUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ARMissionGPS and returns the data updated in the database.
+   * @param {ARMissionGPSUpdateManyAndReturnArgs} args - Arguments to update many ARMissionGPS.
+   * @example
+   * // Update many ARMissionGPS
+   * const aRMissionGPS = await prisma.aRMissionGPS.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ARMissionGPS and only return the `location`
+   * const aRMissionGPSWithLocationOnly = await prisma.aRMissionGPS.updateManyAndReturn({
+   *   select: { location: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ARMissionGPSUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ARMissionGPSUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionGPSPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ARMissionGPS.
@@ -1044,6 +1111,25 @@ export type ARMissionGPSCreateManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
+ * ARMissionGPS createManyAndReturn
+ */
+export type ARMissionGPSCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionGPS
+   */
+  select?: Prisma.ARMissionGPSSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionGPS
+   */
+  omit?: Prisma.ARMissionGPSOmit<ExtArgs> | null
+  /**
+   * The data used to create many ARMissionGPS.
+   */
+  data: Prisma.ARMissionGPSCreateManyInput | Prisma.ARMissionGPSCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ARMissionGPS update
  */
 export type ARMissionGPSUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1069,6 +1155,32 @@ export type ARMissionGPSUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inte
  * ARMissionGPS updateMany
  */
 export type ARMissionGPSUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ARMissionGPS.
+   */
+  data: Prisma.XOR<Prisma.ARMissionGPSUpdateManyMutationInput, Prisma.ARMissionGPSUncheckedUpdateManyInput>
+  /**
+   * Filter which ARMissionGPS to update
+   */
+  where?: Prisma.ARMissionGPSWhereInput
+  /**
+   * Limit how many ARMissionGPS to update.
+   */
+  limit?: number
+}
+
+/**
+ * ARMissionGPS updateManyAndReturn
+ */
+export type ARMissionGPSUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionGPS
+   */
+  select?: Prisma.ARMissionGPSSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionGPS
+   */
+  omit?: Prisma.ARMissionGPSOmit<ExtArgs> | null
   /**
    * The data used to update ARMissionGPS.
    */

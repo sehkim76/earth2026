@@ -267,7 +267,6 @@ export type ARMissionUserScoreOrderByWithRelationInput = {
   ARMissionKey?: Prisma.SortOrderInput | Prisma.SortOrder
   ScoreId?: Prisma.SortOrder
   islastscore?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.ARMissionUserScoreOrderByRelevanceInput
 }
 
 export type ARMissionUserScoreWhereUniqueInput = Prisma.AtLeast<{
@@ -398,12 +397,6 @@ export type ARMissionUserScoreUncheckedUpdateManyInput = {
   islastscore?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
 }
 
-export type ARMissionUserScoreOrderByRelevanceInput = {
-  fields: Prisma.ARMissionUserScoreOrderByRelevanceFieldEnum | Prisma.ARMissionUserScoreOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ARMissionUserScoreCountOrderByAggregateInput = {
   score?: Prisma.SortOrder
   EventKey?: Prisma.SortOrder
@@ -470,7 +463,29 @@ export type ARMissionUserScoreSelect<ExtArgs extends runtime.Types.Extensions.In
   islastscore?: boolean
 }, ExtArgs["result"]["aRMissionUserScore"]>
 
+export type ARMissionUserScoreSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  score?: boolean
+  EventKey?: boolean
+  EventSubKey?: boolean
+  answer?: boolean
+  scoredate?: boolean
+  UserId?: boolean
+  ARMissionKey?: boolean
+  ScoreId?: boolean
+  islastscore?: boolean
+}, ExtArgs["result"]["aRMissionUserScore"]>
 
+export type ARMissionUserScoreSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  score?: boolean
+  EventKey?: boolean
+  EventSubKey?: boolean
+  answer?: boolean
+  scoredate?: boolean
+  UserId?: boolean
+  ARMissionKey?: boolean
+  ScoreId?: boolean
+  islastscore?: boolean
+}, ExtArgs["result"]["aRMissionUserScore"]>
 
 export type ARMissionUserScoreSelectScalar = {
   score?: boolean
@@ -617,6 +632,30 @@ export interface ARMissionUserScoreDelegate<ExtArgs extends runtime.Types.Extens
   createMany<T extends ARMissionUserScoreCreateManyArgs>(args?: Prisma.SelectSubset<T, ARMissionUserScoreCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ARMissionUserScores and returns the data saved in the database.
+   * @param {ARMissionUserScoreCreateManyAndReturnArgs} args - Arguments to create many ARMissionUserScores.
+   * @example
+   * // Create many ARMissionUserScores
+   * const aRMissionUserScore = await prisma.aRMissionUserScore.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ARMissionUserScores and only return the `score`
+   * const aRMissionUserScoreWithScoreOnly = await prisma.aRMissionUserScore.createManyAndReturn({
+   *   select: { score: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ARMissionUserScoreCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ARMissionUserScoreCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionUserScorePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ARMissionUserScore.
    * @param {ARMissionUserScoreDeleteArgs} args - Arguments to delete one ARMissionUserScore.
    * @example
@@ -679,6 +718,36 @@ export interface ARMissionUserScoreDelegate<ExtArgs extends runtime.Types.Extens
    * 
    */
   updateMany<T extends ARMissionUserScoreUpdateManyArgs>(args: Prisma.SelectSubset<T, ARMissionUserScoreUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ARMissionUserScores and returns the data updated in the database.
+   * @param {ARMissionUserScoreUpdateManyAndReturnArgs} args - Arguments to update many ARMissionUserScores.
+   * @example
+   * // Update many ARMissionUserScores
+   * const aRMissionUserScore = await prisma.aRMissionUserScore.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ARMissionUserScores and only return the `score`
+   * const aRMissionUserScoreWithScoreOnly = await prisma.aRMissionUserScore.updateManyAndReturn({
+   *   select: { score: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ARMissionUserScoreUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ARMissionUserScoreUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ARMissionUserScorePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ARMissionUserScore.
@@ -1086,6 +1155,25 @@ export type ARMissionUserScoreCreateManyArgs<ExtArgs extends runtime.Types.Exten
 }
 
 /**
+ * ARMissionUserScore createManyAndReturn
+ */
+export type ARMissionUserScoreCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionUserScore
+   */
+  select?: Prisma.ARMissionUserScoreSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionUserScore
+   */
+  omit?: Prisma.ARMissionUserScoreOmit<ExtArgs> | null
+  /**
+   * The data used to create many ARMissionUserScores.
+   */
+  data: Prisma.ARMissionUserScoreCreateManyInput | Prisma.ARMissionUserScoreCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ARMissionUserScore update
  */
 export type ARMissionUserScoreUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1111,6 +1199,32 @@ export type ARMissionUserScoreUpdateArgs<ExtArgs extends runtime.Types.Extension
  * ARMissionUserScore updateMany
  */
 export type ARMissionUserScoreUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ARMissionUserScores.
+   */
+  data: Prisma.XOR<Prisma.ARMissionUserScoreUpdateManyMutationInput, Prisma.ARMissionUserScoreUncheckedUpdateManyInput>
+  /**
+   * Filter which ARMissionUserScores to update
+   */
+  where?: Prisma.ARMissionUserScoreWhereInput
+  /**
+   * Limit how many ARMissionUserScores to update.
+   */
+  limit?: number
+}
+
+/**
+ * ARMissionUserScore updateManyAndReturn
+ */
+export type ARMissionUserScoreUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ARMissionUserScore
+   */
+  select?: Prisma.ARMissionUserScoreSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ARMissionUserScore
+   */
+  omit?: Prisma.ARMissionUserScoreOmit<ExtArgs> | null
   /**
    * The data used to update ARMissionUserScores.
    */

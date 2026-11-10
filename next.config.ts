@@ -17,8 +17,7 @@ const nextConfig: NextConfig = {
     images: {
         remotePatterns: [
             { hostname: 'res.cloudinary.com' },
-            { hostname: '49.50.164.91' },
-            { hostname: 'armissionchallenge.s3.ap-northeast-2.amazonaws.com' }
+            { hostname: '49.50.164.91' }
         ]
     },  
   reactCompiler: true,

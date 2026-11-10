@@ -366,7 +366,6 @@ export type TerritoryNeutralUnitOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   path?: Prisma.SortOrderInput | Prisma.SortOrder
   pathIdx?: Prisma.SortOrder
-  _relevance?: Prisma.TerritoryNeutralUnitOrderByRelevanceInput
 }
 
 export type TerritoryNeutralUnitWhereUniqueInput = Prisma.AtLeast<{
@@ -567,12 +566,6 @@ export type TerritoryNeutralUnitUncheckedUpdateManyInput = {
   pathIdx?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
-export type TerritoryNeutralUnitOrderByRelevanceInput = {
-  fields: Prisma.TerritoryNeutralUnitOrderByRelevanceFieldEnum | Prisma.TerritoryNeutralUnitOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type TerritoryNeutralUnitCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   dong?: Prisma.SortOrder
@@ -689,7 +682,43 @@ export type TerritoryNeutralUnitSelect<ExtArgs extends runtime.Types.Extensions.
   pathIdx?: boolean
 }, ExtArgs["result"]["territoryNeutralUnit"]>
 
+export type TerritoryNeutralUnitSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  dong?: boolean
+  anchorLat?: boolean
+  anchorLon?: boolean
+  lat?: boolean
+  lon?: boolean
+  destLat?: boolean
+  destLon?: boolean
+  legStartedAt?: boolean
+  legEndsAt?: boolean
+  quizKey?: boolean
+  quizTitle?: boolean
+  createdAt?: boolean
+  updatedAt?: boolean
+  path?: boolean
+  pathIdx?: boolean
+}, ExtArgs["result"]["territoryNeutralUnit"]>
 
+export type TerritoryNeutralUnitSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  dong?: boolean
+  anchorLat?: boolean
+  anchorLon?: boolean
+  lat?: boolean
+  lon?: boolean
+  destLat?: boolean
+  destLon?: boolean
+  legStartedAt?: boolean
+  legEndsAt?: boolean
+  quizKey?: boolean
+  quizTitle?: boolean
+  createdAt?: boolean
+  updatedAt?: boolean
+  path?: boolean
+  pathIdx?: boolean
+}, ExtArgs["result"]["territoryNeutralUnit"]>
 
 export type TerritoryNeutralUnitSelectScalar = {
   id?: boolean
@@ -856,6 +885,30 @@ export interface TerritoryNeutralUnitDelegate<ExtArgs extends runtime.Types.Exte
   createMany<T extends TerritoryNeutralUnitCreateManyArgs>(args?: Prisma.SelectSubset<T, TerritoryNeutralUnitCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many TerritoryNeutralUnits and returns the data saved in the database.
+   * @param {TerritoryNeutralUnitCreateManyAndReturnArgs} args - Arguments to create many TerritoryNeutralUnits.
+   * @example
+   * // Create many TerritoryNeutralUnits
+   * const territoryNeutralUnit = await prisma.territoryNeutralUnit.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many TerritoryNeutralUnits and only return the `id`
+   * const territoryNeutralUnitWithIdOnly = await prisma.territoryNeutralUnit.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends TerritoryNeutralUnitCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, TerritoryNeutralUnitCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryNeutralUnitPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a TerritoryNeutralUnit.
    * @param {TerritoryNeutralUnitDeleteArgs} args - Arguments to delete one TerritoryNeutralUnit.
    * @example
@@ -918,6 +971,36 @@ export interface TerritoryNeutralUnitDelegate<ExtArgs extends runtime.Types.Exte
    * 
    */
   updateMany<T extends TerritoryNeutralUnitUpdateManyArgs>(args: Prisma.SelectSubset<T, TerritoryNeutralUnitUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more TerritoryNeutralUnits and returns the data updated in the database.
+   * @param {TerritoryNeutralUnitUpdateManyAndReturnArgs} args - Arguments to update many TerritoryNeutralUnits.
+   * @example
+   * // Update many TerritoryNeutralUnits
+   * const territoryNeutralUnit = await prisma.territoryNeutralUnit.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more TerritoryNeutralUnits and only return the `id`
+   * const territoryNeutralUnitWithIdOnly = await prisma.territoryNeutralUnit.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends TerritoryNeutralUnitUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, TerritoryNeutralUnitUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryNeutralUnitPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one TerritoryNeutralUnit.
@@ -1332,6 +1415,25 @@ export type TerritoryNeutralUnitCreateManyArgs<ExtArgs extends runtime.Types.Ext
 }
 
 /**
+ * TerritoryNeutralUnit createManyAndReturn
+ */
+export type TerritoryNeutralUnitCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TerritoryNeutralUnit
+   */
+  select?: Prisma.TerritoryNeutralUnitSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the TerritoryNeutralUnit
+   */
+  omit?: Prisma.TerritoryNeutralUnitOmit<ExtArgs> | null
+  /**
+   * The data used to create many TerritoryNeutralUnits.
+   */
+  data: Prisma.TerritoryNeutralUnitCreateManyInput | Prisma.TerritoryNeutralUnitCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * TerritoryNeutralUnit update
  */
 export type TerritoryNeutralUnitUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1357,6 +1459,32 @@ export type TerritoryNeutralUnitUpdateArgs<ExtArgs extends runtime.Types.Extensi
  * TerritoryNeutralUnit updateMany
  */
 export type TerritoryNeutralUnitUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update TerritoryNeutralUnits.
+   */
+  data: Prisma.XOR<Prisma.TerritoryNeutralUnitUpdateManyMutationInput, Prisma.TerritoryNeutralUnitUncheckedUpdateManyInput>
+  /**
+   * Filter which TerritoryNeutralUnits to update
+   */
+  where?: Prisma.TerritoryNeutralUnitWhereInput
+  /**
+   * Limit how many TerritoryNeutralUnits to update.
+   */
+  limit?: number
+}
+
+/**
+ * TerritoryNeutralUnit updateManyAndReturn
+ */
+export type TerritoryNeutralUnitUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TerritoryNeutralUnit
+   */
+  select?: Prisma.TerritoryNeutralUnitSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the TerritoryNeutralUnit
+   */
+  omit?: Prisma.TerritoryNeutralUnitOmit<ExtArgs> | null
   /**
    * The data used to update TerritoryNeutralUnits.
    */

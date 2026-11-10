@@ -10,7 +10,6 @@ import {
 import prisma from "@/lib/prismadb";
 
 type MapSettingsRequestBody = {
-  showJoystick?: unknown;
   selectedCharacter?: unknown;
   mapStyle?: unknown;
 };

@@ -218,7 +218,6 @@ export type MissionStatusOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   MissionUser?: Prisma.MissionUserOrderByWithRelationInput
   MissionScenario?: Prisma.MissionScenarioOrderByWithRelationInput
-  _relevance?: Prisma.MissionStatusOrderByRelevanceInput
 }
 
 export type MissionStatusWhereUniqueInput = Prisma.AtLeast<{
@@ -307,12 +306,6 @@ export type MissionStatusListRelationFilter = {
 
 export type MissionStatusOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
-}
-
-export type MissionStatusOrderByRelevanceInput = {
-  fields: Prisma.MissionStatusOrderByRelevanceFieldEnum | Prisma.MissionStatusOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
 }
 
 export type MissionStatusCountOrderByAggregateInput = {
@@ -569,7 +562,23 @@ export type MissionStatusSelect<ExtArgs extends runtime.Types.Extensions.Interna
   MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
 }, ExtArgs["result"]["missionStatus"]>
 
+export type MissionStatusSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  UserId?: boolean
+  ARMissionKey?: boolean
+  progressId?: boolean
+  id?: boolean
+  MissionUser?: boolean | Prisma.MissionStatus$MissionUserArgs<ExtArgs>
+  MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
+}, ExtArgs["result"]["missionStatus"]>
 
+export type MissionStatusSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  UserId?: boolean
+  ARMissionKey?: boolean
+  progressId?: boolean
+  id?: boolean
+  MissionUser?: boolean | Prisma.MissionStatus$MissionUserArgs<ExtArgs>
+  MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
+}, ExtArgs["result"]["missionStatus"]>
 
 export type MissionStatusSelectScalar = {
   UserId?: boolean
@@ -580,6 +589,14 @@ export type MissionStatusSelectScalar = {
 
 export type MissionStatusOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"UserId" | "ARMissionKey" | "progressId" | "id", ExtArgs["result"]["missionStatus"]>
 export type MissionStatusInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  MissionUser?: boolean | Prisma.MissionStatus$MissionUserArgs<ExtArgs>
+  MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
+}
+export type MissionStatusIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  MissionUser?: boolean | Prisma.MissionStatus$MissionUserArgs<ExtArgs>
+  MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
+}
+export type MissionStatusIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   MissionUser?: boolean | Prisma.MissionStatus$MissionUserArgs<ExtArgs>
   MissionScenario?: boolean | Prisma.MissionStatus$MissionScenarioArgs<ExtArgs>
 }
@@ -713,6 +730,30 @@ export interface MissionStatusDelegate<ExtArgs extends runtime.Types.Extensions.
   createMany<T extends MissionStatusCreateManyArgs>(args?: Prisma.SelectSubset<T, MissionStatusCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many MissionStatuses and returns the data saved in the database.
+   * @param {MissionStatusCreateManyAndReturnArgs} args - Arguments to create many MissionStatuses.
+   * @example
+   * // Create many MissionStatuses
+   * const missionStatus = await prisma.missionStatus.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many MissionStatuses and only return the `UserId`
+   * const missionStatusWithUserIdOnly = await prisma.missionStatus.createManyAndReturn({
+   *   select: { UserId: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends MissionStatusCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, MissionStatusCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionStatusPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a MissionStatus.
    * @param {MissionStatusDeleteArgs} args - Arguments to delete one MissionStatus.
    * @example
@@ -775,6 +816,36 @@ export interface MissionStatusDelegate<ExtArgs extends runtime.Types.Extensions.
    * 
    */
   updateMany<T extends MissionStatusUpdateManyArgs>(args: Prisma.SelectSubset<T, MissionStatusUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more MissionStatuses and returns the data updated in the database.
+   * @param {MissionStatusUpdateManyAndReturnArgs} args - Arguments to update many MissionStatuses.
+   * @example
+   * // Update many MissionStatuses
+   * const missionStatus = await prisma.missionStatus.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more MissionStatuses and only return the `UserId`
+   * const missionStatusWithUserIdOnly = await prisma.missionStatus.updateManyAndReturn({
+   *   select: { UserId: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends MissionStatusUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, MissionStatusUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionStatusPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one MissionStatus.
@@ -1203,6 +1274,29 @@ export type MissionStatusCreateManyArgs<ExtArgs extends runtime.Types.Extensions
 }
 
 /**
+ * MissionStatus createManyAndReturn
+ */
+export type MissionStatusCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionStatus
+   */
+  select?: Prisma.MissionStatusSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionStatus
+   */
+  omit?: Prisma.MissionStatusOmit<ExtArgs> | null
+  /**
+   * The data used to create many MissionStatuses.
+   */
+  data: Prisma.MissionStatusCreateManyInput | Prisma.MissionStatusCreateManyInput[]
+  skipDuplicates?: boolean
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MissionStatusIncludeCreateManyAndReturn<ExtArgs> | null
+}
+
+/**
  * MissionStatus update
  */
 export type MissionStatusUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1244,6 +1338,36 @@ export type MissionStatusUpdateManyArgs<ExtArgs extends runtime.Types.Extensions
    * Limit how many MissionStatuses to update.
    */
   limit?: number
+}
+
+/**
+ * MissionStatus updateManyAndReturn
+ */
+export type MissionStatusUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionStatus
+   */
+  select?: Prisma.MissionStatusSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionStatus
+   */
+  omit?: Prisma.MissionStatusOmit<ExtArgs> | null
+  /**
+   * The data used to update MissionStatuses.
+   */
+  data: Prisma.XOR<Prisma.MissionStatusUpdateManyMutationInput, Prisma.MissionStatusUncheckedUpdateManyInput>
+  /**
+   * Filter which MissionStatuses to update
+   */
+  where?: Prisma.MissionStatusWhereInput
+  /**
+   * Limit how many MissionStatuses to update.
+   */
+  limit?: number
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.MissionStatusIncludeUpdateManyAndReturn<ExtArgs> | null
 }
 
 /**

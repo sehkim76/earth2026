@@ -236,7 +236,6 @@ export type ProfileTableOrderByWithRelationInput = {
   SubscribingService?: Prisma.SortOrder
   ProfileData?: Prisma.SortOrder
   PriceDiscount?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.ProfileTableOrderByRelevanceInput
 }
 
 export type ProfileTableWhereUniqueInput = Prisma.AtLeast<{
@@ -337,12 +336,6 @@ export type ProfileTableUncheckedUpdateManyInput = {
   PriceDiscount?: Prisma.NullableFloatFieldUpdateOperationsInput | number | null
 }
 
-export type ProfileTableOrderByRelevanceInput = {
-  fields: Prisma.ProfileTableOrderByRelevanceFieldEnum | Prisma.ProfileTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ProfileTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   Title?: Prisma.SortOrder
@@ -399,7 +392,23 @@ export type ProfileTableSelect<ExtArgs extends runtime.Types.Extensions.Internal
   PriceDiscount?: boolean
 }, ExtArgs["result"]["profileTable"]>
 
+export type ProfileTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Title?: boolean
+  ProfileThumbnail?: boolean
+  SubscribingService?: boolean
+  ProfileData?: boolean
+  PriceDiscount?: boolean
+}, ExtArgs["result"]["profileTable"]>
 
+export type ProfileTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Title?: boolean
+  ProfileThumbnail?: boolean
+  SubscribingService?: boolean
+  ProfileData?: boolean
+  PriceDiscount?: boolean
+}, ExtArgs["result"]["profileTable"]>
 
 export type ProfileTableSelectScalar = {
   id?: boolean
@@ -540,6 +549,30 @@ export interface ProfileTableDelegate<ExtArgs extends runtime.Types.Extensions.I
   createMany<T extends ProfileTableCreateManyArgs>(args?: Prisma.SelectSubset<T, ProfileTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ProfileTables and returns the data saved in the database.
+   * @param {ProfileTableCreateManyAndReturnArgs} args - Arguments to create many ProfileTables.
+   * @example
+   * // Create many ProfileTables
+   * const profileTable = await prisma.profileTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ProfileTables and only return the `id`
+   * const profileTableWithIdOnly = await prisma.profileTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ProfileTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ProfileTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProfileTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ProfileTable.
    * @param {ProfileTableDeleteArgs} args - Arguments to delete one ProfileTable.
    * @example
@@ -602,6 +635,36 @@ export interface ProfileTableDelegate<ExtArgs extends runtime.Types.Extensions.I
    * 
    */
   updateMany<T extends ProfileTableUpdateManyArgs>(args: Prisma.SelectSubset<T, ProfileTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ProfileTables and returns the data updated in the database.
+   * @param {ProfileTableUpdateManyAndReturnArgs} args - Arguments to update many ProfileTables.
+   * @example
+   * // Update many ProfileTables
+   * const profileTable = await prisma.profileTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ProfileTables and only return the `id`
+   * const profileTableWithIdOnly = await prisma.profileTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ProfileTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ProfileTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ProfileTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ProfileTable.
@@ -1006,6 +1069,25 @@ export type ProfileTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
+ * ProfileTable createManyAndReturn
+ */
+export type ProfileTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ProfileTable
+   */
+  select?: Prisma.ProfileTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ProfileTable
+   */
+  omit?: Prisma.ProfileTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many ProfileTables.
+   */
+  data: Prisma.ProfileTableCreateManyInput | Prisma.ProfileTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ProfileTable update
  */
 export type ProfileTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1031,6 +1113,32 @@ export type ProfileTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inte
  * ProfileTable updateMany
  */
 export type ProfileTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ProfileTables.
+   */
+  data: Prisma.XOR<Prisma.ProfileTableUpdateManyMutationInput, Prisma.ProfileTableUncheckedUpdateManyInput>
+  /**
+   * Filter which ProfileTables to update
+   */
+  where?: Prisma.ProfileTableWhereInput
+  /**
+   * Limit how many ProfileTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * ProfileTable updateManyAndReturn
+ */
+export type ProfileTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ProfileTable
+   */
+  select?: Prisma.ProfileTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ProfileTable
+   */
+  omit?: Prisma.ProfileTableOmit<ExtArgs> | null
   /**
    * The data used to update ProfileTables.
    */

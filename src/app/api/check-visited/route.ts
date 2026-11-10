@@ -80,9 +80,8 @@ export async function GET(request: Request) {
   let expectedGame: string | null = null;
   const eventType = event?.EventType?.trim().toLowerCase() ?? "";
   if (eventType === "quiztype") {
-    // QuizType의 EventURI는 S3 문제지 JSON이므로 게임 경로가 아니다.
-    // /event가 quiztype을 /quiz/[eventKey]로 라우팅하는 것과 일치시킨다.
-    expectedGame = "/quiz";
+    // 퀴즈 기능 제거됨 — 게임 경로 없음.
+    expectedGame = null;
   } else {
     const eventUri = event?.EventURI?.trim() ?? "";
     if (eventUri.length > 0) {

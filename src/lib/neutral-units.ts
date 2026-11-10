@@ -7,6 +7,7 @@ import {
   dongBboxServer,
   ensureDongBoundary,
   ensureDongRaster,
+  hasDongGrids,
   isInDongServer,
   isWalkableServer,
   setRasterBaseUrl,
@@ -198,7 +199,7 @@ const pickFarthestDest = async (
     return [];
   }
   const scored: Array<{ dest: { lat: number; lon: number }; sep: number }> = [];
-  for (let i = 0; i < 20; i += 1) {
+  for (let i = 0; i < 30; i += 1) {
     const raw = {
       lat: bbox.minLat + Math.random() * (bbox.maxLat - bbox.minLat),
       lon: bbox.minLon + Math.random() * (bbox.maxLon - bbox.minLon),
@@ -207,8 +208,8 @@ const pickFarthestDest = async (
     if (!dest) {
       continue;
     }
-    // 직전 출발지 근처(200m)는 제외한다 — 온 길 되돌아가기 방지.
-    if (avoid && distM(dest.lat, dest.lon, avoid.lat, avoid.lon) < 200) {
+    // 현재 위치(도착점) 근처(250m)는 제외한다 — 온 길 되돌아가기 방지.
+    if (avoid && distM(dest.lat, dest.lon, avoid.lat, avoid.lon) < 250) {
       continue;
     }
     let sep = Number.POSITIVE_INFINITY;
@@ -223,10 +224,69 @@ const pickFarthestDest = async (
     }
     scored.push({ dest, sep });
   }
-  // 먼 순 상위 3개 (경로 실패 시 다음 후보로 재시도용).
+  // 먼 순 상위 5개 (경로 실패 시 다음 후보로 재시도용).
   scored.sort((a, b) => b.sep - a.sep);
-  return scored.slice(0, 3).map((s) => s.dest);
+  return scored.slice(0, 5).map((s) => s.dest);
 };
+
+/** 후보 목적지들을 서로 멀리 떨어뜨린다 (같은 구석 몰림 방지). sep 내림차순 입력, minSep 이상 간격으로 추린다. */
+const spreadGoals = (
+  goals: Array<{ lat: number; lon: number }>,
+  minSepM = 300,
+): Array<{ lat: number; lon: number }> => {
+  const out: Array<{ lat: number; lon: number }> = [];
+  for (const g of goals) {
+    if (out.every((o) => distM(g.lat, g.lon, o.lat, o.lon) >= minSepM)) {
+      out.push(g);
+    }
+  }
+  return out.length > 0 ? out : goals.slice(0, 1);
+};
+
+/** 순서 섞기 (같은 폴링에 동시 계획한 개체들이 같은 1순위로 몰리는 현상 방지). */
+const shuffleGoals = <T,>(arr: Array<T>): Array<T> => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = a[i] as T;
+    a[i] = a[j] as T;
+    a[j] = t;
+  }
+  return a;
+};
+
+/** 다른 부대들의 저장 경로와 겹치는 후보를 제외한다 (일렬종대 방지). */
+const filterAwayFromPaths = (
+  goals: Array<{ lat: number; lon: number }>,
+  ownPath: Array<{ lat: number; lon: number }> | null,
+  otherPaths: Array<Array<{ lat: number; lon: number }>>,
+  radiusM = 300,
+): Array<{ lat: number; lon: number }> => {
+  const nearOwn = (g: { lat: number; lon: number }): boolean =>
+    !!ownPath && ownPath.length >= 2 && ownPath.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < radiusM);
+  const nearOther = (g: { lat: number; lon: number }): boolean =>
+    otherPaths.some((path) => path.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < radiusM));
+  const away = goals.filter((g) => !nearOwn(g) && !nearOther(g));
+  return away.length > 0 ? away : goals;
+};
+
+const otherStoredPaths = (
+  rows: TerritoryNeutralUnit[],
+  excludeId?: number,
+): Array<Array<{ lat: number; lon: number }>> => {
+  const out: Array<Array<{ lat: number; lon: number }>> = [];
+  for (const o of rows) {
+    if (o.id === excludeId || !o.path) {
+      continue;
+    }
+    const p = parseStoredPath(o.path);
+    if (p && p.length >= 2) {
+      out.push(p);
+    }
+  }
+  return out;
+};
+
 
 /** path JSON 파싱 (실패 시 null). */
 const parseStoredPath = (raw: string | null): Array<{ lat: number; lon: number }> | null => {
@@ -282,16 +342,42 @@ const routeInDong = async (
     return null;
   }
   // 동 안 클리핑: 앞에서부터 동 안인 점만 유지한다.
+  // 데이터 없음(null)은 실패로 취급한다 (fail-closed: 래스터 미로드 시 바깥 경로 방지).
+  // 단, 경계 도로를 따라 동 밖으로 잠깐(80m 미만) 나갔다 들어오는 경우는 허용한다.
+  // 그런 구간에서 경로 전체를 버리면 새 목적지 찾기가 매번 실패한다.
   const clipped: Array<{ lat: number; lon: number }> = [];
   let clipBreak = "";
-  for (const p of result.path) {
-    if (isInDongServer(dong, p.lat, p.lon) === false) {
-      clipBreak = "out_of_dong";
-      break;
+  let excursion: Array<{ lat: number; lon: number }> = [];
+  let excursionM = 0;
+  const flushExcursion = (): void => {
+    // 복귀 시 이탈 구간 전체를 유지한다 (도로 위이므로 보행 가능).
+    for (const ep of excursion) {
+      clipped.push(ep);
     }
-    if (isWalkableServer(dong, p.lat, p.lon) === false) {
+    excursion = [];
+    excursionM = 0;
+  };
+  for (const p of result.path) {
+    const inDong = isInDongServer(dong, p.lat, p.lon);
+    if (inDong !== true) {
+      // 동 경계 데이터 없음(null)도 이탈로 취급한다 (fail-closed).
+      const prev = excursion.length > 0 ? excursion[excursion.length - 1] : clipped[clipped.length - 1];
+      if (prev) {
+        excursionM += distM(prev.lat, prev.lon, p.lat, p.lon);
+      }
+      excursion.push(p);
+      if (excursionM >= 80) {
+        clipBreak = "out_of_dong";
+        break;
+      }
+      continue;
+    }
+    if (isWalkableServer(dong, p.lat, p.lon) !== true) {
       clipBreak = "unwalkable";
       break;
+    }
+    if (excursion.length > 0) {
+      flushExcursion();
     }
     clipped.push(p);
   }
@@ -320,7 +406,8 @@ const nextLegDest = (
   for (let i = fromIdx; i < path.length; i += 1) {
     const p = path[i] as { lat: number; lon: number };
     const d2 = ((p.lon - curLon) * kx) ** 2 + ((p.lat - curLat) * 110540) ** 2;
-    if (d2 < bestD2) {
+    // 10m 안 동점이면 더 앞선 인덱스를 택한다 (루프 구간 역행 방지).
+    if (d2 < bestD2 - 100 || (Math.abs(d2 - bestD2) <= 100 && i > bestIdx)) {
       bestD2 = d2;
       bestIdx = i;
     }
@@ -357,8 +444,10 @@ const nextLegDest = (
       const cand = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
       // 경로가 루프백해 후보가 제자리(20m 안)면 스킵하고 더 앞을 탐색한다.
       // 그대로 반환하면 10초짜리 제자리 다리가 무한 반복된다.
+      // idx는 후보가 속한 구간 끝(i)으로 전진시킨다. bestIdx 그대로 두면
+      // pathIdx가 갱신되지 않아 다음 다리에서 오래된 구간으로 역행한다.
       if (distM(curLat, curLon, cand.lat, cand.lon) >= 20) {
-        return { dest: cand, idx: bestIdx };
+        return { dest: cand, idx: i };
       }
     }
   }
@@ -478,20 +567,90 @@ const planNeutralLeg = async (
     `[neutral] arrived id=${r.id} base=(${baseLat.toFixed(5)},${baseLon.toFixed(5)}) prevDest=(${r.destLat.toFixed(5)},${r.destLon.toFixed(5)}) hasPath=${r.path ? r.path.length : 0}`,
   );
   let storedPath = parseStoredPath(r.path);
+  // 저장 경로 재검증 (fail-closed): 과거에 저장된 불량 경로(래스터 미로드 시 통과분,
+  // 구버전 미클리핑분)가 있으면 버리고 새로 계획한다.
+  if (storedPath) {
+    // 판정 불가(래스터 미로드)면 기존 경로를 유지하고 다음 폴링에서 재시도한다.
+    // 판정 가능하면 fail-closed로 재검증한다.
+    let gridsReady = false;
+    try {
+      gridsReady = (await ensureDongRaster(dong)) && hasDongGrids(dong);
+    } catch {
+      gridsReady = false;
+    }
+    if (gridsReady) {
+      let staleBreak = "";
+      for (let vi = 0; vi < storedPath.length; vi += 1) {
+        const vp = storedPath[vi] as { lat: number; lon: number };
+        if (isInDongServer(dong, vp.lat, vp.lon) !== true) {
+          staleBreak = "out_of_dong";
+          break;
+        }
+        if (isWalkableServer(dong, vp.lat, vp.lon) !== true) {
+          staleBreak = "unwalkable";
+          break;
+        }
+      }
+      if (!staleBreak) {
+        // 연속성 검사: 저장 경로와 현재 기점 사이가 너무 멀면
+        // 이전 위치의 잔재이므로 버리고 기점에서 새로 계획한다.
+        // 정점 간 거리가 아니라 구간(segment)까지의 최단거리로 본다
+        // (다리 중간 보간점은 정점에서 멀어도 경로 위이므로).
+        let nearest = Number.POSITIVE_INFINITY;
+        const pts = storedPath as Array<{ lat: number; lon: number }>;
+        for (let i = 0; i < pts.length; i += 1) {
+          const p = pts[i];
+          if (!p) {
+            continue;
+          }
+          const d0 = distM(baseLat, baseLon, p.lat, p.lon);
+          if (d0 < nearest) {
+            nearest = d0;
+          }
+          const q = pts[i + 1];
+          if (!q) {
+            continue;
+          }
+          const kx1 = 111320 * Math.cos((p.lat * Math.PI) / 180);
+          const dx = (q.lon - p.lon) * kx1;
+          const dy = (q.lat - p.lat) * 110540;
+          const len2 = dx * dx + dy * dy;
+          const proj = ((baseLon - p.lon) * kx1 * dx + (baseLat - p.lat) * 110540 * dy) / (len2 <= 0 ? 1 : len2);
+          const t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, proj));
+          const cx = p.lon + (q.lon - p.lon) * t - baseLon;
+          const cy = p.lat + (q.lat - p.lat) * t - baseLat;
+          const d = Math.hypot(cx * kx1, cy * 110540);
+          if (d < nearest) {
+            nearest = d;
+          }
+        }
+        if (!(nearest <= 30)) {
+          staleBreak = "discontinuous";
+        }
+      }
+      if (staleBreak) {
+        console.debug(`[neutral] stale path dropped id=${r.id} at=${staleBreak}`);
+        storedPath = null;
+      }
+    }
+  }
   // DB에 저장된 진행 인덱스를 하한으로 쓴다.
   // 지리적 근접만으로는 루프 구간에서 이전 구간으로 역행한다.
   let fromIdx = typeof r.pathIdx === "number" ? r.pathIdx : 0;
   if (storedPath) {
     const kx = 111320 * Math.cos((baseLat * Math.PI) / 180);
     let bestD2 = Number.POSITIVE_INFINITY;
+    let bestI = fromIdx;
     for (let i = fromIdx; i < storedPath.length; i += 1) {
       const pt = storedPath[i] as { lat: number; lon: number };
       const d2 = ((pt.lon - r.destLon) * kx) ** 2 + ((pt.lat - r.destLat) * 110540) ** 2;
-      if (d2 < bestD2) {
+      // 10m 안 동점이면 더 앞선 인덱스를 택한다 (루프 구간에서 이미 걸은 쪽으로 역행 방지).
+      if (d2 < bestD2 - 100 || (Math.abs(d2 - bestD2) <= 100 && i > bestI)) {
         bestD2 = d2;
-        fromIdx = i;
+        bestI = i;
       }
     }
+    fromIdx = bestI;
   }
   let finalLeg = storedPath ? nextLegDest(storedPath, baseLat, baseLon, fromIdx) : null;
   let pathIdx = fromIdx;
@@ -504,31 +663,15 @@ const planNeutralLeg = async (
     // 최종 목적지 도착(또는 경로 없음): 새 목적지 + 새 경로.
     // 후보 순서대로 경로 성공할 때까지 시도한다.
     // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
-    let goals = await pickFarthestDest(dong, neutralOthersOf(rows, now, r.id), { lat: r.lat, lon: r.lon });
+    let goals = await pickFarthestDest(dong, neutralOthersOf(rows, now, r.id), { lat: baseLat, lon: baseLon });
     if (goals.length > 1) {
       // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
       // 다른 개체의 저장 경로 300m 안도 제외한다 (일렬종대 방지).
-      const otherPaths: Array<Array<{ lat: number; lon: number }>> = [];
-      for (const o of rows) {
-        if (o.id === r.id || !o.path) {
-          continue;
-        }
-        const p = parseStoredPath(o.path);
-        if (p && p.length >= 2) {
-          otherPaths.push(p);
-        }
-      }
-      const nearOwn = (g: { lat: number; lon: number }): boolean =>
-        !!storedPath &&
-        storedPath.length >= 2 &&
-        storedPath.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < 300);
-      const nearOther = (g: { lat: number; lon: number }): boolean =>
-        otherPaths.some((path) => path.some((p) => distM(g.lat, g.lon, p.lat, p.lon) < 300));
-      const away = goals.filter((g) => !nearOwn(g) && !nearOther(g));
-      if (away.length > 0) {
-        goals = away;
-      }
+      goals = filterAwayFromPaths(goals, storedPath, otherStoredPaths(rows, r.id));
     }
+    // 후보끼리 500m 이상 떨어뜨리고 순서를 섞는다.
+    // (같은 구석 1순위로 몰리는 현상 + 동시 계획 개체들의 동조 방지 → 동 전역 배회)
+    goals = shuffleGoals(spreadGoals(goals));
     console.debug(
       `[neutral] newgoal id=${r.id} goals=${goals.length}`,
     );
@@ -543,7 +686,7 @@ const planNeutralLeg = async (
     // 원거리 후보가 전부 실패하면 근거리(100~500m 링) 폴백: 제자리 고착 방지.
     // base 자체 스냅은 제자리(50m 안)가 돼 버리므로 링 위 임의점을 스냅한다.
     if (!fresh) {
-      for (let t = 0; t < 5 && !fresh; t += 1) {
+      for (let t = 0; t < 8 && !fresh; t += 1) {
         const ang = Math.random() * Math.PI * 2;
         const d = 150 + Math.random() * 350;
         const cand = {
@@ -551,6 +694,17 @@ const planNeutralLeg = async (
           lon: baseLon + (d / (111320 * Math.cos((baseLat * Math.PI) / 180))) * Math.cos(ang),
         };
         const near = await snapInDong(dong, cand.lat, cand.lon, 200);
+        // 전반 4회는旧 경로 150m 안 후보를 건너뛴다 (왔던 길 역행 방지).
+        // 후반 4회는 막다른길 탈출을 위해 되돌아가기도 허용한다.
+        if (
+          near &&
+          t < 4 &&
+          storedPath &&
+          storedPath.length >= 2 &&
+          storedPath.some((sp) => distM(near.lat, near.lon, sp.lat, sp.lon) < 150)
+        ) {
+          continue;
+        }
         if (near && distM(baseLat, baseLon, near.lat, near.lon) > 50) {
           console.debug(`[neutral] neargoal id=${r.id}`);
           const routed = await routeInDong(dong, baseLat, baseLon, near.lat, near.lon, r.id);
@@ -577,6 +731,12 @@ const planNeutralLeg = async (
         console.debug(`[neutral] relocate id=${r.id}`);
         baseLat = fixed.lat;
         baseLon = fixed.lon;
+        storedPath = null;
+        pathJson = null;
+        pathIdx = 0;
+      } else {
+        // 재배치마저 실패하면旧 경로를 버리고 제자리 대기한다.
+        // 旧 경로를 유지하면 다음 다리에서 역방향으로 되돌아간다.
         storedPath = null;
         pathJson = null;
         pathIdx = 0;
@@ -633,9 +793,18 @@ const planNeutralSpawn = async (
   const quiz = pickQuiz();
   // 목적지: 동 내부에서 모든 무법자와 가장 먼 이동가능영역 (규칙 4).
   // 경로: 부대 이동 알고리즘 그대로 (규칙 3). 후보 순서대로 경로 성공할 때까지 시도한다.
-  const goals = await pickFarthestDest(dong, neutralOthersOf(rows, now));
+  // 스폰 시에도 기존 부대 경로와 겹치지 않게 + 후보를 분산·셔플한다 (일렬종대 방지).
+  const spawnedGoals = shuffleGoals(
+    spreadGoals(
+      filterAwayFromPaths(
+        await pickFarthestDest(dong, neutralOthersOf(rows, now)),
+        null,
+        otherStoredPaths(rows),
+      ),
+    ),
+  );
   let path: Array<{ lat: number; lon: number }> | null = null;
-  for (const goal of goals) {
+  for (const goal of spawnedGoals) {
     path = await routeInDong(dong, at.lat, at.lon, goal.lat, goal.lon);
     if (path && path.length >= 2) {
       break;

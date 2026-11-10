@@ -9,14 +9,8 @@ import {
 
 /**
  * 축성 이벤트 선택용 풀 목록.
- * xrbox-admin의 퀴즈관리(S3 Quiz/ 문제풀) + 웹이벤트관리(공용 URLType 풀)를 참조한다.
- * - 퀴즈: S3 Quiz/ 공개 리스팅 + ARMissionEventPoolTable QuizType 행 (uri 중복 제거)
- * - 웹이벤트: ARMissionEventPoolTable URLType 행
+ * 웹이벤트관리(공용 URLType 풀) + 풀 테이블 QuizType 행을 참조한다. (S3 연동 제거됨)
  */
-const S3_STORAGE_BASE =
-  process.env.NEXT_PUBLIC_XRART_S3_STORAGE ||
-  "https://armissionchallenge.s3.ap-northeast-2.amazonaws.com";
-
 type PoolItem = {
   id: string;
   description: string;
@@ -45,66 +39,9 @@ async function loadQuizTitles(): Promise<Record<string, string>> {
   return quizTitlesCache;
 }
 
-const parseTag = (xml: string, tag: string): string | null => {
-  const match = xml.match(new RegExp(`<${tag}>([^<]*)</${tag}>`));
-  return match ? match[1] : null;
-};
-
-const parseAllTags = (xml: string, tag: string): string[] => {
-  const matches = xml.matchAll(new RegExp(`<${tag}>([^<]*)</${tag}>`, "g"));
-  return [...matches].map((match) => match[1]);
-};
-
-/** S3 Quiz/ 폴더의 csv/json 문제풀 목록 (공개 리스팅, 자격증명 불필요). */
+/** 문제풀 한글 타이틀 매핑 (빌드 시점 배치 생성, public/boundaries/quiz_titles.json). */
 async function listS3QuizPools(): Promise<PoolItem[]> {
-  const items: PoolItem[] = [];
-  let token: string | null = null;
-  for (let page = 0; page < 3; page += 1) {
-    const params = new URLSearchParams({
-      "list-type": "2",
-      prefix: "Quiz/",
-      "max-keys": "1000",
-    });
-    if (token) {
-      params.set("continuation-token", token);
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
-    let xml = "";
-    try {
-      const res = await fetch(`${S3_STORAGE_BASE}/?${params.toString()}`, {
-        signal: controller.signal,
-      });
-      if (!res.ok) {
-        break;
-      }
-      xml = await res.text();
-    } catch {
-      break;
-    } finally {
-      clearTimeout(timer);
-    }
-    for (const key of parseAllTags(xml, "Key")) {
-      const fileName = key.split("/").pop() ?? "";
-      // 축성 공성전은 CSV 문제풀만 사용한다 (JSON은 시즈 출제 미지원).
-      if (!/\.csv$/i.test(fileName)) {
-        continue;
-      }
-      items.push({
-        id: `s3:${key}`,
-        description: fileName.replace(/\.(csv|json)$/i, ""),
-        uri: `${S3_STORAGE_BASE}/${key}`,
-      });
-    }
-    if (parseTag(xml, "IsTruncated") !== "true") {
-      break;
-    }
-    token = parseTag(xml, "NextContinuationToken");
-    if (!token) {
-      break;
-    }
-  }
-  return items;
+  return [];
 }
 export async function GET() {
   const userId = await requireSessionUserId();

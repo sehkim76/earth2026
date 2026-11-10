@@ -285,7 +285,6 @@ export type AddressableResourceWithThumbnailOrderByWithRelationInput = {
   soundURL?: Prisma.SortOrder
   PricePerDay?: Prisma.SortOrderInput | Prisma.SortOrder
   author?: Prisma.SortOrder
-  _relevance?: Prisma.AddressableResourceWithThumbnailOrderByRelevanceInput
 }
 
 export type AddressableResourceWithThumbnailWhereUniqueInput = Prisma.AtLeast<{
@@ -436,12 +435,6 @@ export type AddressableResourceWithThumbnailUncheckedUpdateManyInput = {
   author?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type AddressableResourceWithThumbnailOrderByRelevanceInput = {
-  fields: Prisma.AddressableResourceWithThumbnailOrderByRelevanceFieldEnum | Prisma.AddressableResourceWithThumbnailOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type AddressableResourceWithThumbnailCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -512,7 +505,33 @@ export type AddressableResourceWithThumbnailSelect<ExtArgs extends runtime.Types
   author?: boolean
 }, ExtArgs["result"]["addressableResourceWithThumbnail"]>
 
+export type AddressableResourceWithThumbnailSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  ThumbnailURL?: boolean
+  ResourceLabel?: boolean
+  description?: boolean
+  title?: boolean
+  ResourceId?: boolean
+  Active?: boolean
+  soundURL?: boolean
+  PricePerDay?: boolean
+  author?: boolean
+}, ExtArgs["result"]["addressableResourceWithThumbnail"]>
 
+export type AddressableResourceWithThumbnailSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  ThumbnailURL?: boolean
+  ResourceLabel?: boolean
+  description?: boolean
+  title?: boolean
+  ResourceId?: boolean
+  Active?: boolean
+  soundURL?: boolean
+  PricePerDay?: boolean
+  author?: boolean
+}, ExtArgs["result"]["addressableResourceWithThumbnail"]>
 
 export type AddressableResourceWithThumbnailSelectScalar = {
   id?: boolean
@@ -663,6 +682,30 @@ export interface AddressableResourceWithThumbnailDelegate<ExtArgs extends runtim
   createMany<T extends AddressableResourceWithThumbnailCreateManyArgs>(args?: Prisma.SelectSubset<T, AddressableResourceWithThumbnailCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many AddressableResourceWithThumbnails and returns the data saved in the database.
+   * @param {AddressableResourceWithThumbnailCreateManyAndReturnArgs} args - Arguments to create many AddressableResourceWithThumbnails.
+   * @example
+   * // Create many AddressableResourceWithThumbnails
+   * const addressableResourceWithThumbnail = await prisma.addressableResourceWithThumbnail.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many AddressableResourceWithThumbnails and only return the `id`
+   * const addressableResourceWithThumbnailWithIdOnly = await prisma.addressableResourceWithThumbnail.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends AddressableResourceWithThumbnailCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, AddressableResourceWithThumbnailCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AddressableResourceWithThumbnailPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a AddressableResourceWithThumbnail.
    * @param {AddressableResourceWithThumbnailDeleteArgs} args - Arguments to delete one AddressableResourceWithThumbnail.
    * @example
@@ -725,6 +768,36 @@ export interface AddressableResourceWithThumbnailDelegate<ExtArgs extends runtim
    * 
    */
   updateMany<T extends AddressableResourceWithThumbnailUpdateManyArgs>(args: Prisma.SelectSubset<T, AddressableResourceWithThumbnailUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more AddressableResourceWithThumbnails and returns the data updated in the database.
+   * @param {AddressableResourceWithThumbnailUpdateManyAndReturnArgs} args - Arguments to update many AddressableResourceWithThumbnails.
+   * @example
+   * // Update many AddressableResourceWithThumbnails
+   * const addressableResourceWithThumbnail = await prisma.addressableResourceWithThumbnail.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more AddressableResourceWithThumbnails and only return the `id`
+   * const addressableResourceWithThumbnailWithIdOnly = await prisma.addressableResourceWithThumbnail.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends AddressableResourceWithThumbnailUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, AddressableResourceWithThumbnailUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$AddressableResourceWithThumbnailPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one AddressableResourceWithThumbnail.
@@ -1134,6 +1207,25 @@ export type AddressableResourceWithThumbnailCreateManyArgs<ExtArgs extends runti
 }
 
 /**
+ * AddressableResourceWithThumbnail createManyAndReturn
+ */
+export type AddressableResourceWithThumbnailCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AddressableResourceWithThumbnail
+   */
+  select?: Prisma.AddressableResourceWithThumbnailSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the AddressableResourceWithThumbnail
+   */
+  omit?: Prisma.AddressableResourceWithThumbnailOmit<ExtArgs> | null
+  /**
+   * The data used to create many AddressableResourceWithThumbnails.
+   */
+  data: Prisma.AddressableResourceWithThumbnailCreateManyInput | Prisma.AddressableResourceWithThumbnailCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * AddressableResourceWithThumbnail update
  */
 export type AddressableResourceWithThumbnailUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1159,6 +1251,32 @@ export type AddressableResourceWithThumbnailUpdateArgs<ExtArgs extends runtime.T
  * AddressableResourceWithThumbnail updateMany
  */
 export type AddressableResourceWithThumbnailUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update AddressableResourceWithThumbnails.
+   */
+  data: Prisma.XOR<Prisma.AddressableResourceWithThumbnailUpdateManyMutationInput, Prisma.AddressableResourceWithThumbnailUncheckedUpdateManyInput>
+  /**
+   * Filter which AddressableResourceWithThumbnails to update
+   */
+  where?: Prisma.AddressableResourceWithThumbnailWhereInput
+  /**
+   * Limit how many AddressableResourceWithThumbnails to update.
+   */
+  limit?: number
+}
+
+/**
+ * AddressableResourceWithThumbnail updateManyAndReturn
+ */
+export type AddressableResourceWithThumbnailUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the AddressableResourceWithThumbnail
+   */
+  select?: Prisma.AddressableResourceWithThumbnailSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the AddressableResourceWithThumbnail
+   */
+  omit?: Prisma.AddressableResourceWithThumbnailOmit<ExtArgs> | null
   /**
    * The data used to update AddressableResourceWithThumbnails.
    */

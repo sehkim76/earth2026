@@ -373,7 +373,6 @@ export type MissionTableOrderByWithRelationInput = {
   hasTerritory?: Prisma.SortOrderInput | Prisma.SortOrder
   id?: Prisma.SortOrder
   isUpdating?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.MissionTableOrderByRelevanceInput
 }
 
 export type MissionTableWhereUniqueInput = Prisma.AtLeast<{
@@ -604,12 +603,6 @@ export type MissionTableUncheckedUpdateManyInput = {
   isUpdating?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
 }
 
-export type MissionTableOrderByRelevanceInput = {
-  fields: Prisma.MissionTableOrderByRelevanceFieldEnum | Prisma.MissionTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type MissionTableCountOrderByAggregateInput = {
   ARMissionKey?: Prisma.SortOrder
   ARMissionName?: Prisma.SortOrder
@@ -724,7 +717,49 @@ export type MissionTableSelect<ExtArgs extends runtime.Types.Extensions.Internal
   isUpdating?: boolean
 }, ExtArgs["result"]["missionTable"]>
 
+export type MissionTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  ARMissionName?: boolean
+  StartDate?: boolean
+  EndDate?: boolean
+  LeftTopGPS?: boolean
+  RightBottomGPS?: boolean
+  StartMethod?: boolean
+  LeftTopGPS_Start?: boolean
+  RightBottomGPS_Start?: boolean
+  teamplay?: boolean
+  openscore?: boolean
+  QuizRevisitEnabled?: boolean
+  PrefabRevisitEnabled?: boolean
+  hasEdBox?: boolean
+  hasQR?: boolean
+  hasCMS?: boolean
+  hasTerritory?: boolean
+  id?: boolean
+  isUpdating?: boolean
+}, ExtArgs["result"]["missionTable"]>
 
+export type MissionTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  ARMissionName?: boolean
+  StartDate?: boolean
+  EndDate?: boolean
+  LeftTopGPS?: boolean
+  RightBottomGPS?: boolean
+  StartMethod?: boolean
+  LeftTopGPS_Start?: boolean
+  RightBottomGPS_Start?: boolean
+  teamplay?: boolean
+  openscore?: boolean
+  QuizRevisitEnabled?: boolean
+  PrefabRevisitEnabled?: boolean
+  hasEdBox?: boolean
+  hasQR?: boolean
+  hasCMS?: boolean
+  hasTerritory?: boolean
+  id?: boolean
+  isUpdating?: boolean
+}, ExtArgs["result"]["missionTable"]>
 
 export type MissionTableSelectScalar = {
   ARMissionKey?: boolean
@@ -891,6 +926,30 @@ export interface MissionTableDelegate<ExtArgs extends runtime.Types.Extensions.I
   createMany<T extends MissionTableCreateManyArgs>(args?: Prisma.SelectSubset<T, MissionTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many MissionTables and returns the data saved in the database.
+   * @param {MissionTableCreateManyAndReturnArgs} args - Arguments to create many MissionTables.
+   * @example
+   * // Create many MissionTables
+   * const missionTable = await prisma.missionTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many MissionTables and only return the `ARMissionKey`
+   * const missionTableWithARMissionKeyOnly = await prisma.missionTable.createManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends MissionTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, MissionTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a MissionTable.
    * @param {MissionTableDeleteArgs} args - Arguments to delete one MissionTable.
    * @example
@@ -953,6 +1012,36 @@ export interface MissionTableDelegate<ExtArgs extends runtime.Types.Extensions.I
    * 
    */
   updateMany<T extends MissionTableUpdateManyArgs>(args: Prisma.SelectSubset<T, MissionTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more MissionTables and returns the data updated in the database.
+   * @param {MissionTableUpdateManyAndReturnArgs} args - Arguments to update many MissionTables.
+   * @example
+   * // Update many MissionTables
+   * const missionTable = await prisma.missionTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more MissionTables and only return the `ARMissionKey`
+   * const missionTableWithARMissionKeyOnly = await prisma.missionTable.updateManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends MissionTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, MissionTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one MissionTable.
@@ -1370,6 +1459,25 @@ export type MissionTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
+ * MissionTable createManyAndReturn
+ */
+export type MissionTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionTable
+   */
+  select?: Prisma.MissionTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionTable
+   */
+  omit?: Prisma.MissionTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many MissionTables.
+   */
+  data: Prisma.MissionTableCreateManyInput | Prisma.MissionTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * MissionTable update
  */
 export type MissionTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1395,6 +1503,32 @@ export type MissionTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inte
  * MissionTable updateMany
  */
 export type MissionTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update MissionTables.
+   */
+  data: Prisma.XOR<Prisma.MissionTableUpdateManyMutationInput, Prisma.MissionTableUncheckedUpdateManyInput>
+  /**
+   * Filter which MissionTables to update
+   */
+  where?: Prisma.MissionTableWhereInput
+  /**
+   * Limit how many MissionTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * MissionTable updateManyAndReturn
+ */
+export type MissionTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionTable
+   */
+  select?: Prisma.MissionTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionTable
+   */
+  omit?: Prisma.MissionTableOmit<ExtArgs> | null
   /**
    * The data used to update MissionTables.
    */

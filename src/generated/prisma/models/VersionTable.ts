@@ -223,7 +223,6 @@ export type VersionTableOrderByWithRelationInput = {
   LatestVersion?: Prisma.SortOrder
   SubscriberCode?: Prisma.SortOrder
   Description?: Prisma.SortOrder
-  _relevance?: Prisma.VersionTableOrderByRelevanceInput
 }
 
 export type VersionTableWhereUniqueInput = Prisma.AtLeast<{
@@ -314,12 +313,6 @@ export type VersionTableUncheckedUpdateManyInput = {
   Description?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type VersionTableOrderByRelevanceInput = {
-  fields: Prisma.VersionTableOrderByRelevanceFieldEnum | Prisma.VersionTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type VersionTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ServiceCode?: Prisma.SortOrder
@@ -362,7 +355,21 @@ export type VersionTableSelect<ExtArgs extends runtime.Types.Extensions.Internal
   Description?: boolean
 }, ExtArgs["result"]["versionTable"]>
 
+export type VersionTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ServiceCode?: boolean
+  LatestVersion?: boolean
+  SubscriberCode?: boolean
+  Description?: boolean
+}, ExtArgs["result"]["versionTable"]>
 
+export type VersionTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ServiceCode?: boolean
+  LatestVersion?: boolean
+  SubscriberCode?: boolean
+  Description?: boolean
+}, ExtArgs["result"]["versionTable"]>
 
 export type VersionTableSelectScalar = {
   id?: boolean
@@ -501,6 +508,30 @@ export interface VersionTableDelegate<ExtArgs extends runtime.Types.Extensions.I
   createMany<T extends VersionTableCreateManyArgs>(args?: Prisma.SelectSubset<T, VersionTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many VersionTables and returns the data saved in the database.
+   * @param {VersionTableCreateManyAndReturnArgs} args - Arguments to create many VersionTables.
+   * @example
+   * // Create many VersionTables
+   * const versionTable = await prisma.versionTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many VersionTables and only return the `id`
+   * const versionTableWithIdOnly = await prisma.versionTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends VersionTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, VersionTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$VersionTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a VersionTable.
    * @param {VersionTableDeleteArgs} args - Arguments to delete one VersionTable.
    * @example
@@ -563,6 +594,36 @@ export interface VersionTableDelegate<ExtArgs extends runtime.Types.Extensions.I
    * 
    */
   updateMany<T extends VersionTableUpdateManyArgs>(args: Prisma.SelectSubset<T, VersionTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more VersionTables and returns the data updated in the database.
+   * @param {VersionTableUpdateManyAndReturnArgs} args - Arguments to update many VersionTables.
+   * @example
+   * // Update many VersionTables
+   * const versionTable = await prisma.versionTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more VersionTables and only return the `id`
+   * const versionTableWithIdOnly = await prisma.versionTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends VersionTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, VersionTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$VersionTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one VersionTable.
@@ -966,6 +1027,25 @@ export type VersionTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.
 }
 
 /**
+ * VersionTable createManyAndReturn
+ */
+export type VersionTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the VersionTable
+   */
+  select?: Prisma.VersionTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the VersionTable
+   */
+  omit?: Prisma.VersionTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many VersionTables.
+   */
+  data: Prisma.VersionTableCreateManyInput | Prisma.VersionTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * VersionTable update
  */
 export type VersionTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -991,6 +1071,32 @@ export type VersionTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inte
  * VersionTable updateMany
  */
 export type VersionTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update VersionTables.
+   */
+  data: Prisma.XOR<Prisma.VersionTableUpdateManyMutationInput, Prisma.VersionTableUncheckedUpdateManyInput>
+  /**
+   * Filter which VersionTables to update
+   */
+  where?: Prisma.VersionTableWhereInput
+  /**
+   * Limit how many VersionTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * VersionTable updateManyAndReturn
+ */
+export type VersionTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the VersionTable
+   */
+  select?: Prisma.VersionTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the VersionTable
+   */
+  omit?: Prisma.VersionTableOmit<ExtArgs> | null
   /**
    * The data used to update VersionTables.
    */

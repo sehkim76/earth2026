@@ -223,7 +223,6 @@ export type LockTableOrderByWithRelationInput = {
   userId?: Prisma.SortOrder
   isLock?: Prisma.SortOrder
   updated_at?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.LockTableOrderByRelevanceInput
 }
 
 export type LockTableWhereUniqueInput = Prisma.AtLeast<{
@@ -314,12 +313,6 @@ export type LockTableUncheckedUpdateManyInput = {
   updated_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
-export type LockTableOrderByRelevanceInput = {
-  fields: Prisma.LockTableOrderByRelevanceFieldEnum | Prisma.LockTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type LockTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -366,7 +359,21 @@ export type LockTableSelect<ExtArgs extends runtime.Types.Extensions.InternalArg
   updated_at?: boolean
 }, ExtArgs["result"]["lockTable"]>
 
+export type LockTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  userId?: boolean
+  isLock?: boolean
+  updated_at?: boolean
+}, ExtArgs["result"]["lockTable"]>
 
+export type LockTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  userId?: boolean
+  isLock?: boolean
+  updated_at?: boolean
+}, ExtArgs["result"]["lockTable"]>
 
 export type LockTableSelectScalar = {
   id?: boolean
@@ -505,6 +512,30 @@ export interface LockTableDelegate<ExtArgs extends runtime.Types.Extensions.Inte
   createMany<T extends LockTableCreateManyArgs>(args?: Prisma.SelectSubset<T, LockTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many LockTables and returns the data saved in the database.
+   * @param {LockTableCreateManyAndReturnArgs} args - Arguments to create many LockTables.
+   * @example
+   * // Create many LockTables
+   * const lockTable = await prisma.lockTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many LockTables and only return the `id`
+   * const lockTableWithIdOnly = await prisma.lockTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends LockTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, LockTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$LockTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a LockTable.
    * @param {LockTableDeleteArgs} args - Arguments to delete one LockTable.
    * @example
@@ -567,6 +598,36 @@ export interface LockTableDelegate<ExtArgs extends runtime.Types.Extensions.Inte
    * 
    */
   updateMany<T extends LockTableUpdateManyArgs>(args: Prisma.SelectSubset<T, LockTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more LockTables and returns the data updated in the database.
+   * @param {LockTableUpdateManyAndReturnArgs} args - Arguments to update many LockTables.
+   * @example
+   * // Update many LockTables
+   * const lockTable = await prisma.lockTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more LockTables and only return the `id`
+   * const lockTableWithIdOnly = await prisma.lockTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends LockTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, LockTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$LockTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one LockTable.
@@ -970,6 +1031,25 @@ export type LockTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.Int
 }
 
 /**
+ * LockTable createManyAndReturn
+ */
+export type LockTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the LockTable
+   */
+  select?: Prisma.LockTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the LockTable
+   */
+  omit?: Prisma.LockTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many LockTables.
+   */
+  data: Prisma.LockTableCreateManyInput | Prisma.LockTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * LockTable update
  */
 export type LockTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -995,6 +1075,32 @@ export type LockTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Interna
  * LockTable updateMany
  */
 export type LockTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update LockTables.
+   */
+  data: Prisma.XOR<Prisma.LockTableUpdateManyMutationInput, Prisma.LockTableUncheckedUpdateManyInput>
+  /**
+   * Filter which LockTables to update
+   */
+  where?: Prisma.LockTableWhereInput
+  /**
+   * Limit how many LockTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * LockTable updateManyAndReturn
+ */
+export type LockTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the LockTable
+   */
+  select?: Prisma.LockTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the LockTable
+   */
+  omit?: Prisma.LockTableOmit<ExtArgs> | null
   /**
    * The data used to update LockTables.
    */

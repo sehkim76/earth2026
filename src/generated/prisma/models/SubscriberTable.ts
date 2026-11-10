@@ -232,7 +232,6 @@ export type SubscriberTableOrderByWithRelationInput = {
   SubscribingServices?: Prisma.SortOrder
   SubscribingEndDate?: Prisma.SortOrderInput | Prisma.SortOrder
   SubscriberCode?: Prisma.SortOrder
-  _relevance?: Prisma.SubscriberTableOrderByRelevanceInput
 }
 
 export type SubscriberTableWhereUniqueInput = Prisma.AtLeast<{
@@ -333,12 +332,6 @@ export type SubscriberTableUncheckedUpdateManyInput = {
   SubscriberCode?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type SubscriberTableOrderByRelevanceInput = {
-  fields: Prisma.SubscriberTableOrderByRelevanceFieldEnum | Prisma.SubscriberTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type SubscriberTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   Title?: Prisma.SortOrder
@@ -385,7 +378,23 @@ export type SubscriberTableSelect<ExtArgs extends runtime.Types.Extensions.Inter
   SubscriberCode?: boolean
 }, ExtArgs["result"]["subscriberTable"]>
 
+export type SubscriberTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Title?: boolean
+  SubscriberThumbnail?: boolean
+  SubscribingServices?: boolean
+  SubscribingEndDate?: boolean
+  SubscriberCode?: boolean
+}, ExtArgs["result"]["subscriberTable"]>
 
+export type SubscriberTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  Title?: boolean
+  SubscriberThumbnail?: boolean
+  SubscribingServices?: boolean
+  SubscribingEndDate?: boolean
+  SubscriberCode?: boolean
+}, ExtArgs["result"]["subscriberTable"]>
 
 export type SubscriberTableSelectScalar = {
   id?: boolean
@@ -526,6 +535,30 @@ export interface SubscriberTableDelegate<ExtArgs extends runtime.Types.Extension
   createMany<T extends SubscriberTableCreateManyArgs>(args?: Prisma.SelectSubset<T, SubscriberTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many SubscriberTables and returns the data saved in the database.
+   * @param {SubscriberTableCreateManyAndReturnArgs} args - Arguments to create many SubscriberTables.
+   * @example
+   * // Create many SubscriberTables
+   * const subscriberTable = await prisma.subscriberTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many SubscriberTables and only return the `id`
+   * const subscriberTableWithIdOnly = await prisma.subscriberTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends SubscriberTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, SubscriberTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SubscriberTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a SubscriberTable.
    * @param {SubscriberTableDeleteArgs} args - Arguments to delete one SubscriberTable.
    * @example
@@ -588,6 +621,36 @@ export interface SubscriberTableDelegate<ExtArgs extends runtime.Types.Extension
    * 
    */
   updateMany<T extends SubscriberTableUpdateManyArgs>(args: Prisma.SelectSubset<T, SubscriberTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more SubscriberTables and returns the data updated in the database.
+   * @param {SubscriberTableUpdateManyAndReturnArgs} args - Arguments to update many SubscriberTables.
+   * @example
+   * // Update many SubscriberTables
+   * const subscriberTable = await prisma.subscriberTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more SubscriberTables and only return the `id`
+   * const subscriberTableWithIdOnly = await prisma.subscriberTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends SubscriberTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, SubscriberTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SubscriberTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one SubscriberTable.
@@ -992,6 +1055,25 @@ export type SubscriberTableCreateManyArgs<ExtArgs extends runtime.Types.Extensio
 }
 
 /**
+ * SubscriberTable createManyAndReturn
+ */
+export type SubscriberTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SubscriberTable
+   */
+  select?: Prisma.SubscriberTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the SubscriberTable
+   */
+  omit?: Prisma.SubscriberTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many SubscriberTables.
+   */
+  data: Prisma.SubscriberTableCreateManyInput | Prisma.SubscriberTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * SubscriberTable update
  */
 export type SubscriberTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1017,6 +1099,32 @@ export type SubscriberTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.I
  * SubscriberTable updateMany
  */
 export type SubscriberTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update SubscriberTables.
+   */
+  data: Prisma.XOR<Prisma.SubscriberTableUpdateManyMutationInput, Prisma.SubscriberTableUncheckedUpdateManyInput>
+  /**
+   * Filter which SubscriberTables to update
+   */
+  where?: Prisma.SubscriberTableWhereInput
+  /**
+   * Limit how many SubscriberTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * SubscriberTable updateManyAndReturn
+ */
+export type SubscriberTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the SubscriberTable
+   */
+  select?: Prisma.SubscriberTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the SubscriberTable
+   */
+  omit?: Prisma.SubscriberTableOmit<ExtArgs> | null
   /**
    * The data used to update SubscriberTables.
    */

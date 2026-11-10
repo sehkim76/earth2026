@@ -47,13 +47,16 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 };
 
 import Ranking, { type RankingItem } from "@/components/Ranking";
-import { clearAllGameSnapshots } from "@/lib/game-score";
-import { positionAtMoveTarget } from "@/lib/units";
+import { clearAllGameSnapshots } from "@/lib/snapshots";
+import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import {
   ADMIN_LEVEL_LABEL,
+  DONG_HD_MIN_ZOOM,
   SUPPORTED_COUNTRIES,
   detectCountryByLatLon,
   fetchBoundary,
+  fetchDongHdFeatures,
+  findDongHdTiles,
   getBoundaryStyle,
   getDisplayName,
   normalizeProperties,
@@ -66,7 +69,7 @@ import {
   type PlayerCharacter,
 } from "@/lib/map-settings";
 import { cn } from "@/lib/utils";
-import TerritoryUI from "@/components/territory/TerritoryUI";
+import TerritoryUI, { LORD_UNIT_ID } from "@/components/territory/TerritoryUI";
 
 import { clampWalkableMove, snapToNearestWalkableLocation } from "@/lib/walkable-client";
 import {
@@ -234,6 +237,10 @@ const GLOBE_SATELLITE_TILES = [
 const GLOBE_DEFAULT_ZOOM = 15;
 const GLOBE_STYLE_ID = "globe-satellite-style";
 const ADMIN_GLOBE_SOURCE_ID = "admin-boundaries";
+/** 메모리에 유지할 고해상도 동 타일 상한 (초과 시 오래된 타일부터 단순화본으로 복귀). */
+const DONG_HD_TILE_LIMIT = 32;
+/** 행정경계 전용 Leaflet pane (canvas 렌더러, overlayPane(400) 아래). */
+const ADMIN_LEAFLET_PANE = "adminBoundaryPane";
 const ADMIN_GLOBE_FILL_LAYER_ID = "admin-fill";
 const ADMIN_GLOBE_LINE_LAYER_ID = "admin-line";
 
@@ -746,27 +753,13 @@ const clusterByPixelDistance = (
   return clusters;
 };
 const POI_LABEL_OFFSET_Y = -28;
-const Q_KEY_POI_OFFSET_METERS = 1.5;
 const NEARBY_PLAYERS_POLL_INTERVAL_MS = 5_000;
 const NEARBY_PLAYERS_SINCE_SEC = 35;
 const NEARBY_PLAYERS_LIMIT = 80;
 const NEARBY_PLAYERS_BOUNDS_PAD_RATIO = 0.15;
 const PLAYER_LOCATION_MIN_MOVE_METERS = 2;
-const JOYSTICK_STATE_COMMIT_INTERVAL_MS = 80;
-const JOYSTICK_MAX_SPEED_METERS_PER_SECOND = 25;
-const JOYSTICK_TURN_SPEED_DEG_PER_SECOND = 190;
-const KEYBOARD_ARROW_REFERENCE_JOYSTICK_DISTANCE = 20;
-const KEYBOARD_ARROW_STEP_SECONDS = JOYSTICK_STATE_COMMIT_INTERVAL_MS / 1000;
-const KEYBOARD_TURN_STEP_DEG = 10;
 const MAP_ROTATION_STATE_COMMIT_INTERVAL_MS = 50;
 const MAP_ROTATION_MIN_DEG_TO_COMMIT = 0.5;
-const MAP_ROTATION_OVERSCAN_MULTIPLIER = 1.06;
-const MAP_ROTATION_OVERSCAN_MAX_SCALE = 2.8;
-const KEYBOARD_ARROW_STEP_METERS =
-  JOYSTICK_MAX_SPEED_METERS_PER_SECOND *
-  (KEYBOARD_ARROW_REFERENCE_JOYSTICK_DISTANCE / 40) *
-  KEYBOARD_ARROW_STEP_SECONDS;
-const SPRITE_DIRECTION_JOYSTICK_X_THRESHOLD = 0.2;
 const SPRITE_DIRECTION_LON_THRESHOLD = 0.000001;
 const EDGE_INDICATOR_BOTTOM_SAFE_GAP = 8;
 const EDGE_INDICATOR_FALLBACK_TOOLBAR_HEIGHT = 104;
@@ -1098,6 +1091,95 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c;
 };
 
+/**
+ * 무법자 이동 구간 추출: 저장된 전체 경로 중 현재 다리(from→dest)에 해당하는
+ * 부분만 잘라낸다. 정점이 아닌 구간(segment) 기준으로 가장 가까운 점을 찾아
+ * 다리 중간 보간점이 정점에서 멀어도 경로 위로 인식한다.
+ * (반환값은 [from, ...경로..., dest] 순서의 폴리선이다.)
+ */
+const neutralLegSubpath = (
+  fromLat: number,
+  fromLon: number,
+  toLat: number,
+  toLon: number,
+  path: Array<{ lat: number; lon: number }> | null | undefined,
+): Array<{ lat: number; lon: number }> => {
+  const fallback = [{ lat: fromLat, lon: fromLon }, { lat: toLat, lon: toLon }];
+  if (!Array.isArray(path) || path.length === 0) {
+    return fallback;
+  }
+  const kxOf = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+  // 각 정점까지의 거리가 아닌, 각 구간(segment)까지의 최단거리로 본다.
+  let bestSeg = -1;
+  let bestT = 0;
+  let bestD = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < path.length; i += 1) {
+    const a = path[i];
+    if (!a || !Number.isFinite(a.lat) || !Number.isFinite(a.lon)) {
+      continue;
+    }
+    const b = i + 1 < path.length ? path[i + 1] : null;
+    const kx = kxOf(a.lat);
+    const d0 = Math.hypot((fromLon - a.lon) * kx, (fromLat - a.lat) * 110540);
+    if (d0 < bestD) {
+      bestD = d0;
+      bestSeg = i;
+    }
+    if (!b || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) {
+      continue;
+    }
+    const dx = (b.lon - a.lon) * kx;
+    const dy = (b.lat - a.lat) * 110540;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, (((fromLon - a.lon) * kx) * dx + (fromLat - a.lat) * 110540 * dy) / len2));
+    const d = Math.hypot((a.lon + (b.lon - a.lon) * t - fromLon) * kx, (a.lat + (b.lat - a.lat) * t - fromLat) * 110540);
+    if (d < bestD) {
+      bestD = d;
+      bestSeg = i;
+    }
+  }
+  if (bestSeg < 0) {
+    return fallback;
+  }
+  // 목적지에 가장 가까운 정점을 찾는다 (시작 구간 이후에서).
+  let endIdx = path.length - 1;
+  {
+    let bd = Number.POSITIVE_INFINITY;
+    for (let i = bestSeg; i < path.length; i += 1) {
+      const p = path[i];
+      if (!p) {
+        continue;
+      }
+      const d = calculateDistance(toLat, toLon, p.lat, p.lon);
+      if (d < bd) {
+        bd = d;
+        endIdx = i;
+      }
+    }
+  }
+  const sub: Array<{ lat: number; lon: number }> = [{ lat: fromLat, lon: fromLon }];
+  // 시작점이 경로에서 너무 멀면(잔재 경로) 직선으로 폴백한다.
+  if (!(bestD <= 100)) {
+    return [{ lat: fromLat, lon: fromLon }, { lat: toLat, lon: toLon }];
+  }
+  for (let i = bestSeg; i <= endIdx; i += 1) {
+    const p = path[i];
+    if (!p) {
+      continue;
+    }
+    const last = sub[sub.length - 1];
+    if (last && calculateDistance(last.lat, last.lon, p.lat, p.lon) < 1) {
+      continue;
+    }
+    sub.push({ lat: p.lat, lon: p.lon });
+  }
+  const last = sub[sub.length - 1];
+  if (!last || calculateDistance(last.lat, last.lon, toLat, toLon) >= 1) {
+    sub.push({ lat: toLat, lon: toLon });
+  }
+  return sub.length >= 2 ? sub : fallback;
+};
+
 const formatEdgeIndicatorDistance = (distanceMeters: number): string => {
   if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
     return "-";
@@ -1213,36 +1295,6 @@ const markScoreAnimatedSig = (sig: string): void => {
   }
 };
 
-const getJoystickBaseStorageKey = (cacheKey: string): string => `joystick-base:${cacheKey}`;
-
-const readStoredJoystickBase = (cacheKey: string): { lat: number; lon: number } | null => {
-  try {
-    const raw = window.sessionStorage.getItem(getJoystickBaseStorageKey(cacheKey));
-    if (!raw) {
-      return null;
-    }
-    const parsed = JSON.parse(raw) as { lat?: unknown; lon?: unknown };
-    if (typeof parsed.lat !== "number" || typeof parsed.lon !== "number") {
-      return null;
-    }
-    if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lon)) {
-      return null;
-    }
-    return { lat: parsed.lat, lon: parsed.lon };
-  } catch {
-    return null;
-  }
-};
-
-const writeStoredJoystickBase = (cacheKey: string, base: { lat: number; lon: number }): void => {
-  try {
-    window.sessionStorage.setItem(
-      getJoystickBaseStorageKey(cacheKey),
-      JSON.stringify({ lat: base.lat, lon: base.lon })
-    );
-  } catch {
-  }
-};
 
 /** 영토전 시작 위치 스토어 (시-도/군-구/동-읍 선택). 타입은 피커 참고. */
 
@@ -1480,13 +1532,10 @@ export default function CurrentLocationMap({
       ? Math.max(0, (initialPlayerScore ?? 0) - pendingScoreAnimation.addedScore)
       : 0
   );
-  const [showJoystick, setShowJoystick] = useState(initialSettings.showJoystick);
-  const [joystickPosition, setJoystickPosition] = useState({ x: 0, y: 0 });
   const [isHeadingUpMode, setIsHeadingUpMode] = useState(false);
   const [mapRotationDeg, setMapRotationDeg] = useState(0);
   const [compassIconDataUrl, setCompassIconDataUrl] = useState<string | null>(null);
   const [edgeIndicatorIconDataUrl, setEdgeIndicatorIconDataUrl] = useState<string | null>(null);
-  const [joystickBaseLocation, setJoystickBaseLocation] = useState<GeoResult | null>(null);
   // 영토전 시작 위치 (GPS 미사용 모드). 없으면 선택 모달이 뜬다.
   const [territoryStart, setTerritoryStart] = useState<TerritoryStart | null>(null);
   const [startPickerOpen, setStartPickerOpen] = useState(false);
@@ -1498,18 +1547,107 @@ export default function CurrentLocationMap({
     }
     setStartPickerOpen(false);
   }, [locationCacheKey]);
+  // 영주(플레이어) 이동 주문 (부대와 동일한 이동 지시 방식, 클라이언트 권위).
+  // 주문 종료(도착/중지) 후에는 그 자리 정착 지점에서 머문다. 정착지와 진행 중
+  // 주문은 세션 스토리지에 저장해 새로고침 후에도 이어받는다.
+  const LORD_BASE_STORAGE_KEY = "lord-move-base";
+  const LORD_ORDER_STORAGE_KEY = "lord-move-order";
+  const readStoredLordBase = (): { lat: number; lon: number } | null => {
+    try {
+      const raw = window.sessionStorage.getItem(LORD_BASE_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { lat?: unknown; lon?: unknown };
+      if (typeof parsed.lat !== "number" || typeof parsed.lon !== "number") return null;
+      if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lon)) return null;
+      return { lat: parsed.lat, lon: parsed.lon };
+    } catch {
+      return null;
+    }
+  };
+  const readStoredLordOrder = (): UnitMoveTarget | null => {
+    try {
+      const raw = window.sessionStorage.getItem(LORD_ORDER_STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Partial<UnitMoveTarget>;
+      if (
+        typeof parsed.fromLat !== "number" || typeof parsed.fromLon !== "number" ||
+        typeof parsed.lat !== "number" || typeof parsed.lon !== "number" ||
+        typeof parsed.startedAt !== "number" || typeof parsed.endsAt !== "number"
+      ) {
+        return null;
+      }
+      if (Date.now() >= parsed.endsAt) return null;
+      return {
+        fromLat: parsed.fromLat, fromLon: parsed.fromLon,
+        lat: parsed.lat, lon: parsed.lon,
+        startedAt: parsed.startedAt, endsAt: parsed.endsAt,
+        via: null,
+        path: Array.isArray(parsed.path) ? parsed.path : null,
+      };
+    } catch {
+      return null;
+    }
+  };
+  const [playerMoveTarget, setPlayerMoveTarget] = useState<UnitMoveTarget | null>(null);
+  const [playerManualBase, setPlayerManualBase] = useState<{ lat: number; lon: number } | null>(null);
+  useEffect(() => {
+    try {
+      const savedOrder = readStoredLordOrder();
+      if (savedOrder) {
+        setPlayerMoveTarget(savedOrder);
+      } else {
+        const savedBase = readStoredLordBase();
+        if (savedBase) {
+          setPlayerManualBase(savedBase);
+        }
+      }
+    } catch {
+      // 무시
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [playerMoveTick, setPlayerMoveTick] = useState(0);
+  useEffect(() => {
+    if (!playerMoveTarget) {
+      return;
+    }
+    const settle = (): void => {
+      try {
+        window.sessionStorage.setItem(LORD_BASE_STORAGE_KEY, JSON.stringify({ lat: playerMoveTarget.lat, lon: playerMoveTarget.lon }));
+        window.sessionStorage.removeItem(LORD_ORDER_STORAGE_KEY);
+      } catch {
+        // 무시
+      }
+      setPlayerManualBase({ lat: playerMoveTarget.lat, lon: playerMoveTarget.lon });
+      setPlayerMoveTarget(null);
+    };
+    if (Date.now() >= playerMoveTarget.endsAt) {
+      settle();
+      return;
+    }
+    const id = window.setInterval(() => {
+      if (Date.now() >= playerMoveTarget.endsAt) {
+        window.clearInterval(id);
+        settle();
+        return;
+      }
+      setPlayerMoveTick((t) => t + 1);
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [playerMoveTarget]);
   // 플레이어 위치 단일 진실 공급원.
-  // - 조이스틱 ON이면 조이스틱 기점 (양 모드 공통).
+  // - 영주 이동 주문이 있으면 주문 경로를 따라 이동 (부대와 동일한 보간).
   // - 영토전이면 저장된 시작 위치 (GPS 미사용).
   // - 그 외 GPS. 직접 GPS(location)를 게임 로직에 쓰지 않는다.
   const playerLocation = useMemo(() => {
-    if (
-      showJoystick &&
-      joystickBaseLocation &&
-      Number.isFinite(joystickBaseLocation.lat) &&
-      Number.isFinite(joystickBaseLocation.lon)
-    ) {
-      return { lat: joystickBaseLocation.lat, lon: joystickBaseLocation.lon };
+    if (playerMoveTarget) {
+      const pos = positionAtMoveTarget(playerMoveTarget, Date.now());
+      if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
+        return { lat: pos.lat, lon: pos.lon };
+      }
+    }
+    if (playerManualBase && Number.isFinite(playerManualBase.lat) && Number.isFinite(playerManualBase.lon)) {
+      return { lat: playerManualBase.lat, lon: playerManualBase.lon };
     }
     if (territoryEnabled) {
       if (
@@ -1525,7 +1663,7 @@ export default function CurrentLocationMap({
       return { lat: location.lat, lon: location.lon };
     }
     return null;
-  }, [showJoystick, joystickBaseLocation, territoryEnabled, territoryStart, location]);
+  }, [playerMoveTarget, playerManualBase, territoryEnabled, territoryStart, location, playerMoveTick]);
   const [proximityMarkerInfo, setProximityMarkerInfo] = useState<MarkerPanel | null>(null);
   // ?vdebug=1 뷰포트 진단 오버레이 (아이폰 UI 잘림 원인 특정용).
   const [viewportDebugLines, setViewportDebugLines] = useState<string[]>([]);
@@ -1998,12 +2136,18 @@ export default function CurrentLocationMap({
         setPlacementBusy(false);
       });
   }, [location?.lat, location?.lon, location?.accuracy, playerLocation?.lat, playerLocation?.lon, placementBusy]);
+  const [lordSelected, setLordSelected] = useState(false);
   const [unitMarks, setUnitMarks] = useState<
     { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; quizTitle?: string; moveTarget: UnitMoveTargetMark | null }[]
   >([]);
+  const unitMarksRef = useRef<typeof unitMarks>([]);
+  useEffect(() => {
+    unitMarksRef.current = unitMarks;
+  }, [unitMarks]);
   const otherUnitMoveAnimRef = useRef(new Map<string, OtherUnitMoveAnim>());
   const otherUnitMoveLoopRef = useRef<number | null>(null);
   const [unitMarkerSelection, setUnitMarkerSelection] = useState<{ id: string; nonce: number } | null>(null);
+
   const [territoryTargetMarkerUrl, setTerritoryTargetMarkerUrl] = useState<string | null>(null);
   const unitMarkerSelectionNonceRef = useRef(0);
   const handleUnitMarkerClick = useCallback((unitId: string): void => {
@@ -2232,7 +2376,6 @@ interface OtherUnitMoveAnim {
   const [moveTargetCenter, setMoveTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
 
   const [edgeIndicators, setEdgeIndicators] = useState<EdgeIndicator[]>([]);
-  const [isDraggingJoystick, setIsDraggingJoystick] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showEventRevisited, setShowEventRevisited] = useState(showEventRevisitedDialog);
   const [attackDenied, setAttackDenied] = useState<string | null>(attackDeniedReason);
@@ -2256,7 +2399,45 @@ interface OtherUnitMoveAnim {
   const [adminAutoCountry, setAdminAutoCountry] = useState(true);
   const [adminViewport, setAdminViewport] = useState<{ lat: number; lon: number } | null>(null);
   const [adminLevel, setAdminLevel] = useState<AdminLevel>("dong");
-  const [adminGeoJson, setAdminGeoJson] = useState<GeoJSON.FeatureCollection | null>(null);
+  // 전국 단순화본 (줌 아웃·원거리 동). 고해상도 타일이 있는 동은 adminGeoJson에서 교체된다.
+  const [adminBaseGeoJson, setAdminBaseGeoJson] = useState<GeoJSON.FeatureCollection | null>(null);
+  // 고해상도 동 타일 (tileId → 정규화된 피처). 삽입 순서 = 최근 사용 순.
+  const [dongHdTiles, setDongHdTiles] = useState<Map<string, GeoJSON.Feature[]>>(() => new Map());
+  const dongHdTilesRef = useRef<Map<string, GeoJSON.Feature[]>>(dongHdTiles);
+  dongHdTilesRef.current = dongHdTiles;
+  const useDongHd = adminCountry === "KOR" && adminLevel === "dong";
+  const adminGeoJson = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    if (!adminBaseGeoJson || !useDongHd || dongHdTiles.size === 0) {
+      return adminBaseGeoJson;
+    }
+    const replacements = new Map<string, GeoJSON.Feature[]>();
+    dongHdTiles.forEach((features) => {
+      for (const feature of features) {
+        const code = (feature.properties as Record<string, unknown> | null)?.["_normCode"];
+        if (typeof code !== "string" || code === "") {
+          continue;
+        }
+        const list = replacements.get(code);
+        if (list) {
+          list.push(feature);
+        } else {
+          replacements.set(code, [feature]);
+        }
+      }
+    });
+    const features: GeoJSON.Feature[] = [];
+    for (const feature of adminBaseGeoJson.features) {
+      const code = (feature.properties as Record<string, unknown> | null)?.["_normCode"];
+      const hd = typeof code === "string" ? replacements.get(code) : undefined;
+      if (hd) {
+        features.push(...hd);
+        replacements.delete(code as string);
+      } else {
+        features.push(feature);
+      }
+    }
+    return { type: "FeatureCollection", features };
+  }, [adminBaseGeoJson, useDongHd, dongHdTiles]);
   const [adminLoading, setAdminLoading] = useState(false);
   // 플레이어가 위치한 동 코드 (중립 부대 스폰·조회 기준 — 선택 동과 무관하게 고정).
   const playerDongCode = useMemo(() => {
@@ -2451,7 +2632,7 @@ interface OtherUnitMoveAnim {
   }, [zoomLevel, locationCacheKey, mapStyle]);
   useEffect(() => {
     if (!showAdminBoundaries) {
-      setAdminGeoJson(null);
+      setAdminBaseGeoJson(null);
       setSelectedAdminCode(null);
       setSelectedAdminName(null);
       return;
@@ -2473,7 +2654,7 @@ interface OtherUnitMoveAnim {
             _displayName: getDisplayName(norm),
           };
         }
-        setAdminGeoJson(fc as unknown as GeoJSON.FeatureCollection);
+        setAdminBaseGeoJson(fc as unknown as GeoJSON.FeatureCollection);
         setAdminLoading(false);
       })
       .catch(() => {
@@ -2519,6 +2700,105 @@ interface OtherUnitMoveAnim {
     }
     return selectedAdminCode;
   })();
+
+  // 고해상도 동 경계 타일 로딩: 플레이어 주변은 항상, 화면 영역은 DONG_HD_MIN_ZOOM 이상에서.
+  useEffect(() => {
+    if (!showAdminBoundaries || !useDongHd) {
+      return;
+    }
+    const boxes: Array<{ west: number; south: number; east: number; north: number }> = [];
+    if (playerLocation && Number.isFinite(playerLocation.lat) && Number.isFinite(playerLocation.lon)) {
+      boxes.push({
+        west: playerLocation.lon - 0.005,
+        east: playerLocation.lon + 0.005,
+        south: playerLocation.lat - 0.005,
+        north: playerLocation.lat + 0.005,
+      });
+    }
+    if (adminViewport && zoomLevel >= DONG_HD_MIN_ZOOM) {
+      // 회전 지도를 고려해 화면 긴 변 기준 정사각형 + 20% 여유.
+      const screenPx = Math.max(window.innerWidth || 0, window.innerHeight || 0, 800);
+      const halfLon = ((0.5 * screenPx * 360) / (256 * 2 ** zoomLevel)) * 1.2;
+      const halfLat = halfLon * Math.cos((adminViewport.lat * Math.PI) / 180);
+      boxes.push({
+        west: adminViewport.lon - halfLon,
+        east: adminViewport.lon + halfLon,
+        south: adminViewport.lat - halfLat,
+        north: adminViewport.lat + halfLat,
+      });
+    }
+    if (boxes.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const wanted = await findDongHdTiles(boxes);
+      const missing = wanted.filter((id) => !dongHdTilesRef.current.has(id));
+      if (cancelled || missing.length === 0) {
+        return;
+      }
+      const loaded = await Promise.all(
+        missing.map(async (id) => {
+          const features = await fetchDongHdFeatures([id]);
+          for (const feat of features) {
+            const rawProps: unknown = feat.properties;
+            const norm = normalizeProperties(rawProps, "KOR", "dong");
+            feat.properties = {
+              ...((rawProps as Record<string, unknown> | null) ?? {}),
+              _normName: norm.name,
+              _normCode: norm.code,
+              _displayName: getDisplayName(norm),
+            };
+          }
+          return [id, features] as const;
+        })
+      );
+      if (cancelled) {
+        return;
+      }
+      setDongHdTiles((prev) => {
+        const next = new Map(prev);
+        // 이번 요청 타일을 최근 사용으로 갱신.
+        for (const id of wanted) {
+          const existing = next.get(id);
+          if (existing) {
+            next.delete(id);
+            next.set(id, existing);
+          }
+        }
+        for (const [id, features] of loaded) {
+          if (features.length > 0) {
+            next.set(id, features);
+          }
+        }
+        // 오래 안 쓴 타일부터 정리해 렌더 대상 꼭짓점 수를 제한한다 (현재 요청 타일은 유지).
+        const keep = new Set(wanted);
+        for (const id of next.keys()) {
+          if (next.size <= DONG_HD_TILE_LIMIT) {
+            break;
+          }
+          if (!keep.has(id)) {
+            next.delete(id);
+          }
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // 플레이어 좌표는 약 100m 단위로만 반영한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    showAdminBoundaries,
+    useDongHd,
+    adminViewport,
+    zoomLevel,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    playerLocation ? Math.round(playerLocation.lat * 1000) : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    playerLocation ? Math.round(playerLocation.lon * 1000) : null,
+  ]);
 
   const updateAdminViewport = useCallback((lat: number, lon: number) => {
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -2579,14 +2859,9 @@ interface OtherUnitMoveAnim {
   const hasAnimatedRef = useRef(false);
   const hasSyncedSettingsRef = useRef(false);
   const hasRestoredZoomRef = useRef(false);
-  const joystickPendingPositionRef = useRef({ x: 0, y: 0 });
-  const joystickVisualRafRef = useRef<number | null>(null);
   const mapRotationDegRef = useRef(0);
   const updateEdgeIndicatorsRef = useRef<(() => void) | null>(null);
   const lastMapRotationCommitTimeRef = useRef<number | null>(null);
-  const joystickMouseDragActiveRef = useRef(false);
-  const joystickDragCenterRef = useRef<{ x: number; y: number } | null>(null);
-
   useEffect(() => {
     let isCancelled = false;
 
@@ -2781,14 +3056,14 @@ interface OtherUnitMoveAnim {
       if (walkingFrameUrls.length > 0) {
         return "walking";
       }
-      return walkingFramesFailed ? "pyramid" : null;
+      return walkingFramesFailed ? "fallenAngel" : null;
     }
 
     if (selectedCharacter === "fallenAngel") {
       if (fallenAngelFrameUrls.length > 0) {
         return "fallenAngel";
       }
-      return fallenAngelFramesFailed ? "pyramid" : null;
+      return fallenAngelFramesFailed ? "fallenAngel" : null;
     }
 
     return selectedCharacter;
@@ -3234,48 +3509,6 @@ interface OtherUnitMoveAnim {
   }, [visitedEventKeySet]);
 
   useEffect(() => {
-    if (!showJoystick || joystickBaseLocation) {
-      return;
-    }
-    // 시드 우선순위: 저장된 조이스틱 기점 > 영토전 시작 위치 > GPS.
-    // 영토전 GPS-free 모드에서는 GPS를 쓰지 않는다.
-    const seed = territoryEnabled
-      ? territoryStart && Number.isFinite(territoryStart.lat) && Number.isFinite(territoryStart.lon)
-        ? { lat: territoryStart.lat, lon: territoryStart.lon }
-        : null
-      : location;
-    if (!seed) {
-      return;
-    }
-
-    const storedBase = readStoredJoystickBase(locationCacheKey);
-    if (storedBase) {
-      setJoystickBaseLocation({
-        lat: storedBase.lat,
-        lon: storedBase.lon,
-        accuracy: territoryEnabled ? undefined : location?.accuracy,
-        timestamp: Date.now(),
-      });
-      return;
-    }
-
-    setJoystickBaseLocation({
-      lat: seed.lat,
-      lon: seed.lon,
-      accuracy: territoryEnabled ? undefined : location?.accuracy,
-      timestamp: Date.now(),
-    });
-  }, [showJoystick, joystickBaseLocation, location, territoryEnabled, territoryStart, locationCacheKey]);
-
-  useEffect(() => {
-    if (!joystickBaseLocation) {
-      return;
-    }
-
-    writeStoredJoystickBase(locationCacheKey, joystickBaseLocation);
-  }, [joystickBaseLocation, locationCacheKey]);
-
-  useEffect(() => {
     if (!hasSyncedSettingsRef.current) {
       hasSyncedSettingsRef.current = true;
       return;
@@ -3292,7 +3525,6 @@ interface OtherUnitMoveAnim {
           },
           credentials: "include",
           body: JSON.stringify({
-            showJoystick,
             selectedCharacter,
             mapStyle,
           }),
@@ -3312,21 +3544,8 @@ interface OtherUnitMoveAnim {
     return () => {
       controller.abort();
     };
-  }, [showJoystick, selectedCharacter, mapStyle]);
+  }, [selectedCharacter, mapStyle]);
 
-  useEffect(() => {
-    if (isDraggingJoystick) {
-      document.body.style.cursor = 'grab';
-      document.body.classList.add('joystick-dragging');
-    } else {
-      document.body.style.cursor = '';
-      document.body.classList.remove('joystick-dragging');
-    }
-    return () => {
-      document.body.style.cursor = '';
-      document.body.classList.remove('joystick-dragging');
-    };
-  }, [isDraggingJoystick]);
   const animationCompleteRef = useRef(false);
   const hasRefreshedForScoreRef = useRef(false);
   const scoreAnimSigRef = useRef<string | null>(null);
@@ -3429,13 +3648,7 @@ interface OtherUnitMoveAnim {
     }
   }, [initialPlayerScore, playerScore]);
 
-  const joystickBaseLocationRef = useRef<GeoResult | null>(null);
-  const joystickPositionRef = useRef({ x: 0, y: 0 });
   const viewHeadingDegRef = useRef(0);
-  const lastJoystickUpdateTimeRef = useRef<number | null>(null);
-  const lastJoystickStateCommitTimeRef = useRef<number | null>(null);
-  const qKeyPoiIndexRef = useRef(-1);
-
   const commitMapRotation = useCallback((nextRotationDeg: number, timestamp: number) => {
     mapRotationDegRef.current = nextRotationDeg;
 
@@ -3457,31 +3670,14 @@ interface OtherUnitMoveAnim {
     });
   }, []);
 
-  useEffect(() => {
-    joystickBaseLocationRef.current = joystickBaseLocation;
-  }, [joystickBaseLocation]);
-
-  useEffect(() => {
-    joystickPositionRef.current = joystickPosition;
-  }, [joystickPosition]);
-
   const isHeadingUpModeRef = useRef(false);
-  const showJoystickRef = useRef(initialSettings.showJoystick);
-
-  useEffect(() => {
-    isHeadingUpModeRef.current = isHeadingUpMode;
-  }, [isHeadingUpMode]);
-
-  useEffect(() => {
-    showJoystickRef.current = showJoystick;
-  }, [showJoystick]);
 
   useEffect(() => {
     viewHeadingDegRef.current = normalizeHeadingDeg(-mapRotationDeg);
   }, [mapRotationDeg]);
 
   useEffect(() => {
-    if (!isHeadingUpMode || showJoystick) {
+    if (!isHeadingUpMode) {
       return;
     }
     const handleOrientation = (event: DeviceOrientationEvent): void => {
@@ -3506,7 +3702,7 @@ interface OtherUnitMoveAnim {
     };
     window.addEventListener("deviceorientation", handleOrientation);
     return () => window.removeEventListener("deviceorientation", handleOrientation);
-  }, [isHeadingUpMode, showJoystick, commitMapRotation]);
+  }, [isHeadingUpMode, commitMapRotation]);
 
   const enableHeadingUpMode = useCallback(() => {
     setIsHeadingUpMode(true);
@@ -3518,113 +3714,6 @@ interface OtherUnitMoveAnim {
     }
   }, []);
 
-  useEffect(() => {
-    if (!showJoystick || !isDraggingJoystick) {
-      lastJoystickUpdateTimeRef.current = null;
-      lastJoystickStateCommitTimeRef.current = null;
-      return;
-    }
-
-    let rafId = 0;
-
-    const updatePosition = (timestamp: number) => {
-      const currentBase = joystickBaseLocationRef.current;
-      const currentJoystickPosition = joystickPositionRef.current;
-
-      const previousTimestamp = lastJoystickUpdateTimeRef.current;
-      lastJoystickUpdateTimeRef.current = timestamp;
-
-      if (previousTimestamp === null) {
-        rafId = window.requestAnimationFrame(updatePosition);
-        return;
-      }
-
-      const deltaSeconds = Math.min((timestamp - previousTimestamp) / 1000, 0.05);
-      
-      if (!currentBase) {
-        rafId = window.requestAnimationFrame(updatePosition);
-        return;
-      }
-
-      const distance = Math.sqrt(currentJoystickPosition.x ** 2 + currentJoystickPosition.y ** 2);
-      if (distance === 0) {
-        rafId = window.requestAnimationFrame(updatePosition);
-        return;
-      }
-      
-      const speedRatio = Math.min(distance / 40, 1);
-
-      let newLat = currentBase.lat;
-      let newLon = currentBase.lon;
-
-      if (isHeadingUpMode) {
-        const turnInput = Math.max(-1, Math.min(1, currentJoystickPosition.x / 40));
-        const forwardInput = Math.max(-1, Math.min(1, -currentJoystickPosition.y / 40));
-
-        const nextHeadingDeg = normalizeHeadingDeg(
-          viewHeadingDegRef.current + turnInput * JOYSTICK_TURN_SPEED_DEG_PER_SECOND * deltaSeconds
-        );
-        viewHeadingDegRef.current = nextHeadingDeg;
-        commitMapRotation(-nextHeadingDeg, timestamp);
-
-        if (Math.abs(forwardInput) > 0.0001) {
-          const moveMeters = JOYSTICK_MAX_SPEED_METERS_PER_SECOND * forwardInput * deltaSeconds;
-          const headingRad = (nextHeadingDeg * Math.PI) / 180;
-          const eastMeters = Math.sin(headingRad) * moveMeters;
-          const northMeters = Math.cos(headingRad) * moveMeters;
-          newLon = currentBase.lon + metersToLongitudeDelta(currentBase.lat, eastMeters);
-          newLat = currentBase.lat + metersToLatitudeDelta(northMeters);
-        }
-      } else {
-        const dirX = currentJoystickPosition.x / distance;
-        const dirY = currentJoystickPosition.y / distance;
-        const headingDeg = (Math.atan2(dirX, -dirY) * 180) / Math.PI;
-        const targetMapRotationDeg = -headingDeg;
-        commitMapRotation(targetMapRotationDeg, timestamp);
-
-        const moveMeters = JOYSTICK_MAX_SPEED_METERS_PER_SECOND * speedRatio * deltaSeconds;
-        newLon = currentBase.lon + metersToLongitudeDelta(currentBase.lat, dirX * moveMeters);
-        newLat = currentBase.lat + (-dirY) * moveMeters / 110574;
-      }
-
-      let clampedLat = newLat;
-      let clampedLon = newLon;
-      if (territoryEnabled) {
-        // 영토전: 도로 버퍼 밖으로 이동 불가 (로컬 판정, 벽 슬라이딩).
-        [clampedLat, clampedLon] = clampWalkableMove(currentBase.lat, currentBase.lon, newLat, newLon);
-      }
-      const newBase = { ...currentBase, lat: clampedLat, lon: clampedLon };
-      joystickBaseLocationRef.current = newBase;
-
-      const lastCommitTime = lastJoystickStateCommitTimeRef.current;
-      if (lastCommitTime === null || timestamp - lastCommitTime >= JOYSTICK_STATE_COMMIT_INTERVAL_MS) {
-        lastJoystickStateCommitTimeRef.current = timestamp;
-        setJoystickBaseLocation((previousBase) => {
-          if (!previousBase) {
-            return newBase;
-          }
-
-          const latDiff = Math.abs(previousBase.lat - newBase.lat);
-          const lonDiff = Math.abs(previousBase.lon - newBase.lon);
-          if (latDiff < 0.0000005 && lonDiff < 0.0000005) {
-            return previousBase;
-          }
-
-          return newBase;
-        });
-      }
-
-      rafId = window.requestAnimationFrame(updatePosition);
-    };
-
-    rafId = window.requestAnimationFrame(updatePosition);
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-      lastJoystickUpdateTimeRef.current = null;
-      lastJoystickStateCommitTimeRef.current = null;
-    };
-  }, [showJoystick, isDraggingJoystick, commitMapRotation, isHeadingUpMode, territoryEnabled]);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<RotatableLeafletMap | null>(null);
@@ -3648,6 +3737,8 @@ interface OtherUnitMoveAnim {
   const leafletRotateLoadedRef = useRef(false);
   const adminSelectedRef = useRef<string | null>(null);
   const adminLeafletLayerRef = useRef<import("leaflet").GeoJSON | null>(null);
+  const adminCanvasRendererRef = useRef<import("leaflet").Canvas | null>(null);
+  const adminCanvasRendererMapRef = useRef<unknown>(null);
   const playerMarkerDisposeRef = useRef<(() => void) | null>(null);
   const playerMarkerCharacterRef = useRef<PlayerCharacter | null>(null);
   const playerMarkerApplyFacingRef = useRef<((facingLeft: boolean) => void) | null>(null);
@@ -3700,6 +3791,14 @@ interface OtherUnitMoveAnim {
   const globeMarkersRef = useRef<GlobeMarkerLike[]>([]);
   const globeMarkerCtorRef = useRef<GlobeMarkerConstructor | null>(null);
   const globePlayerMarkerRef = useRef<GlobeMarkerLike | null>(null);
+  useEffect(() => {
+    try {
+      document.querySelectorAll(".three-player-marker").forEach((el) => {
+        el.classList.toggle("lord-selected", lordSelected);
+      });
+      (globePlayerMarkerRef.current as unknown as { getElement?: () => Element | null })?.getElement?.()?.classList?.toggle?.("lord-selected", lordSelected);
+    } catch {}
+  }, [lordSelected, activePlayerCharacter]);
   const globePlayerDisposeRef = useRef<(() => void) | null>(null);
   const globePlayerCharacterRef = useRef<PlayerCharacter | null>(null);
   const globePlayerApplyFacingRef = useRef<((facingLeft: boolean) => void) | null>(null);
@@ -4008,85 +4107,13 @@ interface OtherUnitMoveAnim {
     return canvas.toDataURL("image/png");
   }, []);
 
-  const createThreePlayerMarkerElement = useCallback((): PlayerMarkerVisual => {
-    const size = 44;
-    const root = document.createElement("div");
-    root.style.width = `${size}px`;
-    root.style.height = `${size}px`;
-    root.style.pointerEvents = "none";
-
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    canvas.style.width = "100%";
-    canvas.style.height = "100%";
-    canvas.style.display = "block";
-    root.appendChild(canvas);
-
-    const renderer = new THREE.WebGLRenderer({
-      canvas,
-      alpha: true,
-      antialias: true,
-      premultipliedAlpha: true,
-    });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(size, size, false);
-
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 20);
-    camera.position.set(0, 0.45, 4.1);
-
-    const geometry = new THREE.ConeGeometry(0.95, 2.1, 3, 1);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x38bdf8,
-      emissive: 0x0f172a,
-      emissiveIntensity: 0.18,
-      roughness: 0.3,
-      metalness: 0.2,
-    });
-    const pyramid = new THREE.Mesh(geometry, material);
-    pyramid.rotation.x = Math.PI;
-    pyramid.position.y = 0.36;
-    scene.add(pyramid);
-
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    const key = new THREE.DirectionalLight(0xffffff, 0.9);
-    key.position.set(2.2, 2.8, 2.4);
-    const rim = new THREE.DirectionalLight(0x7dd3fc, 0.5);
-    rim.position.set(-2.5, 1.1, -1.9);
-    scene.add(ambient, key, rim);
-
-    let rafId = 0;
-    const render = () => {
-      pyramid.rotation.y += 0.04;
-      renderer.render(scene, camera);
-      rafId = window.requestAnimationFrame(render);
-    };
-    render();
-
-    const dispose = () => {
-      window.cancelAnimationFrame(rafId);
-      geometry.dispose();
-      material.dispose();
-      renderer.dispose();
-      scene.clear();
-    };
-
-    return {
-      element: root,
-      dispose,
-      iconSize: [44, 44],
-      iconAnchor: [22, 43],
-      applyFacingDirection: () => {},
-    };
-  }, []);
-
   const createWalkingPlayerMarkerElement = useCallback((): PlayerMarkerVisual => {
     const size = 66;
     const root = document.createElement("div");
     root.style.width = `${size}px`;
     root.style.height = `${size}px`;
-    root.style.pointerEvents = "none";
+    root.style.pointerEvents = "auto";
+    root.style.cursor = "pointer";
 
     const image = document.createElement("img");
     image.style.width = "100%";
@@ -4137,7 +4164,8 @@ interface OtherUnitMoveAnim {
     const root = document.createElement("div");
     root.style.width = `${size}px`;
     root.style.height = `${size}px`;
-    root.style.pointerEvents = "none";
+    root.style.pointerEvents = "auto";
+    root.style.cursor = "pointer";
 
     const image = document.createElement("img");
     image.style.width = "100%";
@@ -4193,9 +4221,9 @@ interface OtherUnitMoveAnim {
         return createFallenAngelPlayerMarkerElement();
       }
 
-      return createThreePlayerMarkerElement();
+      return createFallenAngelPlayerMarkerElement();
     },
-    [createFallenAngelPlayerMarkerElement, createThreePlayerMarkerElement, createWalkingPlayerMarkerElement]
+    [createFallenAngelPlayerMarkerElement, createWalkingPlayerMarkerElement]
   );
 
   const showMarkerPanel = useCallback((panel: MarkerPanel) => {
@@ -4355,7 +4383,7 @@ interface OtherUnitMoveAnim {
         } catch {}
       }
     },
-    [mapStyle, location, showJoystick, joystickBaseLocation, playerLocation]
+    [mapStyle, location, playerLocation]
   );
 
   useEffect(() => {
@@ -4393,297 +4421,10 @@ interface OtherUnitMoveAnim {
     }
   }, [mapStyle, isMapReady, isGlobeReady, isCesiumReady, locationCacheKey, zoomLevel, applyZoomLevel]);
 
-  const clampJoystickPosition = useCallback((rawX: number, rawY: number): { x: number; y: number } => {
-    const distance = Math.sqrt(rawX ** 2 + rawY ** 2);
-    const maxRadius = 40;
 
-    if (distance <= maxRadius) {
-      return { x: rawX, y: rawY };
-    }
 
-    const scale = maxRadius / distance;
-    return { x: rawX * scale, y: rawY * scale };
-  }, []);
 
-  const commitJoystickPosition = useCallback(() => {
-    joystickVisualRafRef.current = null;
-    const nextPosition = joystickPendingPositionRef.current;
 
-    setJoystickPosition((previousPosition) => {
-      if (previousPosition.x === nextPosition.x && previousPosition.y === nextPosition.y) {
-        return previousPosition;
-      }
-
-      const isSameX = Math.abs(previousPosition.x - nextPosition.x) < 0.01;
-      const isSameY = Math.abs(previousPosition.y - nextPosition.y) < 0.01;
-
-      if (isSameX && isSameY) {
-        return previousPosition;
-      }
-
-      return nextPosition;
-    });
-  }, []);
-
-  const updateJoystickPosition = useCallback(
-    (rawX: number, rawY: number) => {
-      const nextPosition = clampJoystickPosition(rawX, rawY);
-      joystickPendingPositionRef.current = nextPosition;
-
-      if (joystickVisualRafRef.current !== null) {
-        return;
-      }
-
-      joystickVisualRafRef.current = window.requestAnimationFrame(() => {
-        commitJoystickPosition();
-      });
-    },
-    [clampJoystickPosition, commitJoystickPosition]
-  );
-
-  const resetJoystickDragState = useCallback(() => {
-    if (joystickVisualRafRef.current !== null) {
-      window.cancelAnimationFrame(joystickVisualRafRef.current);
-      joystickVisualRafRef.current = null;
-    }
-
-    joystickMouseDragActiveRef.current = false;
-    joystickDragCenterRef.current = null;
-    joystickPendingPositionRef.current = { x: 0, y: 0 };
-    joystickPositionRef.current = { x: 0, y: 0 };
-    setIsDraggingJoystick(false);
-    lastJoystickUpdateTimeRef.current = null;
-    lastJoystickStateCommitTimeRef.current = null;
-    setJoystickPosition((previousPosition) => {
-      if (previousPosition.x === 0 && previousPosition.y === 0) {
-        return previousPosition;
-      }
-
-      return { x: 0, y: 0 };
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!showJoystick) {
-      return;
-    }
-
-    const handleWindowMouseMove = (event: MouseEvent) => {
-      if (!joystickMouseDragActiveRef.current || !joystickDragCenterRef.current) {
-        return;
-      }
-
-      const center = joystickDragCenterRef.current;
-      const rawX = event.clientX - center.x;
-      const rawY = event.clientY - center.y;
-      updateJoystickPosition(rawX, rawY);
-    };
-
-    const handleWindowMouseUp = () => {
-      if (!joystickMouseDragActiveRef.current) {
-        return;
-      }
-
-      resetJoystickDragState();
-    };
-
-    window.addEventListener("mousemove", handleWindowMouseMove);
-    window.addEventListener("mouseup", handleWindowMouseUp);
-
-    return () => {
-      window.removeEventListener("mousemove", handleWindowMouseMove);
-      window.removeEventListener("mouseup", handleWindowMouseUp);
-    };
-  }, [resetJoystickDragState, showJoystick, updateJoystickPosition]);
-
-  useEffect(() => {
-    if (showJoystick) {
-      return;
-    }
-
-    qKeyPoiIndexRef.current = -1;
-  }, [showJoystick]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const pressedKey = event.key.toLowerCase();
-      const isArrowKey =
-        pressedKey === "arrowup" ||
-        pressedKey === "arrowdown" ||
-        pressedKey === "arrowleft" ||
-        pressedKey === "arrowright";
-
-      if ((pressedKey !== "q" && pressedKey !== "w" && pressedKey !== "e" && !isArrowKey) || event.repeat || !showJoystick) {
-        return;
-      }
-
-      const target = event.target;
-      if (target instanceof HTMLElement) {
-        const tagName = target.tagName;
-        if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT" || target.isContentEditable) {
-          return;
-        }
-      }
-
-      if (pressedKey === "e") {
-        // 조이스틱 기점을 현재 플레이어 위치로 둔다 (GPS→기점 복사는 허용된 용도).
-        const seedBase = playerLocation ?? location;
-        if (!seedBase) {
-          return;
-        }
-
-        const currentLocationBase: GeoResult = {
-          lat: seedBase.lat,
-          lon: seedBase.lon,
-          accuracy: location?.accuracy,
-          timestamp: Date.now(),
-        };
-
-        resetJoystickDragState();
-        lastJoystickUpdateTimeRef.current = null;
-        lastJoystickStateCommitTimeRef.current = null;
-        joystickBaseLocationRef.current = currentLocationBase;
-        playerMarkerLastLonRef.current = currentLocationBase.lon;
-        setJoystickBaseLocation(currentLocationBase);
-        event.preventDefault();
-        return;
-      }
-
-      if (isArrowKey) {
-        // 영토전 GPS-free 모드에서는 시작 위치 기준 (GPS 미사용).
-        const currentBase =
-          joystickBaseLocationRef.current ??
-          (territoryEnabled
-            ? territoryStart && Number.isFinite(territoryStart.lat) && Number.isFinite(territoryStart.lon)
-              ? { lat: territoryStart.lat, lon: territoryStart.lon }
-              : null
-            : location);
-        if (!currentBase) {
-          return;
-        }
-
-        const now = performance.now();
-
-        if (isHeadingUpMode) {
-          if (pressedKey === "arrowleft" || pressedKey === "arrowright") {
-            const turnDirection = pressedKey === "arrowleft" ? -1 : 1;
-            const nextHeadingDeg = normalizeHeadingDeg(
-              viewHeadingDegRef.current + turnDirection * KEYBOARD_TURN_STEP_DEG
-            );
-            viewHeadingDegRef.current = nextHeadingDeg;
-            commitMapRotation(-nextHeadingDeg, now);
-            event.preventDefault();
-            return;
-          }
-        } else if (pressedKey === "arrowup") {
-          commitMapRotation(0, now);
-        } else if (pressedKey === "arrowdown") {
-          commitMapRotation(-180, now);
-        } else if (pressedKey === "arrowleft") {
-          commitMapRotation(90, now);
-        } else if (pressedKey === "arrowright") {
-          commitMapRotation(-90, now);
-        }
-
-        const latDelta = metersToLatitudeDelta(KEYBOARD_ARROW_STEP_METERS);
-        const lonDelta = metersToLongitudeDelta(currentBase.lat, KEYBOARD_ARROW_STEP_METERS);
-
-        let nextLat = currentBase.lat;
-        let nextLon = currentBase.lon;
-
-        if (isHeadingUpMode) {
-          const headingRad = (viewHeadingDegRef.current * Math.PI) / 180;
-          const forwardMeters = pressedKey === "arrowup" ? KEYBOARD_ARROW_STEP_METERS : -KEYBOARD_ARROW_STEP_METERS;
-          const eastMeters = Math.sin(headingRad) * forwardMeters;
-          const northMeters = Math.cos(headingRad) * forwardMeters;
-          nextLon = currentBase.lon + metersToLongitudeDelta(currentBase.lat, eastMeters);
-          nextLat = currentBase.lat + metersToLatitudeDelta(northMeters);
-        } else if (pressedKey === "arrowup") {
-          nextLat += latDelta;
-        } else if (pressedKey === "arrowdown") {
-          nextLat -= latDelta;
-        } else if (pressedKey === "arrowleft") {
-          nextLon -= lonDelta;
-        } else if (pressedKey === "arrowright") {
-          nextLon += lonDelta;
-        }
-
-        const nextBaseLocation: GeoResult = {
-          lat: nextLat,
-          lon: nextLon,
-          accuracy: currentBase.accuracy,
-          timestamp: Date.now(),
-        };
-
-        if (territoryEnabled) {
-          // 영토전: 도로 버퍼 밖으로 이동 불가 (로컬 판정, 벽 슬라이딩).
-          const [clampedLat, clampedLon] = clampWalkableMove(
-            currentBase.lat,
-            currentBase.lon,
-            nextBaseLocation.lat,
-            nextBaseLocation.lon,
-          );
-          nextBaseLocation.lat = clampedLat;
-          nextBaseLocation.lon = clampedLon;
-        }
-
-        resetJoystickDragState();
-        lastJoystickUpdateTimeRef.current = null;
-        lastJoystickStateCommitTimeRef.current = null;
-        joystickBaseLocationRef.current = nextBaseLocation;
-        playerMarkerLastLonRef.current = nextBaseLocation.lon;
-        setJoystickBaseLocation(nextBaseLocation);
-        event.preventDefault();
-        return;
-      }
-
-      const poiPoints = renderablePoiPoints.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon));
-      if (poiPoints.length === 0) {
-        return;
-      }
-
-      const isForward = pressedKey === "q";
-      if (qKeyPoiIndexRef.current < 0) {
-        qKeyPoiIndexRef.current = isForward ? 0 : poiPoints.length - 1;
-      } else {
-        qKeyPoiIndexRef.current = isForward
-          ? (qKeyPoiIndexRef.current + 1) % poiPoints.length
-          : (qKeyPoiIndexRef.current - 1 + poiPoints.length) % poiPoints.length;
-      }
-
-      const nextPoi = poiPoints[qKeyPoiIndexRef.current];
-
-      const nextBaseLocation: GeoResult = {
-        lat: nextPoi.lat,
-        lon: nextPoi.lon + metersToLongitudeDelta(nextPoi.lat, Q_KEY_POI_OFFSET_METERS),
-        accuracy: location?.accuracy,
-        timestamp: Date.now(),
-      };
-
-      resetJoystickDragState();
-      lastJoystickUpdateTimeRef.current = null;
-      lastJoystickStateCommitTimeRef.current = null;
-      joystickBaseLocationRef.current = nextBaseLocation;
-      playerMarkerLastLonRef.current = nextBaseLocation.lon;
-      setJoystickBaseLocation(nextBaseLocation);
-      event.preventDefault();
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [location, renderablePoiPoints, resetJoystickDragState, showJoystick, commitMapRotation, isHeadingUpMode, territoryEnabled, territoryStart, playerLocation]);
-
-  useEffect(() => {
-    return () => {
-      if (joystickVisualRafRef.current !== null) {
-        window.cancelAnimationFrame(joystickVisualRafRef.current);
-        joystickVisualRafRef.current = null;
-      }
-    };
-  }, []);
 
   const handleZoomIn = useCallback(() => {
     if (mapStyle === "satellite") {
@@ -4755,7 +4496,7 @@ interface OtherUnitMoveAnim {
         }
         setPermissionState("granted");
         setStatus("success");
-        if (isHeadingUpModeRef.current && !showJoystickRef.current) {
+        if (isHeadingUpModeRef.current) {
           const course = pos.coords.heading;
           const speed = pos.coords.speed;
           if (
@@ -4819,11 +4560,11 @@ interface OtherUnitMoveAnim {
   }, []);
 
   const parseNearbyPlayerCharacter = useCallback((value: unknown): PlayerCharacter => {
-    if (value === "walking" || value === "fallenAngel" || value === "pyramid") {
+    if (value === "walking" || value === "fallenAngel") {
       return value;
     }
 
-    return "pyramid";
+    return "fallenAngel";
   }, []);
 
   const createNearbyPlayerMarkerVisual = useCallback((character: PlayerCharacter) => {
@@ -5039,16 +4780,14 @@ interface OtherUnitMoveAnim {
       let centerLat = baseLoc.lat;
       let centerLon = baseLoc.lon;
       
-      if (showJoystick && joystickBaseLocation) {
-        centerLon = joystickBaseLocation.lon;
-        centerLat = joystickBaseLocation.lat;
-      }
-      
       const previousFollow = satelliteFollowPositionRef.current;
       const isNewMap = previousFollow?.map !== map;
       const playerMoved = previousFollow?.lat !== centerLat || previousFollow?.lon !== centerLon;
+      // 영주 이동 중에는 자동 추적을 멈춘다 (드래그와 경합 방지).
+      // 진행률은 부대 메뉴에서 확인하고, 지도는 사용자가 자유롭게 본다.
+      const lordMovingNow = playerMoveTarget !== null && Date.now() < playerMoveTarget.endsAt;
       // POI 목록 변경은 현재 뷰를 유지하고, 플레이어 이동은 지역 선택 여부와 무관하게 따라간다.
-      if (isNewMap || playerMoved) {
+      if ((isNewMap || playerMoved) && !lordMovingNow) {
         map.setView([centerLat, centerLon], nextZoomLevel);
         setZoomLevel(nextZoomLevel);
       }
@@ -5077,20 +4816,7 @@ interface OtherUnitMoveAnim {
       let markerLat = baseLoc.lat;
       let markerLon = baseLoc.lon;
 
-      if (showJoystick && joystickBaseLocation) {
-        markerLon = joystickBaseLocation.lon;
-        markerLat = joystickBaseLocation.lat;
-      }
-
       const syncPlayerMarkerFacingDirection = (nextLon: number) => {
-        const joystickX = joystickPositionRef.current.x;
-        if (showJoystick && Math.abs(joystickX) >= SPRITE_DIRECTION_JOYSTICK_X_THRESHOLD) {
-          playerMarkerFacingLeftRef.current = joystickX < 0;
-          playerMarkerLastLonRef.current = nextLon;
-          playerMarkerApplyFacingRef.current?.(playerMarkerFacingLeftRef.current);
-          return;
-        }
-
         const previousLon = playerMarkerLastLonRef.current;
 
         if (previousLon !== null) {
@@ -5119,7 +4845,9 @@ interface OtherUnitMoveAnim {
 
         markerRef.current = L.marker([markerLat, markerLon], {
           icon,
+          interactive: true,
         }).addTo(map);
+        markerRef.current.on("click", () => handleUnitMarkerClick(LORD_UNIT_ID));
 
         syncPlayerMarkerFacingDirection(markerLon);
       } else if (markerRef.current) {
@@ -5167,11 +4895,6 @@ interface OtherUnitMoveAnim {
         }
         let playerLat = debugBase.lat;
         let playerLon = debugBase.lon;
-
-        if (showJoystick && joystickBaseLocation) {
-          playerLon = joystickBaseLocation.lon;
-          playerLat = joystickBaseLocation.lat;
-        }
 
         if (!debugMarkerPositionsRef.current) {
           const debugMarkerTargets: [[number, number], [number, number], [number, number]] = [
@@ -5401,11 +5124,10 @@ interface OtherUnitMoveAnim {
     playerLabel,
     renderablePoiPoints,
     showMarkerPanel,
-    showJoystick,
-    joystickBaseLocation,
     mapStyle,
     territoryEnabled,
     playerLocation,
+    playerMoveTarget,
   ]);
 
   useEffect(() => {
@@ -5520,7 +5242,7 @@ interface OtherUnitMoveAnim {
     return () => {
       isCancelled = true;
     };
-  }, [mapStyle, location, showJoystick, joystickBaseLocation, playerLocation]);
+  }, [mapStyle, location, playerLocation]);
 
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady || !globeMapRef.current) {
@@ -5884,14 +5606,6 @@ interface OtherUnitMoveAnim {
     let isCancelled = false;
 
     const syncGlobePlayerFacingDirection = (nextLon: number) => {
-      const joystickX = joystickPositionRef.current.x;
-      if (showJoystick && Math.abs(joystickX) >= SPRITE_DIRECTION_JOYSTICK_X_THRESHOLD) {
-        globePlayerFacingLeftRef.current = joystickX < 0;
-        globePlayerLastLonRef.current = nextLon;
-        globePlayerApplyFacingRef.current?.(globePlayerFacingLeftRef.current);
-        return;
-      }
-
       const previousLon = globePlayerLastLonRef.current;
 
       if (previousLon !== null) {
@@ -5950,7 +5664,7 @@ interface OtherUnitMoveAnim {
         globePlayerApplyFacingRef.current = playerMarker.applyFacingDirection;
         const wrapper = document.createElement("div");
         // Same positioning constraint as POI markers above; explicit size keeps
-        // the bottom anchor exact for every character (44px pyramid / 66px sprite).
+        // the bottom anchor exact for the 66px sprite.
         wrapper.style.width = `${playerMarker.iconSize[0]}px`;
         wrapper.style.height = `${playerMarker.iconSize[1]}px`;
         wrapper.style.overflow = "visible";
@@ -5977,6 +5691,8 @@ interface OtherUnitMoveAnim {
         globePlayerMarkerRef.current = new MarkerCtor({ element: wrapper, anchor: "bottom" })
           .setLngLat([center.lon, center.lat])
           .addTo(map);
+        wrapper.style.cursor = "pointer";
+        wrapper.addEventListener("click", () => handleUnitMarkerClick(LORD_UNIT_ID));
         syncGlobePlayerFacingDirection(center.lon);
       }
     })();
@@ -5984,7 +5700,7 @@ interface OtherUnitMoveAnim {
     return () => {
       isCancelled = true;
     };
-  }, [mapStyle, isGlobeReady, location, showJoystick, joystickBaseLocation, playerLocation, activePlayerCharacter, createPlayerMarkerElement, playerLabel]);
+  }, [mapStyle, isGlobeReady, location, playerLocation, activePlayerCharacter, createPlayerMarkerElement, playerLabel]);
 
   useEffect(() => {
     return () => {
@@ -6051,43 +5767,6 @@ interface OtherUnitMoveAnim {
     return canvas.toDataURL("image/png");
   }, []);
 
-  const createCesiumPyramidDataUrl = useCallback((): string | null => {
-    if (typeof document === "undefined") {
-      return null;
-    }
-
-    const size = 88;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      return null;
-    }
-
-    ctx.clearRect(0, 0, size, size);
-    const cx = size / 2;
-    const topY = 10;
-    const tipY = size - 6;
-    const halfW = 30;
-
-    const gradient = ctx.createLinearGradient(0, topY, 0, tipY);
-    gradient.addColorStop(0, "#7dd3fc");
-    gradient.addColorStop(1, "#0284c7");
-    ctx.beginPath();
-    ctx.moveTo(cx - halfW, topY);
-    ctx.lineTo(cx + halfW, topY);
-    ctx.lineTo(cx, tipY);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "#082f49";
-    ctx.stroke();
-
-    return canvas.toDataURL("image/png");
-  }, []);
 
   const getCesiumPlayerImageAsync = useCallback(async (facingLeft: boolean): Promise<string | null> => {
     if (typeof document === "undefined" || typeof window === "undefined") {
@@ -6097,7 +5776,7 @@ interface OtherUnitMoveAnim {
     if (activePlayerCharacter === "walking" || activePlayerCharacter === "fallenAngel") {
       const frames = activePlayerCharacter === "walking" ? walkingFrameUrls : fallenAngelFrameUrls;
       if (frames.length === 0) {
-        return createCesiumPyramidDataUrl();
+        return null;
       }
       const src = frames[0];
       if (!facingLeft) {
@@ -6135,8 +5814,8 @@ interface OtherUnitMoveAnim {
       }
     }
 
-    return createCesiumPyramidDataUrl();
-  }, [activePlayerCharacter, walkingFrameUrls, fallenAngelFrameUrls, createCesiumPyramidDataUrl]);
+    return null;
+  }, [activePlayerCharacter, walkingFrameUrls, fallenAngelFrameUrls]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -6291,7 +5970,7 @@ interface OtherUnitMoveAnim {
         window.removeEventListener("resize", h);
       }
     };
-  }, [mapStyle, location, showJoystick, joystickBaseLocation, playerLocation]);
+  }, [mapStyle, location, playerLocation]);
 
   useEffect(() => {
     if (mapStyle !== "cesium" || !isCesiumReady) {
@@ -6740,10 +6419,7 @@ interface OtherUnitMoveAnim {
         return;
       }
 
-      if (showJoystick && Math.abs(joystickPositionRef.current.x) >= SPRITE_DIRECTION_JOYSTICK_X_THRESHOLD) {
-        cesiumPlayerFacingLeftRef.current = joystickPositionRef.current.x < 0;
-        cesiumPlayerLastLonRef.current = center.lon;
-      } else {
+      {
         const previousLon = cesiumPlayerLastLonRef.current;
         if (previousLon !== null) {
           const deltaLon = center.lon - previousLon;
@@ -6825,7 +6501,7 @@ interface OtherUnitMoveAnim {
     return () => {
       isCancelled = true;
     };
-  }, [mapStyle, isCesiumReady, location, showJoystick, joystickBaseLocation, playerLocation, activePlayerCharacter, playerLabel, getCesiumPlayerImageAsync]);
+  }, [mapStyle, isCesiumReady, location, playerLocation, activePlayerCharacter, playerLabel, getCesiumPlayerImageAsync]);
 
   useEffect(() => {
     return () => {
@@ -6961,14 +6637,15 @@ interface OtherUnitMoveAnim {
           return { lat: m.lat, lon: m.lon };
         }
       };
-      // 무법자 표시 위치: 서버 다리(from→dest 직선) 기준.
-      // 전체 path를 다리 시간에 매핑하면 순식간에 끝에 도달하므로 path를 쓰지 않는다.
+      // 무법자 표시 위치: 저장 경로 중 현재 다리 구간을 따라 보간한다.
+      // (구간 기준이므로 전체 경로 매핑 시의 가짜 왕복이 생기지 않는다.)
       const wildLivePos = (m: { lat: number; lon: number; moveTarget: UnitMoveTargetMark | null }): { lat: number; lon: number } => {
         const t = m.moveTarget;
         if (!t || !Number.isFinite(t.lat) || !Number.isFinite(t.lon)) {
           return { lat: m.lat, lon: m.lon };
         }
         try {
+          const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null);
           const pos = positionAtMoveTarget(
             {
               fromLat: t.fromLat,
@@ -6978,7 +6655,7 @@ interface OtherUnitMoveAnim {
               startedAt: t.startedAt,
               endsAt: t.endsAt,
               via: null,
-              path: null,
+              path: sub,
             },
             nowMs,
           );
@@ -7040,7 +6717,7 @@ interface OtherUnitMoveAnim {
             lat: wildPos.lat,
             lon: wildPos.lon,
             isProximity: true,
-            confirmTarget: `/quiz/neutral?wild=${wildId}`,
+            confirmTarget: "/map",
             confirmLabel: "공격",
           };
           break;
@@ -7061,7 +6738,7 @@ interface OtherUnitMoveAnim {
             nearestMarker = {
               ...buildNeutralPanel(point.label, point.eventKey),
               isProximity: true,
-              confirmTarget: `/quiz/neutral?neutralEventKey=${encodeURIComponent(point.eventKey ?? "")}`,
+              confirmTarget: "/map",
               confirmLabel: "퀴즈 풀기",
             };
             break;
@@ -7117,7 +6794,7 @@ interface OtherUnitMoveAnim {
         setMarkerPanel(null);
       }
     }
-  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, showJoystick, joystickBaseLocation, playerLocation, isVisitedEventKey, getVisitedScore]);
+  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, playerLocation, isVisitedEventKey, getVisitedScore]);
 
   // ---- 영토전 도보 가능 영역: 현재 동 + 인접 동 + 선택 동 로드 ----
   useEffect(() => {
@@ -7134,7 +6811,7 @@ interface OtherUnitMoveAnim {
       // 한국 동 경계의 shapeID는 도로 격자 ID와 동일하다.
       ensureWalkableSelectedDong(selectedAdminCode);
     }
-  }, [territoryEnabled, location, showJoystick, joystickBaseLocation, playerLocation, selectedAdminCode, adminGeoJson]);
+  }, [territoryEnabled, location, playerLocation, selectedAdminCode, adminGeoJson]);
 
   const getWalkableOverlayDongIds = (base: { lat: number; lon: number }): string[] => {
     const ids = new Set<string>();
@@ -7262,7 +6939,7 @@ interface OtherUnitMoveAnim {
         walkableLayerRef.current = created;
       }
     } catch {}
-  }, [mapStyle, isMapReady, territoryEnabled, walkableTick, location, showJoystick, joystickBaseLocation, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
+  }, [mapStyle, isMapReady, territoryEnabled, walkableTick, location, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
   // ---- 영토전 도보 가능 영역 오버레이: 글로브(MapLibre, 래스터 이미지) ----
   useEffect(() => {
@@ -7344,7 +7021,7 @@ interface OtherUnitMoveAnim {
       });
       walkableGlobeIdsRef.current.push(borderSourceId);
     } catch {}
-  }, [mapStyle, isGlobeReady, territoryEnabled, walkableTick, location, showJoystick, joystickBaseLocation, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
+  }, [mapStyle, isGlobeReady, territoryEnabled, walkableTick, location, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
   // ---- 영토전 도보 가능 영역 오버레이: 3D(Cesium, 래스터 이미지) ----
   useEffect(() => {
@@ -7436,7 +7113,7 @@ interface OtherUnitMoveAnim {
     return () => {
       cancelled = true;
     };
-  }, [mapStyle, isCesiumReady, territoryEnabled, walkableTick, location, showJoystick, joystickBaseLocation, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
+  }, [mapStyle, isCesiumReady, territoryEnabled, walkableTick, location, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
   // 기반 타일 링 프리페치: 이동이 끝난 idle에 다음 팬 방향 1링을 미리 받아둔다.
   // (Leaflet keepBuffer는 2링으로 줄였고, 그 바깥 1링을 여기서 데워 회색 셀을 줄인다.)
@@ -7860,7 +7537,7 @@ interface OtherUnitMoveAnim {
       map.off("rotateend", scheduleImmediate);
       map.off("resize", scheduleImmediate);
     };
-  }, [clusterUnits, isMapReady, isVisitedEventKey, joystickBaseLocation, playerLocation, location, renderablePoiPoints, showJoystick]);
+  }, [clusterUnits, isMapReady, isVisitedEventKey, playerLocation, location, renderablePoiPoints]);
 
   useEffect(() => {
     if (!isMapReady || clusterUnits.length === 0) {
@@ -8019,24 +7696,21 @@ interface OtherUnitMoveAnim {
         return;
       }
 
-      const joystickLocation = joystickBaseLocationRef.current;
-      // 기록 우선순위: GPS > 조이스틱 > 영토전 시작 위치.
+      // 기록 우선순위: GPS > 영토전 시작 위치.
       // 영토전 GPS-free에서도 체크인·주변 플레이어용으로 시작 위치를 기록한다.
       const startLocation =
         territoryEnabled && territoryStart
           ? { lat: territoryStart.lat, lon: territoryStart.lon, accuracy: undefined as number | undefined }
           : null;
-      // 조이스틱 ON이면 조이스틱 위치를 실제 위치로 사용한다 (GPS 없어도 동작).
-      // 영토전 GPS-free 모드에서는 실시간 GPS를 서버에 올리지 않는다.
-      // (조이스틱 기점 또는 시작 위치만 사용)
+      // 영토전 GPS-free 모드에서는 실시간 GPS를 서버에 올리지 않는다 (시작 위치만 사용).
       const currentLocation = territoryEnabled
-        ? (showJoystick ? joystickLocation : null) ?? startLocation
-        : locationRef.current ?? (showJoystick ? joystickLocation : null) ?? startLocation;
+        ? startLocation
+        : locationRef.current ?? startLocation;
       if (!currentLocation) {
         return;
       }
 
-      const baseLocation = showJoystick && joystickLocation ? joystickLocation : currentLocation;
+      const baseLocation = currentLocation;
 
       const previousWriteLocation = lastLocationWriteRef.current;
       const movedDistance = previousWriteLocation
@@ -8059,11 +7733,9 @@ interface OtherUnitMoveAnim {
             body: JSON.stringify({
               lat: baseLocation.lat,
               lon: baseLocation.lon,
-              // 조이스틱 ON이면 조이스틱 위치를, 영토전 GPS-free면 시작 위치를 기록한다.
+              // 영토전 GPS-free면 시작 위치를 기록한다.
               source:
-                showJoystick && joystickLocation
-                  ? "joystick"
-                  : startLocation &&
+                startLocation &&
                       baseLocation.lat === startLocation.lat &&
                       baseLocation.lon === startLocation.lon
                     ? "start"
@@ -8185,7 +7857,7 @@ interface OtherUnitMoveAnim {
       });
       markerMap.clear();
     };
-  }, [createNearbyPlayerMarkerVisual, ensureNearbyPlayerLayer, isMapReady, parseNearbyPlayerCharacter, showJoystick]);
+  }, [createNearbyPlayerMarkerVisual, ensureNearbyPlayerLayer, isMapReady, parseNearbyPlayerCharacter]);
 
   const getTerritoryCenter = useCallback((): { lat: number; lon: number } | null => {
     try {
@@ -8463,14 +8135,47 @@ interface OtherUnitMoveAnim {
           if (!Number.isFinite(wildId)) {
             return;
           }
+          // 마커는 폴링과 무관하게 재사용되므로 클로저 mark는 오래된 데이터일 수 있다.
+          // 탭 시점의 최신 스냅샷으로 경로·위치를 조회한다.
+          const freshMark = unitMarksRef.current.find((m) => m.id === mark.id) ?? mark;
           applyHostileInstant(marker, mark.id);
+          // 패널 좌표는 폴링 시점 좌표가 아닌 현재 보간 위치를 사용한다
+          // (그렇지 않으면 출발 지점으로 화면이 이동하고 버튼이 잘못 표시된다).
+          // 마커 애니메이션과 같은 저장 경로 구간을 따라 보간해 표시 위치와 일치시킨다.
+          let liveLat = freshMark.lat;
+          let liveLon = freshMark.lon;
+          try {
+            const t = freshMark.moveTarget;
+            if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && Date.now() < t.endsAt) {
+              const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null);
+              const pos = positionAtMoveTarget(
+                {
+                  fromLat: t.fromLat,
+                  fromLon: t.fromLon,
+                  lat: t.lat,
+                  lon: t.lon,
+                  startedAt: t.startedAt,
+                  endsAt: t.endsAt,
+                  via: null,
+                  path: sub,
+                },
+                Date.now(),
+              );
+              if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
+                liveLat = pos.lat;
+                liveLon = pos.lon;
+              }
+            }
+          } catch {
+            // 폴백: 폴링 좌표 유지
+          }
           const tapLoc = getPlayerLocation();
           const tapDist =
             tapLoc && Number.isFinite(tapLoc.lat) && Number.isFinite(tapLoc.lon)
-              ? Math.max(0, Math.round(calculateDistance(tapLoc.lat, tapLoc.lon, mark.lat, mark.lon)))
+              ? Math.max(0, Math.round(calculateDistance(tapLoc.lat, tapLoc.lon, liveLat, liveLon)))
               : null;
           setWildRouteWildId(wildId);
-          setWildRoutePath(wildPathPoints(mark.moveTarget as UnitMoveTargetMark | null));
+          setWildRoutePath(wildPathPoints(freshMark.moveTarget as UnitMoveTargetMark | null));
           showMarkerPanel({
             title: `무법자 #${wildId}`,
             lines: [
@@ -8480,8 +8185,8 @@ interface OtherUnitMoveAnim {
               ...(tapDist !== null ? [`거리: 약 ${tapDist}m (플레이어)`] : []),
             ],
             wildId,
-            lat: mark.lat,
-            lon: mark.lon,
+            lat: liveLat,
+            lon: liveLon,
           });
         });
       }
@@ -8532,17 +8237,24 @@ interface OtherUnitMoveAnim {
       if (prev && prev.key === key) {
         continue;
       }
-      const storedPath =
-        // 무법자: 서버 다리(from→dest 직선)가 위치 기준. 전체 path를 다리 시간에
-        // 매핑하면 순식간에 경로 끝까지 갔다가 복귀하는 가짜 왕복이 보인다.
-        mark.id.startsWith("neutral-")
-          ? [{ lat: target.lat, lon: target.lon }]
-          : Array.isArray(target.path) && target.path.length > 0
+      const storedPath = (() => {
+        const raw: Array<{ lat: number; lon: number }> | null =
+          Array.isArray(target.path) && target.path.length > 0
             ? target.path.filter(
                 (p): p is { lat: number; lon: number } =>
                   !!p && Number.isFinite(p.lat) && Number.isFinite(p.lon),
               )
-            : [{ lat: target.lat, lon: target.lon }];
+            : null;
+        if (!mark.id.startsWith("neutral-")) {
+          return raw && raw.length > 0 ? raw : [{ lat: target.lat, lon: target.lon }];
+        }
+        // 무법자: 그려지는 경로 위를 이동한다. 저장 경로 중 현재 다리 구간만
+        // 잘라내어 애니메이션한다.
+        if (!raw || raw.length === 0) {
+          return [{ lat: target.lat, lon: target.lon }];
+        }
+        return neutralLegSubpath(target.fromLat, target.fromLon, target.lat, target.lon, raw);
+      })();
       anims.set(mark.id, {
         key,
         path: storedPath,
@@ -9411,6 +9123,56 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, [isMapReady, mapStyle, placeCastleAt]);
 
+  // 영주 캐릭터 탭 폴백: 마커 클릭이 먹지 않는 경우에도 지도 탭으로 선택되게 한다.
+  // (마커 자체 클릭이 동작하면 같은 시트를 다시 여는 것이라 무해하다)
+  useEffect(() => {
+    if (mapStyle !== "satellite" || !isMapReady || !mapInstanceRef.current) {
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const handleLordTapFallback = (e: unknown): void => {
+      try {
+        if (castlePlacement) {
+          return;
+        }
+        const raw = e as {
+          containerPoint?: { x?: unknown; y?: unknown };
+          originalEvent?: { target?: unknown } | null;
+        } | null;
+        const cx = typeof raw?.containerPoint?.x === "number" ? raw.containerPoint.x : NaN;
+        const cy = typeof raw?.containerPoint?.y === "number" ? raw.containerPoint.y : NaN;
+        if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+          return;
+        }
+        const target = raw?.originalEvent?.target as Element | null | undefined;
+        if (target && typeof target.closest === "function") {
+          const iconEl = target.closest(".leaflet-marker-icon");
+          // 다른 마커를 탭한 경우는 해당 마커 핸들러에 맡긴다.
+          if (iconEl && !iconEl.classList.contains("three-player-marker") && !iconEl.querySelector(".three-player-marker")) {
+            return;
+          }
+        }
+        const center = playerLocation;
+        if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lon)) {
+          return;
+        }
+        const pp = map.latLngToContainerPoint([center.lat, center.lon]);
+        if (Math.hypot(pp.x - cx, pp.y - cy) > 48) {
+          return;
+        }
+        handleUnitMarkerClick(LORD_UNIT_ID);
+      } catch {
+        // 무시
+      }
+    };
+    map.on("click", handleLordTapFallback);
+    return () => {
+      try {
+        map.off("click", handleLordTapFallback);
+      } catch {}
+    };
+  }, [isMapReady, mapStyle, castlePlacement, playerLocation]);
+
   // 확정 단계에서 고른 위치에 성 표시를 남긴다.
   useEffect(() => {
     if (!castlePlacement?.confirming || castlePlacement.lat === null || castlePlacement.lon === null) {
@@ -9591,7 +9353,21 @@ const isMapPerfEnabled = (): boolean => {
       }
       return { color: s.strokeColor, weight: s.strokeWeight, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
     };
+    // 3,500여 개 동 폴리곤을 SVG DOM 대신 단일 canvas로 그린다 (전용 pane, 오버레이 아래).
+    if (!map.getPane(ADMIN_LEAFLET_PANE)) {
+      const pane = map.createPane(ADMIN_LEAFLET_PANE);
+      pane.style.zIndex = "350";
+    }
+    let renderer = adminCanvasRendererRef.current;
+    if (!renderer || adminCanvasRendererMapRef.current !== map) {
+      renderer = L.canvas({ padding: 0.5, pane: ADMIN_LEAFLET_PANE });
+      adminCanvasRendererRef.current = renderer;
+      adminCanvasRendererMapRef.current = map;
+    }
+    // GeoJSON 옵션은 하위 Path 생성자에 그대로 전달되므로 renderer도 적용된다 (타입 정의에는 없음).
+    const pathRenderOptions = { pane: ADMIN_LEAFLET_PANE, renderer } as import("leaflet").GeoJSONOptions;
     const layer = L.geoJSON(adminGeoJson as GeoJSON.GeoJsonObject, {
+      ...pathRenderOptions,
       style: styleFor,
       onEachFeature: (feature: GeoJSON.Feature, featureLayer: import("leaflet").Layer) => {
         const props = feature.properties as Record<string, unknown> | null;
@@ -10003,31 +9779,13 @@ const isMapPerfEnabled = (): boolean => {
   }, [selectedAdminCode, hoveredAdminCode, adminLevel, mapStyle, isCesiumReady]);
 
   const handleGoToQR = useCallback(() => {
-    router.push("/arqr");
+    router.push("/qr");
   }, [router]);
 
   const handleToggleRankingPanel = useCallback(() => {
     setShowRankingPanel((previous) => !previous);
   }, []);
 
-  const handleToggleJoystick = useCallback(() => {
-    if (!showJoystick && location) {
-      const storedBase = readStoredJoystickBase(locationCacheKey);
-      setJoystickBaseLocation(
-        storedBase
-          ? {
-              lat: storedBase.lat,
-              lon: storedBase.lon,
-              accuracy: location.accuracy,
-              timestamp: Date.now(),
-            }
-          : location
-      );
-    }
-
-    resetJoystickDragState();
-    setShowJoystick((previous) => !previous);
-  }, [showJoystick, location, locationCacheKey, resetJoystickDragState]);
 
   const handleExit = useCallback(async () => {
     await signOut({ redirect: false });
@@ -10436,10 +10194,10 @@ const isMapPerfEnabled = (): boolean => {
                       onClick={() => {
                         closeMarkerPanel();
                         if (isWild) {
-                          router.push(`/quiz/neutral?wild=${markerPanel.wildId as number}`);
+                          router.push("/map");
                         } else {
                           router.push(
-                            `/quiz/neutral?neutralEventKey=${encodeURIComponent(markerPanel.eventKey ?? "")}`,
+                            "/map",
                           );
                         }
                       }}
@@ -10692,61 +10450,6 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      {showJoystick && (
-        <div className="pointer-events-auto absolute left-4 bottom-[calc(env(safe-area-inset-bottom)+7rem)] z-[1100]">
-          <div className="relative">
-            <div 
-              className="h-32 w-32 touch-none rounded-full border-4 border-white/30 bg-black/40 backdrop-blur-sm shadow-lg cursor-grab active:cursor-grabbing select-none"
-              onTouchStart={(e) => {
-                setIsDraggingJoystick(true);
-                const touch = e.touches[0];
-                const rect = e.currentTarget.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                const rawX = touch.clientX - centerX;
-                const rawY = touch.clientY - centerY;
-                updateJoystickPosition(rawX, rawY);
-              }}
-              onTouchMove={(e) => {
-                const touch = e.touches[0];
-                const rect = e.currentTarget.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                const rawX = touch.clientX - centerX;
-                const rawY = touch.clientY - centerY;
-                updateJoystickPosition(rawX, rawY);
-              }}
-              onTouchEnd={() => {
-                resetJoystickDragState();
-              }}
-              onTouchCancel={resetJoystickDragState}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                setIsDraggingJoystick(true);
-                const rect = e.currentTarget.getBoundingClientRect();
-                const centerX = rect.left + rect.width / 2;
-                const centerY = rect.top + rect.height / 2;
-                joystickMouseDragActiveRef.current = true;
-                joystickDragCenterRef.current = { x: centerX, y: centerY };
-                const rawX = e.clientX - centerX;
-                const rawY = e.clientY - centerY;
-                updateJoystickPosition(rawX, rawY);
-              }}
-            >
-              <div 
-                className="absolute h-12 w-12 rounded-full bg-white/80 shadow-lg select-none"
-                style={{
-                  left: '50%',
-                  top: '50%',
-                  transform: `translate(calc(-50% + ${joystickPosition.x}px), calc(-50% + ${joystickPosition.y}px))`,
-                  transition: joystickPosition.x !== 0 || joystickPosition.y !== 0 ? 'none' : 'transform 0.2s ease-out',
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
       {!territoryEnabled ? (
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-[1000]">
         <div
@@ -10873,30 +10576,6 @@ const isMapPerfEnabled = (): boolean => {
                   </button>
                 ) : null}
 
-                <button
-                  type="button"
-                  onClick={handleToggleJoystick}
-                  className={cn(
-                    "flex w-full items-center justify-between rounded-2xl border px-4 py-4 text-left transition",
-                    showJoystick ? "border-emerald-400 bg-emerald-50" : "border-slate-300 bg-white"
-                  )}
-                >
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">가상 조이스틱</p>
-                    <p className="text-xs text-slate-500">지도 이동을 조이스틱으로 조작합니다</p>
-                  </div>
-
-                  <div
-                    className={cn(
-                      "rounded-full border px-2 py-1 text-[11px] font-semibold",
-                      showJoystick
-                        ? "border-emerald-500 bg-emerald-500 text-white"
-                        : "border-slate-300 bg-slate-100 text-slate-600"
-                    )}
-                  >
-                    {showJoystick ? "켜짐" : "꺼짐"}
-                  </div>
-                </button>
               </div>
 
               <div className="space-y-3">
@@ -11030,7 +10709,7 @@ const isMapPerfEnabled = (): boolean => {
                       </p>
                     ) : null}
                     <p className="text-[11px] text-slate-400">
-                      {`데이터: /boundaries/${adminCountry.toLowerCase()}_${adminLevel}.topojson (1.1M) · 동 수준은 읍면동(한국) / 동등 최하위 행정구역`}
+                      {`데이터: /boundaries/${adminCountry.toLowerCase()}_${adminLevel}.topojson${useDongHd ? ` · 확대(z${DONG_HD_MIN_ZOOM}+) 시 고해상도 경계` : ""} · 동 수준은 읍면동(한국) / 동등 최하위 행정구역`}
                     </p>
                   </>
                 ) : null}
@@ -11039,46 +10718,6 @@ const isMapPerfEnabled = (): boolean => {
               <h3 className="text-base font-semibold text-slate-900">캐릭터 선택</h3>
 
               <div className="space-y-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCharacter("pyramid");
-                  }}
-                  className={cn(
-                    "flex w-full items-center gap-4 rounded-2xl border px-4 py-4 text-left transition",
-                    selectedCharacter === "pyramid"
-                      ? "border-sky-400 bg-sky-50"
-                      : "border-slate-300 bg-white"
-                  )}
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-slate-300 bg-slate-50">
-                    <svg
-                      viewBox="0 0 48 48"
-                      aria-hidden="true"
-                      className="h-8 w-8 text-sky-500"
-                      fill="currentColor"
-                    >
-                      <path d="M24 8l15 28H9L24 8z" />
-                    </svg>
-                  </div>
-
-                  <div className="flex-1">
-                    <p className="text-sm font-bold text-slate-900">삼각뿔</p>
-                    <p className="text-xs text-slate-500">기본 캐릭터</p>
-                  </div>
-
-                  <div
-                    className={cn(
-                      "flex h-6 w-6 items-center justify-center rounded-full border text-xs font-bold",
-                      selectedCharacter === "pyramid"
-                        ? "border-sky-500 bg-sky-500 text-white"
-                        : "border-slate-300 bg-white text-transparent"
-                    )}
-                  >
-                    ✓
-                  </div>
-                </button>
-
                 <button
                   type="button"
                   disabled={walkingFrameUrls.length === 0}
@@ -11156,13 +10795,7 @@ const isMapPerfEnabled = (): boolean => {
 
                   <div className="flex-1">
                     <p className="text-sm font-bold text-slate-900">타락천사</p>
-                    <p className="text-xs text-slate-500">
-                      {isFallenAngelFramesLoading
-                        ? "프레임 로딩 중..."
-                        : fallenAngelFrameUrls.length > 0
-                          ? `${fallenAngelFrameUrls.length}개 프레임`
-                          : "타락천사 PNG를 찾을 수 없음"}
-                    </p>
+                    <p className="text-xs text-slate-500">기본 캐릭터</p>
                   </div>
 
                   <div
@@ -11216,12 +10849,52 @@ const isMapPerfEnabled = (): boolean => {
           onMovePath={setUnitMovePath}
           onMoveDestination={setUnitMoveDestination}
           onMoveTargetCenter={setMoveTargetCenter}
+          onLordSelectedChange={setLordSelected}
           markerDialogOpen={territoryEnabled && markerPanel !== null}
           dongCode={selectedAdminCode}
           playerDongCode={playerDongCode}
           wildSeeds={wildSeeds}
           onExit={() => void handleExit()}
           onResetScore={() => void handleResetScore()}
+          lordMoveTarget={playerMoveTarget}
+          onLordMoveOrder={(target) => {
+            try {
+              window.sessionStorage.setItem(LORD_ORDER_STORAGE_KEY, JSON.stringify(target));
+            } catch {
+              // 무시
+            }
+            setPlayerManualBase(null);
+            setPlayerMoveTarget(target);
+          }}
+          onLordMoveStop={() => {
+            setPlayerMoveTarget((current) => {
+              if (current) {
+                const pos = positionAtMoveTarget(current, Date.now());
+                if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
+                  try {
+                    window.sessionStorage.setItem(LORD_BASE_STORAGE_KEY, JSON.stringify({ lat: pos.lat, lon: pos.lon }));
+                  } catch {
+                    // 무시
+                  }
+                  setPlayerManualBase({ lat: pos.lat, lon: pos.lon });
+                }
+              }
+              try {
+                window.sessionStorage.removeItem(LORD_ORDER_STORAGE_KEY);
+              } catch {
+                // 무시
+              }
+              return null;
+            });
+          }}
+          onLordSetBase={(pos) => {
+            try {
+              window.sessionStorage.setItem(LORD_BASE_STORAGE_KEY, JSON.stringify({ lat: pos.lat, lon: pos.lon }));
+            } catch {
+              // 무시
+            }
+            setPlayerManualBase({ lat: pos.lat, lon: pos.lon });
+          }}
           onStartPlacement={(draft) => {
             closeMarkerPanel();
             setCastlePlacement({ ...draft, lat: null, lon: null, confirming: false });

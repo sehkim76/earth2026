@@ -286,7 +286,6 @@ export type PrefabInstanceTableOrderByWithRelationInput = {
   string_param5?: Prisma.SortOrderInput | Prisma.SortOrder
   string_param6?: Prisma.SortOrderInput | Prisma.SortOrder
   id?: Prisma.SortOrder
-  _relevance?: Prisma.PrefabInstanceTableOrderByRelevanceInput
 }
 
 export type PrefabInstanceTableWhereUniqueInput = Prisma.AtLeast<{
@@ -447,12 +446,6 @@ export type PrefabInstanceTableUncheckedUpdateManyInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
 }
 
-export type PrefabInstanceTableOrderByRelevanceInput = {
-  fields: Prisma.PrefabInstanceTableOrderByRelevanceFieldEnum | Prisma.PrefabInstanceTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type PrefabInstanceTableCountOrderByAggregateInput = {
   ARMissionKey?: Prisma.SortOrder
   PrefabEventId?: Prisma.SortOrder
@@ -523,7 +516,35 @@ export type PrefabInstanceTableSelect<ExtArgs extends runtime.Types.Extensions.I
   id?: boolean
 }, ExtArgs["result"]["prefabInstanceTable"]>
 
+export type PrefabInstanceTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  PrefabEventId?: boolean
+  userId?: boolean
+  InstanceId?: boolean
+  LastOpTime?: boolean
+  string_param1?: boolean
+  string_param2?: boolean
+  string_param3?: boolean
+  string_param4?: boolean
+  string_param5?: boolean
+  string_param6?: boolean
+  id?: boolean
+}, ExtArgs["result"]["prefabInstanceTable"]>
 
+export type PrefabInstanceTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  ARMissionKey?: boolean
+  PrefabEventId?: boolean
+  userId?: boolean
+  InstanceId?: boolean
+  LastOpTime?: boolean
+  string_param1?: boolean
+  string_param2?: boolean
+  string_param3?: boolean
+  string_param4?: boolean
+  string_param5?: boolean
+  string_param6?: boolean
+  id?: boolean
+}, ExtArgs["result"]["prefabInstanceTable"]>
 
 export type PrefabInstanceTableSelectScalar = {
   ARMissionKey?: boolean
@@ -676,6 +697,30 @@ export interface PrefabInstanceTableDelegate<ExtArgs extends runtime.Types.Exten
   createMany<T extends PrefabInstanceTableCreateManyArgs>(args?: Prisma.SelectSubset<T, PrefabInstanceTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many PrefabInstanceTables and returns the data saved in the database.
+   * @param {PrefabInstanceTableCreateManyAndReturnArgs} args - Arguments to create many PrefabInstanceTables.
+   * @example
+   * // Create many PrefabInstanceTables
+   * const prefabInstanceTable = await prisma.prefabInstanceTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many PrefabInstanceTables and only return the `ARMissionKey`
+   * const prefabInstanceTableWithARMissionKeyOnly = await prisma.prefabInstanceTable.createManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends PrefabInstanceTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, PrefabInstanceTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PrefabInstanceTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a PrefabInstanceTable.
    * @param {PrefabInstanceTableDeleteArgs} args - Arguments to delete one PrefabInstanceTable.
    * @example
@@ -738,6 +783,36 @@ export interface PrefabInstanceTableDelegate<ExtArgs extends runtime.Types.Exten
    * 
    */
   updateMany<T extends PrefabInstanceTableUpdateManyArgs>(args: Prisma.SelectSubset<T, PrefabInstanceTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more PrefabInstanceTables and returns the data updated in the database.
+   * @param {PrefabInstanceTableUpdateManyAndReturnArgs} args - Arguments to update many PrefabInstanceTables.
+   * @example
+   * // Update many PrefabInstanceTables
+   * const prefabInstanceTable = await prisma.prefabInstanceTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more PrefabInstanceTables and only return the `ARMissionKey`
+   * const prefabInstanceTableWithARMissionKeyOnly = await prisma.prefabInstanceTable.updateManyAndReturn({
+   *   select: { ARMissionKey: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends PrefabInstanceTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, PrefabInstanceTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PrefabInstanceTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one PrefabInstanceTable.
@@ -1148,6 +1223,25 @@ export type PrefabInstanceTableCreateManyArgs<ExtArgs extends runtime.Types.Exte
 }
 
 /**
+ * PrefabInstanceTable createManyAndReturn
+ */
+export type PrefabInstanceTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the PrefabInstanceTable
+   */
+  select?: Prisma.PrefabInstanceTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the PrefabInstanceTable
+   */
+  omit?: Prisma.PrefabInstanceTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many PrefabInstanceTables.
+   */
+  data: Prisma.PrefabInstanceTableCreateManyInput | Prisma.PrefabInstanceTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * PrefabInstanceTable update
  */
 export type PrefabInstanceTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1173,6 +1267,32 @@ export type PrefabInstanceTableUpdateArgs<ExtArgs extends runtime.Types.Extensio
  * PrefabInstanceTable updateMany
  */
 export type PrefabInstanceTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update PrefabInstanceTables.
+   */
+  data: Prisma.XOR<Prisma.PrefabInstanceTableUpdateManyMutationInput, Prisma.PrefabInstanceTableUncheckedUpdateManyInput>
+  /**
+   * Filter which PrefabInstanceTables to update
+   */
+  where?: Prisma.PrefabInstanceTableWhereInput
+  /**
+   * Limit how many PrefabInstanceTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * PrefabInstanceTable updateManyAndReturn
+ */
+export type PrefabInstanceTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the PrefabInstanceTable
+   */
+  select?: Prisma.PrefabInstanceTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the PrefabInstanceTable
+   */
+  omit?: Prisma.PrefabInstanceTableOmit<ExtArgs> | null
   /**
    * The data used to update PrefabInstanceTables.
    */

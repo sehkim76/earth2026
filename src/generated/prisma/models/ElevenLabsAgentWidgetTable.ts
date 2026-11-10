@@ -223,7 +223,6 @@ export type ElevenLabsAgentWidgetTableOrderByWithRelationInput = {
   FileName?: Prisma.SortOrderInput | Prisma.SortOrder
   ImageURL?: Prisma.SortOrderInput | Prisma.SortOrder
   AgentCode?: Prisma.SortOrderInput | Prisma.SortOrder
-  _relevance?: Prisma.ElevenLabsAgentWidgetTableOrderByRelevanceInput
 }
 
 export type ElevenLabsAgentWidgetTableWhereUniqueInput = Prisma.AtLeast<{
@@ -314,12 +313,6 @@ export type ElevenLabsAgentWidgetTableUncheckedUpdateManyInput = {
   AgentCode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
 }
 
-export type ElevenLabsAgentWidgetTableOrderByRelevanceInput = {
-  fields: Prisma.ElevenLabsAgentWidgetTableOrderByRelevanceFieldEnum | Prisma.ElevenLabsAgentWidgetTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type ElevenLabsAgentWidgetTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ARMissionKey?: Prisma.SortOrder
@@ -362,7 +355,21 @@ export type ElevenLabsAgentWidgetTableSelect<ExtArgs extends runtime.Types.Exten
   AgentCode?: boolean
 }, ExtArgs["result"]["elevenLabsAgentWidgetTable"]>
 
+export type ElevenLabsAgentWidgetTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  FileName?: boolean
+  ImageURL?: boolean
+  AgentCode?: boolean
+}, ExtArgs["result"]["elevenLabsAgentWidgetTable"]>
 
+export type ElevenLabsAgentWidgetTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ARMissionKey?: boolean
+  FileName?: boolean
+  ImageURL?: boolean
+  AgentCode?: boolean
+}, ExtArgs["result"]["elevenLabsAgentWidgetTable"]>
 
 export type ElevenLabsAgentWidgetTableSelectScalar = {
   id?: boolean
@@ -501,6 +508,30 @@ export interface ElevenLabsAgentWidgetTableDelegate<ExtArgs extends runtime.Type
   createMany<T extends ElevenLabsAgentWidgetTableCreateManyArgs>(args?: Prisma.SelectSubset<T, ElevenLabsAgentWidgetTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many ElevenLabsAgentWidgetTables and returns the data saved in the database.
+   * @param {ElevenLabsAgentWidgetTableCreateManyAndReturnArgs} args - Arguments to create many ElevenLabsAgentWidgetTables.
+   * @example
+   * // Create many ElevenLabsAgentWidgetTables
+   * const elevenLabsAgentWidgetTable = await prisma.elevenLabsAgentWidgetTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many ElevenLabsAgentWidgetTables and only return the `id`
+   * const elevenLabsAgentWidgetTableWithIdOnly = await prisma.elevenLabsAgentWidgetTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends ElevenLabsAgentWidgetTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, ElevenLabsAgentWidgetTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ElevenLabsAgentWidgetTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a ElevenLabsAgentWidgetTable.
    * @param {ElevenLabsAgentWidgetTableDeleteArgs} args - Arguments to delete one ElevenLabsAgentWidgetTable.
    * @example
@@ -563,6 +594,36 @@ export interface ElevenLabsAgentWidgetTableDelegate<ExtArgs extends runtime.Type
    * 
    */
   updateMany<T extends ElevenLabsAgentWidgetTableUpdateManyArgs>(args: Prisma.SelectSubset<T, ElevenLabsAgentWidgetTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more ElevenLabsAgentWidgetTables and returns the data updated in the database.
+   * @param {ElevenLabsAgentWidgetTableUpdateManyAndReturnArgs} args - Arguments to update many ElevenLabsAgentWidgetTables.
+   * @example
+   * // Update many ElevenLabsAgentWidgetTables
+   * const elevenLabsAgentWidgetTable = await prisma.elevenLabsAgentWidgetTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more ElevenLabsAgentWidgetTables and only return the `id`
+   * const elevenLabsAgentWidgetTableWithIdOnly = await prisma.elevenLabsAgentWidgetTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends ElevenLabsAgentWidgetTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, ElevenLabsAgentWidgetTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ElevenLabsAgentWidgetTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one ElevenLabsAgentWidgetTable.
@@ -966,6 +1027,25 @@ export type ElevenLabsAgentWidgetTableCreateManyArgs<ExtArgs extends runtime.Typ
 }
 
 /**
+ * ElevenLabsAgentWidgetTable createManyAndReturn
+ */
+export type ElevenLabsAgentWidgetTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ElevenLabsAgentWidgetTable
+   */
+  select?: Prisma.ElevenLabsAgentWidgetTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ElevenLabsAgentWidgetTable
+   */
+  omit?: Prisma.ElevenLabsAgentWidgetTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many ElevenLabsAgentWidgetTables.
+   */
+  data: Prisma.ElevenLabsAgentWidgetTableCreateManyInput | Prisma.ElevenLabsAgentWidgetTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * ElevenLabsAgentWidgetTable update
  */
 export type ElevenLabsAgentWidgetTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -991,6 +1071,32 @@ export type ElevenLabsAgentWidgetTableUpdateArgs<ExtArgs extends runtime.Types.E
  * ElevenLabsAgentWidgetTable updateMany
  */
 export type ElevenLabsAgentWidgetTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update ElevenLabsAgentWidgetTables.
+   */
+  data: Prisma.XOR<Prisma.ElevenLabsAgentWidgetTableUpdateManyMutationInput, Prisma.ElevenLabsAgentWidgetTableUncheckedUpdateManyInput>
+  /**
+   * Filter which ElevenLabsAgentWidgetTables to update
+   */
+  where?: Prisma.ElevenLabsAgentWidgetTableWhereInput
+  /**
+   * Limit how many ElevenLabsAgentWidgetTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * ElevenLabsAgentWidgetTable updateManyAndReturn
+ */
+export type ElevenLabsAgentWidgetTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ElevenLabsAgentWidgetTable
+   */
+  select?: Prisma.ElevenLabsAgentWidgetTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the ElevenLabsAgentWidgetTable
+   */
+  omit?: Prisma.ElevenLabsAgentWidgetTableOmit<ExtArgs> | null
   /**
    * The data used to update ElevenLabsAgentWidgetTables.
    */

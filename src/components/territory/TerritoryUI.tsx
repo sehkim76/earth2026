@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, positionAtMoveTarget } from "@/lib/units";
+import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
+import type { UnitMoveTarget } from "@/lib/units";
 import {
   ensureWalkableData,
   findWalkablePathRecursive,
@@ -51,6 +52,14 @@ interface TerritoryUIProps {
   onExit: () => void;
   /** 점수 리셋. */
   onResetScore: () => void;
+  /** 영주(플레이어) 이동 주문 상태 (부대와 동일한 이동 지시 방식). */
+  lordMoveTarget?: UnitMoveTarget | null;
+  /** 영주 이동 주문 등록. */
+  onLordMoveOrder?: (target: UnitMoveTarget) => void;
+  /** 영주 이동 중지. */
+  onLordMoveStop?: () => void;
+  /** 영주 시작 위치 지정 (위치 미확인 시 지도 중앙을 기점으로 삼는다). */
+  onLordSetBase?: (pos: { lat: number; lon: number }) => void;
   /** 영토전 시작 위치 (시작지점 버튼용). */
   territoryStart?: { lat: number; lon: number; sido: string; sigungu: string; dong: string } | null;
   /** 내가 주인인 성 키 (성 메뉴 "나의 성" 목록용). */
@@ -59,6 +68,8 @@ interface TerritoryUIProps {
   castleNames?: Record<string, string>;
   /** 마커 다이얼로그가 열려 있으면 하단 기능 UI를 숨긴다 (상태는 유지). */
   markerDialogOpen: boolean;
+  /** 영주 선택 상태 변경 알림 (플레이어 마커 선택 테두리용). */
+  onLordSelectedChange?: (selected: boolean) => void;
 }
 
 interface UnitInfo {
@@ -223,6 +234,9 @@ interface CastleDetail {  castleKey: string;
 }
 
 type Sheet = null | "castles" | "units" | "move" | "build" | "manage";
+
+/** 부대 목록에 표시되는 영주(플레이어) 가상 ID. 서버 부대가 아니라 이동 지시용이다. */
+export const LORD_UNIT_ID = "__lord__";
 
 const CODE_MESSAGE: Record<string, string> = {
   login: "로그인이 필요합니다.",
@@ -473,6 +487,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   }, [selectedUnit]);
   useEffect(() => {
     moveSheetOpenRef.current = sheet === "move" && selectedUnit !== null;
+    props.onLordSelectedChange?.(sheet === "move" && selectedUnit === LORD_UNIT_ID);
   }, [sheet, selectedUnit]);
   // 선택 테두리는 해당 부대의 이동 다이얼로그가 열린 동안에만 표시한다.
   const isDialogSelected = useCallback(
@@ -1244,6 +1259,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   };
 
   const moveSelectedToCenter = (): void => {
+    if (selectedUnit === LORD_UNIT_ID) {
+      void moveLordToCenter();
+      return;
+    }
     const center = getMapCenter();
     const unit = units.find((item) => item.id === selectedUnit);
     if (!selectedUnit || !center || !unit) {
@@ -1255,6 +1274,201 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     // 스피너를 먼저 그리고, 무거운 재병합·탐색은 페인트 이후에 시작한다.
     void moveUnitGradually(selectedUnit, unit.lat, unit.lon, center.lat, center.lon, center);
+  };
+
+  const isLordSelected = selectedUnit === LORD_UNIT_ID;
+
+  // useCallback이 아닌 일반 함수로 둔다 (호출 시점의 최신 props를 읽기 위해).
+  const openLordMovement = (): void => {
+    // 부대와 달리 플레이어는 위치가 없을 수 있다. 없으면 지도 중앙을 기점으로 삼는다.
+    const playerPos = props.getPlayerLocation() ?? getMapCenter();
+    if (!playerPos) {
+      flash("플레이어 위치를 확인할 수 없습니다.");
+      return;
+    }
+    props.onLordSetBase?.({ lat: playerPos.lat, lon: playerPos.lon });
+    setSelectedUnit(LORD_UNIT_ID);
+    panToLocation(playerPos.lat, playerPos.lon);
+    setSheet("move");
+  };
+
+  const stopLordMovement = (): void => {
+    clearRoute(LORD_UNIT_ID);
+    props.onLordMoveStop?.();
+  };
+
+  // 영주 이동 주문 (부대와 동일한 방식: 목적지 스냅 → 경로 → 소요시간 → 주문 등록).
+  // 서버 주문 없이 클라이언트 권위로 즉시 이동한다.
+  // useCallback이 아닌 일반 함수로 둔다 (호출 시점의 최신 props를 읽기 위해).
+  // 경로의 불필요한 왕복(루프)을 잘라낸다: 이전 점을 15m 안으로 되밟으면 그 구간을 제거한다.
+  const removePathLoops = (pts: Array<{ lat: number; lon: number }>): Array<{ lat: number; lon: number }> => {
+    const kxOf = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+    const out: Array<{ lat: number; lon: number }> = [];
+    for (const p of pts) {
+      const last = out[out.length - 1];
+      if (last) {
+        const kx = kxOf(p.lat);
+        if (Math.hypot((p.lon - last.lon) * kx, (p.lat - last.lat) * 110540) < 1) {
+          continue;
+        }
+      }
+      let cut = -1;
+      for (let k = 0; k < out.length - 1; k += 1) {
+        const q = out[k];
+        if (!q) {
+          continue;
+        }
+        const kx = kxOf(p.lat);
+        if (Math.hypot((p.lon - q.lon) * kx, (p.lat - q.lat) * 110540) < 15) {
+          cut = k;
+          break;
+        }
+      }
+      if (cut >= 0) {
+        out.length = cut + 1;
+      } else {
+        out.push(p);
+      }
+    }
+    return out;
+  };
+  const moveLordToCenter = async (): Promise<void> => {
+    const center = getMapCenter();
+    const from = props.getPlayerLocation() ?? getMapCenter();
+    if (!center || !from) {
+      flash("지도를 움직여 목적지를 가운데에 두세요.");
+      return;
+    }
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setFindingPathUnitId(LORD_UNIT_ID);
+    onMovePath(null);
+    onMoveDestination(center);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    try {
+      ensureWalkableData(center.lat, center.lon);
+      ensureWalkableData(from.lat, from.lon);
+      // 출발지도 도로 위로 스냅한다 (GPS 오차·지도 중앙 지정 대비).
+      const snappedFrom =
+        (await snapToNearestWalkableLocation(from.lat, from.lon, 200)) ?? null;
+      const startLat = snappedFrom?.lat ?? from.lat;
+      const startLon = snappedFrom?.lon ?? from.lon;
+      const snapped =
+        (await snapToNearestWalkableLocation(center.lat, center.lon, 500)) ??
+        (await snapToNearestWalkableLocation(center.lat, center.lon, 3000));
+      if (snapped && (Math.abs(snapped.lat - center.lat) > 1e-9 || Math.abs(snapped.lon - center.lon) > 1e-9)) {
+        const km = snapped.distanceM >= 1000
+          ? `${(snapped.distanceM / 1000).toFixed(1)}km`
+          : `${Math.round(snapped.distanceM)}m`;
+        flash(`목적지가 길에서 벗어나 가장 가까운 길로 보정했습니다 (${km})`);
+      }
+      const toLat = snapped?.lat ?? center.lat;
+      const toLon = snapped?.lon ?? center.lon;
+      const kx = 111320 * Math.cos((startLat * Math.PI) / 180);
+      const distM = Math.hypot((toLon - startLon) * kx, (toLat - startLat) * 110540);
+      if (distM < 1) {
+        props.onLordMoveOrder?.({
+          fromLat: startLat,
+          fromLon: startLon,
+          lat: toLat,
+          lon: toLon,
+          startedAt: Date.now(),
+          endsAt: Date.now(),
+          via: null,
+          path: null,
+        });
+        setSelectedUnit(LORD_UNIT_ID);
+        setSheet("move");
+        return;
+      }
+      // 부대와 동일한 클라이언트 길찾기 (이동가능영역 그래프).
+      let path: Array<{ lat: number; lon: number }> | null = null;
+      try {
+        const deadlineMs = Date.now() + Math.min(ROUTE_BUDGET_MS, 8000);
+        const found = await findWalkablePathRecursive(startLat, startLon, toLat, toLon, 8000, deadlineMs);
+        if (found && found.length >= 2) {
+          const smoothed = smoothPathLatLon(found);
+          const trimmed = removePathLoops(smoothed.length >= 2 ? smoothed : found);
+          if (trimmed.length >= 2) {
+            path = trimmed;
+          }
+        }
+      } catch {
+        path = null;
+      }
+      if (!path && distM > 20000) {
+        try {
+          const routed = (await callApi<{
+            path?: Array<{ lat?: unknown; lon?: unknown }>;
+            reason?: unknown;
+            totalMs?: unknown;
+          }>("/api/route", {
+            fromLat: startLat,
+            fromLon: startLon,
+            toLat,
+            toLon,
+          })) as { path?: Array<{ lat?: unknown; lon?: unknown }> };
+          if (Array.isArray(routed.path)) {
+            const pts = routed.path.flatMap((p) => {
+              const plat = typeof p?.lat === "number" ? p.lat : Number(p?.lat);
+              const plon = typeof p?.lon === "number" ? p.lon : Number(p?.lon);
+              return Number.isFinite(plat) && Number.isFinite(plon) ? [{ lat: plat, lon: plon }] : [];
+            });
+            const trimmed = removePathLoops(pts);
+            if (trimmed.length >= 2) {
+              path = trimmed;
+            }
+          }
+        } catch {
+          path = null;
+        }
+      }
+      if (!path) {
+        setActionDialog({
+          title: "영주를 이동할 수 없습니다",
+          message: "길이 막혔습니다. 이동가능 영역으로 연결된 목적지를 선택해 주세요.",
+        });
+        return;
+      }
+      const startedAt = Date.now();
+      const order: UnitMoveTarget = {
+        fromLat: startLat,
+        fromLon: startLon,
+        lat: toLat,
+        lon: toLon,
+        startedAt,
+        endsAt: startedAt,
+        via: null,
+        path,
+      };
+      const line = movePolyline(order);
+      let totalLen = 0;
+      for (let i = 1; i < line.length; i += 1) {
+        const a = line[i - 1];
+        const b = line[i];
+        if (!a || !b) {
+          continue;
+        }
+        const segKx = 111320 * Math.cos((a.lat * Math.PI) / 180);
+        totalLen += Math.hypot((b.lon - a.lon) * segKx, (b.lat - a.lat) * 110540);
+      }
+      const durationMs = Math.max(1000, (totalLen / UNIT_SPEED_MPS) * 1000);
+      order.endsAt = startedAt + durationMs;
+      props.onLordMoveOrder?.(order);
+      publishRouteLive(LORD_UNIT_ID, line, { lat: toLat, lon: toLon }, true);
+      setSelectedUnit(LORD_UNIT_ID);
+      setSheet("move");
+      setMoveNow(Date.now());
+    } catch (error) {
+      setActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
+    } finally {
+      setBusy(false);
+      setFindingPathUnitId((current) => (current === LORD_UNIT_ID ? null : current));
+    }
   };
 
   // 다구간 이동 체인: 구간별로 경로를 풀면서 이동한다 (초장거리 대응).
@@ -2222,7 +2436,12 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     resumeUnitMovementRef.current = resumeUnitMovement;
   });
 
-  const openUnitMovement = useCallback((unitId: string): void => {
+  // useCallback이 아닌 일반 함수로 둔다 (openLordMovement와 동일하게 최신 컨텍스트를 참조하기 위해).
+  const openUnitMovement = (unitId: string): void => {
+    if (unitId === LORD_UNIT_ID) {
+      openLordMovement();
+      return;
+    }
     const unit = units.find((item) => item.id === unitId);
     if (!unit || unit.state !== "field") {
       setActionDialog({
@@ -2233,7 +2452,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     setSelectedUnit(unitId);
     setSheet("move");
-  }, [units]);
+  };
 
   useEffect(() => {
     if (!unitMarkerSelection) {
@@ -2311,6 +2530,40 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     moveRemainingMs === null || selectedEffDurationMs === null || selectedEffDurationMs <= 0
       ? 0
       : Math.min(100, Math.max(0, ((selectedEffDurationMs - moveRemainingMs) / selectedEffDurationMs) * 100));
+  // 영주 이동 종료(도착/중지) 시 경로 표시를 지운다.
+  useEffect(() => {
+    if (!props.lordMoveTarget) {
+      clearRoute(LORD_UNIT_ID);
+    }
+  }, [props.lordMoveTarget, clearRoute]);
+  const lordTarget = props.lordMoveTarget ?? null;
+  const [, setLordTick] = useState(0);
+  useEffect(() => {
+    if (!lordTarget || Date.now() >= lordTarget.endsAt) {
+      return;
+    }
+    const id = window.setInterval(() => {
+      setLordTick((t) => t + 1);
+      setMoveNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [lordTarget]);
+  const lordActive = lordTarget !== null && Date.now() < lordTarget.endsAt;
+  const lordProgressPct = (() => {
+    if (!lordTarget) {
+      return 0;
+    }
+    const total = Math.max(1, lordTarget.endsAt - lordTarget.startedAt);
+    const elapsed = Math.max(0, Math.min(total, Date.now() - lordTarget.startedAt));
+    return Math.min(100, (elapsed / total) * 100);
+  })();
+  const lordCountdownLabel = (() => {
+    if (!lordTarget) {
+      return "";
+    }
+    const remainSec = Math.max(0, Math.ceil((lordTarget.endsAt - Date.now()) / 1000));
+    return `${Math.floor(remainSec / 60)}:${String(remainSec % 60).padStart(2, "0")}`;
+  })();
   // 이동 목표 지정 중 지도 중앙까지의 거리를 마커 아래에 표시한다.
   const [targetCenter, setTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
   useEffect(() => {
@@ -2514,7 +2767,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
 
       {sheet === "move" && selectedUnit ? (
         <>
-          {!isSelectedUnitMoving && !isFindingPath ? (
+          {!isSelectedUnitMoving && !isFindingPath && !(isLordSelected && lordActive) ? (
             <div className="pointer-events-none fixed left-1/2 top-1/2 z-[1300] -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
               <div className="unit-target-center-pin" />
               {targetDistanceLabel ? (
@@ -2527,12 +2780,29 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto w-auto max-w-xl rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]" role="dialog" aria-modal="false" aria-labelledby="unit-movement-title">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div>
-                <p id="unit-movement-title" className="text-base font-black text-slate-900">부대 이동</p>
-                {!isSelectedUnitMoving ? (
-                  <p className="text-xs font-bold text-slate-600">{units.find((unit) => unit.id === selectedUnit)?.name ?? "부대"}</p>
+                <p id="unit-movement-title" className="text-base font-black text-slate-900">{isLordSelected ? "영주 이동" : "부대 이동"}</p>
+                {!isSelectedUnitMoving && !isLordSelected ? (
+                  <p className="text-xs font-bold text-slate-600">{isLordSelected ? "영주 (나)" : units.find((unit) => unit.id === selectedUnit)?.name ?? "부대"}</p>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {isLordSelected
+                  ? (() => {
+                    const loc = props.getPlayerLocation();
+                    if (!loc || isLocationVisible(loc.lat, loc.lon)) {
+                      return null;
+                    }
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => panToLocation(loc.lat, loc.lon)}
+                        className={buttonGhost}
+                      >
+                        내 위치로
+                      </button>
+                    );
+                  })()
+                  : null}
                 {(() => {
                   void unitOffscreenTick;
                   const unit = units.find((item) => item.id === selectedUnit);
@@ -2552,7 +2822,37 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>닫기</button>
               </div>
             </div>
-            {isFindingPath ? (
+            {isLordSelected && lordActive ? (
+              <div aria-live="polite" className="text-xs font-bold text-[#354b3c]">
+                <p className="mb-1 truncate">
+                  영주 이동 중 ·{" "}
+                  <span className="tabular-nums">{lordCountdownLabel}</span>
+                </p>
+                <div
+                  role="progressbar"
+                  aria-label="영주 이동 진행도"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(lordProgressPct)}
+                  className="relative h-5 overflow-hidden rounded-full bg-[#d1c5aa]"
+                >
+                  <div
+                    className="h-full rounded-full bg-[#526c49] transition-[width] duration-500 ease-linear"
+                    style={{ width: `${lordProgressPct}%` }}
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black tabular-nums text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.65)]">
+                    {Math.floor(lordProgressPct)}%
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => stopLordMovement()}
+                  className={`${buttonGhost} mt-1 w-full`}
+                >
+                  이동 중지
+                </button>
+              </div>
+            ) : isFindingPath ? (
               <div aria-live="polite" className="flex items-center justify-center gap-2 py-1 text-sm font-bold text-[#354b3c]">
                 <span
                   aria-hidden="true"
@@ -2745,7 +3045,68 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             </button>
           </div>
           {showUnitList ? (
-            units.length === 0 ? (
+            <>
+              <div className="mb-1 rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] p-1.5" data-lord-row="1">
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const loc = props.getPlayerLocation();
+                      if (loc) {
+                        props.panToLocation(loc.lat, loc.lon);
+                      }
+                    }}
+                    className="flex-1 text-left"
+                  >
+                    <span className="text-sm font-black text-slate-900">
+                      영주 (나){lordActive ? " (이동 중)" : ""}
+                    </span>
+                  </button>
+                  {lordActive ? (
+                    <button
+                      type="button"
+                      onClick={() => stopLordMovement()}
+                      disabled={busy}
+                      className={buttonPrimary}
+                    >
+                      이동 중지
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openLordMovement()}
+                      disabled={busy}
+                      className={buttonPrimary}
+                    >
+                      이동
+                    </button>
+                  )}
+                </div>
+                {lordActive ? (
+                  <div aria-live="polite" className="mt-1 text-xs font-bold text-[#354b3c]">
+                    <p className="mb-1 truncate">
+                      목적으로 이동 중 · <span className="tabular-nums">{lordCountdownLabel}</span>
+                    </p>
+                    <div
+                      role="progressbar"
+                      aria-label="영주 이동 진행도"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(lordProgressPct)}
+                      className="relative h-4 overflow-hidden rounded-full bg-[#d1c5aa]"
+                    >
+                      <div
+                        className="h-full rounded-full bg-[#526c49] transition-[width] duration-500 ease-linear"
+                        style={{ width: `${lordProgressPct}%` }}
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-black tabular-nums text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.65)]">
+                        {Math.floor(lordProgressPct)}%
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {units.length === 0 ? (
               <p className="py-3 text-center text-sm text-slate-500">파견된 부대가 없습니다.</p>
             ) : (
               <ul className="flex flex-col gap-1">
@@ -2784,7 +3145,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                             <button
                               type="button"
                               onClick={() => {
-                                router.push(`/quiz/neutral?wild=${prey.id}`);
+                                router.push("/map");
                               }}
                               disabled={busy || movingUnitIds.includes(s.id)}
                               className={buttonPrimary}
@@ -2914,7 +3275,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 </li>
               ))}
             </ul>
-          )
+          )}
+          </>
           ) : null}
         </div>
       ) : null}

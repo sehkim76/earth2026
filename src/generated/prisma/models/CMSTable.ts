@@ -223,7 +223,6 @@ export type CMSTableOrderByWithRelationInput = {
   ResourceId?: Prisma.SortOrder
   Title?: Prisma.SortOrder
   Category?: Prisma.SortOrder
-  _relevance?: Prisma.CMSTableOrderByRelevanceInput
 }
 
 export type CMSTableWhereUniqueInput = Prisma.AtLeast<{
@@ -314,12 +313,6 @@ export type CMSTableUncheckedUpdateManyInput = {
   Category?: Prisma.StringFieldUpdateOperationsInput | string
 }
 
-export type CMSTableOrderByRelevanceInput = {
-  fields: Prisma.CMSTableOrderByRelevanceFieldEnum | Prisma.CMSTableOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type CMSTableCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   ServiceCode?: Prisma.SortOrder
@@ -362,7 +355,21 @@ export type CMSTableSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs
   Category?: boolean
 }, ExtArgs["result"]["cMSTable"]>
 
+export type CMSTableSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ServiceCode?: boolean
+  ResourceId?: boolean
+  Title?: boolean
+  Category?: boolean
+}, ExtArgs["result"]["cMSTable"]>
 
+export type CMSTableSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  ServiceCode?: boolean
+  ResourceId?: boolean
+  Title?: boolean
+  Category?: boolean
+}, ExtArgs["result"]["cMSTable"]>
 
 export type CMSTableSelectScalar = {
   id?: boolean
@@ -501,6 +508,30 @@ export interface CMSTableDelegate<ExtArgs extends runtime.Types.Extensions.Inter
   createMany<T extends CMSTableCreateManyArgs>(args?: Prisma.SelectSubset<T, CMSTableCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many CMSTables and returns the data saved in the database.
+   * @param {CMSTableCreateManyAndReturnArgs} args - Arguments to create many CMSTables.
+   * @example
+   * // Create many CMSTables
+   * const cMSTable = await prisma.cMSTable.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many CMSTables and only return the `id`
+   * const cMSTableWithIdOnly = await prisma.cMSTable.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends CMSTableCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, CMSTableCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CMSTablePayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a CMSTable.
    * @param {CMSTableDeleteArgs} args - Arguments to delete one CMSTable.
    * @example
@@ -563,6 +594,36 @@ export interface CMSTableDelegate<ExtArgs extends runtime.Types.Extensions.Inter
    * 
    */
   updateMany<T extends CMSTableUpdateManyArgs>(args: Prisma.SelectSubset<T, CMSTableUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more CMSTables and returns the data updated in the database.
+   * @param {CMSTableUpdateManyAndReturnArgs} args - Arguments to update many CMSTables.
+   * @example
+   * // Update many CMSTables
+   * const cMSTable = await prisma.cMSTable.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more CMSTables and only return the `id`
+   * const cMSTableWithIdOnly = await prisma.cMSTable.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends CMSTableUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, CMSTableUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CMSTablePayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one CMSTable.
@@ -966,6 +1027,25 @@ export type CMSTableCreateManyArgs<ExtArgs extends runtime.Types.Extensions.Inte
 }
 
 /**
+ * CMSTable createManyAndReturn
+ */
+export type CMSTableCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the CMSTable
+   */
+  select?: Prisma.CMSTableSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the CMSTable
+   */
+  omit?: Prisma.CMSTableOmit<ExtArgs> | null
+  /**
+   * The data used to create many CMSTables.
+   */
+  data: Prisma.CMSTableCreateManyInput | Prisma.CMSTableCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * CMSTable update
  */
 export type CMSTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -991,6 +1071,32 @@ export type CMSTableUpdateArgs<ExtArgs extends runtime.Types.Extensions.Internal
  * CMSTable updateMany
  */
 export type CMSTableUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update CMSTables.
+   */
+  data: Prisma.XOR<Prisma.CMSTableUpdateManyMutationInput, Prisma.CMSTableUncheckedUpdateManyInput>
+  /**
+   * Filter which CMSTables to update
+   */
+  where?: Prisma.CMSTableWhereInput
+  /**
+   * Limit how many CMSTables to update.
+   */
+  limit?: number
+}
+
+/**
+ * CMSTable updateManyAndReturn
+ */
+export type CMSTableUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the CMSTable
+   */
+  select?: Prisma.CMSTableSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the CMSTable
+   */
+  omit?: Prisma.CMSTableOmit<ExtArgs> | null
   /**
    * The data used to update CMSTables.
    */

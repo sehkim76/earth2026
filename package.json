@@ -47,7 +47,6 @@
     "@types/react-dom": "^19",
     "@types/supercluster": "^7.1.3",
     "@types/three": "^0.182.0",
-    "@zenith-xperience/mindar-offline-compiler": "^0.0.2",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.5",

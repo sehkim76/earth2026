@@ -52,7 +52,7 @@ export default function NicknameInput({
     const rawCallbackUrl = searchParams?.get('callbackUrl') ?? null;
     const safeCallbackUrl = rawCallbackUrl && rawCallbackUrl.startsWith('/') && !rawCallbackUrl.startsWith('//')
         ? rawCallbackUrl
-        : '/ranking';
+        : '/map';
     const ARMissionKey = useMemo(() => {
         if (initialMissionKey.trim().length > 0) {
             return initialMissionKey.trim();
@@ -153,7 +153,7 @@ export default function NicknameInput({
             console.error("[NicknameInput] localStorage 저장 실패", e);
         }
 
-        console.log("[NicknameInput] /ranking으로 이동");
+        console.log("[NicknameInput] /map으로 이동");
         window.location.href = safeCallbackUrl;
     }, [ensureDeviceId, storageKey, ARMissionKey, safeCallbackUrl]);
 

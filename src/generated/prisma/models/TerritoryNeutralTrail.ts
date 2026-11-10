@@ -248,7 +248,6 @@ export type TerritoryNeutralTrailOrderByWithRelationInput = {
   gy?: Prisma.SortOrder
   count?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
-  _relevance?: Prisma.TerritoryNeutralTrailOrderByRelevanceInput
 }
 
 export type TerritoryNeutralTrailWhereUniqueInput = Prisma.AtLeast<{
@@ -350,12 +349,6 @@ export type TerritoryNeutralTrailUncheckedUpdateManyInput = {
   updatedAt?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
 }
 
-export type TerritoryNeutralTrailOrderByRelevanceInput = {
-  fields: Prisma.TerritoryNeutralTrailOrderByRelevanceFieldEnum | Prisma.TerritoryNeutralTrailOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
-}
-
 export type TerritoryNeutralTrailDongGxGyCompoundUniqueInput = {
   dong: string
   gx: number
@@ -424,7 +417,23 @@ export type TerritoryNeutralTrailSelect<ExtArgs extends runtime.Types.Extensions
   updatedAt?: boolean
 }, ExtArgs["result"]["territoryNeutralTrail"]>
 
+export type TerritoryNeutralTrailSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  dong?: boolean
+  gx?: boolean
+  gy?: boolean
+  count?: boolean
+  updatedAt?: boolean
+}, ExtArgs["result"]["territoryNeutralTrail"]>
 
+export type TerritoryNeutralTrailSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  id?: boolean
+  dong?: boolean
+  gx?: boolean
+  gy?: boolean
+  count?: boolean
+  updatedAt?: boolean
+}, ExtArgs["result"]["territoryNeutralTrail"]>
 
 export type TerritoryNeutralTrailSelectScalar = {
   id?: boolean
@@ -565,6 +574,30 @@ export interface TerritoryNeutralTrailDelegate<ExtArgs extends runtime.Types.Ext
   createMany<T extends TerritoryNeutralTrailCreateManyArgs>(args?: Prisma.SelectSubset<T, TerritoryNeutralTrailCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many TerritoryNeutralTrails and returns the data saved in the database.
+   * @param {TerritoryNeutralTrailCreateManyAndReturnArgs} args - Arguments to create many TerritoryNeutralTrails.
+   * @example
+   * // Create many TerritoryNeutralTrails
+   * const territoryNeutralTrail = await prisma.territoryNeutralTrail.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many TerritoryNeutralTrails and only return the `id`
+   * const territoryNeutralTrailWithIdOnly = await prisma.territoryNeutralTrail.createManyAndReturn({
+   *   select: { id: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends TerritoryNeutralTrailCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, TerritoryNeutralTrailCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryNeutralTrailPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a TerritoryNeutralTrail.
    * @param {TerritoryNeutralTrailDeleteArgs} args - Arguments to delete one TerritoryNeutralTrail.
    * @example
@@ -627,6 +660,36 @@ export interface TerritoryNeutralTrailDelegate<ExtArgs extends runtime.Types.Ext
    * 
    */
   updateMany<T extends TerritoryNeutralTrailUpdateManyArgs>(args: Prisma.SelectSubset<T, TerritoryNeutralTrailUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more TerritoryNeutralTrails and returns the data updated in the database.
+   * @param {TerritoryNeutralTrailUpdateManyAndReturnArgs} args - Arguments to update many TerritoryNeutralTrails.
+   * @example
+   * // Update many TerritoryNeutralTrails
+   * const territoryNeutralTrail = await prisma.territoryNeutralTrail.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more TerritoryNeutralTrails and only return the `id`
+   * const territoryNeutralTrailWithIdOnly = await prisma.territoryNeutralTrail.updateManyAndReturn({
+   *   select: { id: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends TerritoryNeutralTrailUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, TerritoryNeutralTrailUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryNeutralTrailPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one TerritoryNeutralTrail.
@@ -1031,6 +1094,25 @@ export type TerritoryNeutralTrailCreateManyArgs<ExtArgs extends runtime.Types.Ex
 }
 
 /**
+ * TerritoryNeutralTrail createManyAndReturn
+ */
+export type TerritoryNeutralTrailCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TerritoryNeutralTrail
+   */
+  select?: Prisma.TerritoryNeutralTrailSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the TerritoryNeutralTrail
+   */
+  omit?: Prisma.TerritoryNeutralTrailOmit<ExtArgs> | null
+  /**
+   * The data used to create many TerritoryNeutralTrails.
+   */
+  data: Prisma.TerritoryNeutralTrailCreateManyInput | Prisma.TerritoryNeutralTrailCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * TerritoryNeutralTrail update
  */
 export type TerritoryNeutralTrailUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1056,6 +1138,32 @@ export type TerritoryNeutralTrailUpdateArgs<ExtArgs extends runtime.Types.Extens
  * TerritoryNeutralTrail updateMany
  */
 export type TerritoryNeutralTrailUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update TerritoryNeutralTrails.
+   */
+  data: Prisma.XOR<Prisma.TerritoryNeutralTrailUpdateManyMutationInput, Prisma.TerritoryNeutralTrailUncheckedUpdateManyInput>
+  /**
+   * Filter which TerritoryNeutralTrails to update
+   */
+  where?: Prisma.TerritoryNeutralTrailWhereInput
+  /**
+   * Limit how many TerritoryNeutralTrails to update.
+   */
+  limit?: number
+}
+
+/**
+ * TerritoryNeutralTrail updateManyAndReturn
+ */
+export type TerritoryNeutralTrailUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TerritoryNeutralTrail
+   */
+  select?: Prisma.TerritoryNeutralTrailSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the TerritoryNeutralTrail
+   */
+  omit?: Prisma.TerritoryNeutralTrailOmit<ExtArgs> | null
   /**
    * The data used to update TerritoryNeutralTrails.
    */

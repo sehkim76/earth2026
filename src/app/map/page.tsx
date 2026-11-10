@@ -100,7 +100,7 @@ export default async function MapPage({ searchParams }: MapPageProps) {
   const showEventRevisitedDialog = eventRevisitedParam === "1" || eventRevisitedParam === "true";
   const attackDeniedParam = getSingleParam(params.attackDenied);
   const attackDeniedReason =
-    attackDeniedParam === "range" || attackDeniedParam === "gone" || attackDeniedParam === "quiz"
+    attackDeniedParam === "range" || attackDeniedParam === "gone"
       ? attackDeniedParam
       : null;
 
@@ -151,12 +151,12 @@ export default async function MapPage({ searchParams }: MapPageProps) {
       SELECT gps.id,
              gps.location,
              gps.locationname,
-             gps.EventKey,
-             evt.EventType as eventType
-      FROM ARMissionGPS as gps
-      LEFT JOIN ARMissionEvent as evt
-        ON evt.ARMissionKey = ${missionKey} AND evt.EventKey = gps.EventKey
-      WHERE gps.ARMissionKey = ${missionKey}
+             gps."EventKey",
+             evt."EventType" AS "eventType"
+      FROM "ARMissionGPS" AS gps
+      LEFT JOIN "ARMissionEvent" AS evt
+        ON evt."ARMissionKey" = ${missionKey} AND evt."EventKey" = gps."EventKey"
+      WHERE gps."ARMissionKey" = ${missionKey}
     `;
 
     console.log("[/map] fetched ARMissionGPS rows", {
@@ -205,10 +205,10 @@ export default async function MapPage({ searchParams }: MapPageProps) {
     ];
     
     const debugEventTypeRows = await prisma.$queryRaw<DebugEventTypeRow[]>`
-      SELECT EventKey, EventType
-      FROM ARMissionEvent
-      WHERE ARMissionKey = ${effectiveMissionKey}
-        AND EventKey IN (${debugEventKeys[0]}, ${debugEventKeys[1]})
+      SELECT "EventKey" AS "eventKey", "EventType" AS "eventType"
+      FROM "ARMissionEvent"
+      WHERE "ARMissionKey" = ${effectiveMissionKey}
+        AND "EventKey" IN (${debugEventKeys[0]}, ${debugEventKeys[1]})
     `;
 
     for (const row of debugEventTypeRows) {
@@ -218,11 +218,11 @@ export default async function MapPage({ searchParams }: MapPageProps) {
     }
 
     const scoreRows = await prisma.$queryRaw<TotalScoreRow[]>`
-      SELECT COALESCE(SUM(s.score), 0) AS totalScore
-      FROM ARMissionUserScore s
-      WHERE TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+      SELECT COALESCE(SUM(s.score), 0) AS "totalScore"
+      FROM "ARMissionUserScore" s
+      WHERE TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
         AND COALESCE(s.islastscore, 0) = 1
-        AND s.UserId = ${session.user.id}
+        AND s."UserId" = ${session.user.id}
     `;
 
     const rawTotalScore = scoreRows[0]?.totalScore;
@@ -242,17 +242,17 @@ export default async function MapPage({ searchParams }: MapPageProps) {
 
     const rankingRows = await prisma.$queryRaw<RankingRow[]>`
       SELECT
-        u.userId AS userId,
-        COALESCE(u.nickname, u.userId) AS nickname,
-        COALESCE(SUM(s.score), 0) AS totalScore
-      FROM MissionUser u
-      LEFT JOIN ARMissionUserScore s ON s.UserId = u.userId
-        AND TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+        u."userId" AS "userId",
+        COALESCE(u.nickname, u."userId") AS nickname,
+        COALESCE(SUM(s.score), 0) AS "totalScore"
+      FROM "MissionUser" u
+      LEFT JOIN "ARMissionUserScore" s ON s."UserId" = u."userId"
+        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
         AND COALESCE(s.islastscore, 0) = 1
       WHERE u.code = 'W'
-        AND TRIM(COALESCE(u.ARMissionKey, '')) = ${missionKey ?? ""}
-      GROUP BY u.userId, u.nickname
-      ORDER BY totalScore DESC
+        AND TRIM(COALESCE(u."ARMissionKey", '')) = ${missionKey ?? ""}
+      GROUP BY u."userId", u.nickname
+      ORDER BY "totalScore" DESC
     `;
 
     rankingItems = rankingRows.map((row) => ({
@@ -261,10 +261,10 @@ export default async function MapPage({ searchParams }: MapPageProps) {
     }));
 
     const visitedRows = await prisma.$queryRaw<VisitedScoreRow[]>`
-      SELECT TRIM(s.EventKey) AS eventKey, s.score AS score
-      FROM ARMissionUserScore s
-      WHERE s.UserId = ${session.user.id}
-        AND TRIM(COALESCE(s.ARMissionKey, '')) = ${missionKey}
+      SELECT TRIM(s."EventKey") AS "eventKey", s.score AS score
+      FROM "ARMissionUserScore" s
+      WHERE s."UserId" = ${session.user.id}
+        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
         AND COALESCE(s.islastscore, 0) = 1
         AND COALESCE(s.score, 0) >= 1
     `;

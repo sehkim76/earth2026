@@ -19,7 +19,7 @@ type ResolveBody = {
 };
 
 /**
- * 공성 1타 판정. QuizPart 정답 제출(updatescore → scoreId) 직후 호출한다.
+ * 공성 1타 판정. 정답 제출(updatescore → scoreId) 직후 호출한다.
  * - scoreId로 해당 hit 1회를 정확히 1번만 적용 (멱등, PrefabInstanceTable 원장)
  * - GET_LOCK(castle) 으로 막타 동시 충돌 원자화
  * - HP 0 → 정복 (applyCastleDamage) + 주둔 부대 자동 귀환

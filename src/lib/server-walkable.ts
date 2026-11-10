@@ -357,6 +357,9 @@ export const isInDongServer = (dong: string, lat: number, lon: number): boolean 
 /** 동 경계 데이터 확보 (메모리 캐시, 없으면 HTTP 1회). */
 export const ensureDongBoundary = async (): Promise<boolean> => ensureTopo();
 
+/** 해당 동의 그리드가 메모리에 적재돼 있는지 (판정 가능 여부). */
+export const hasDongGrids = (dong: string): boolean => gridCache.has(dong) || fetchCache.has(dong);
+
 /** 해당 좌표가 이동가능영역 위인지 (데이터 없으면 null). */
 export const isWalkableServer = (dong: string, lat: number, lon: number): boolean | null => {
   const grids = loadDongGrids(dong);

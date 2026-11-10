@@ -164,7 +164,6 @@ export type MissionScenarioOrderByWithRelationInput = {
   progressId?: Prisma.SortOrder
   scenarioData?: Prisma.SortOrderInput | Prisma.SortOrder
   MissionStatus?: Prisma.MissionStatusOrderByRelationAggregateInput
-  _relevance?: Prisma.MissionScenarioOrderByRelevanceInput
 }
 
 export type MissionScenarioWhereUniqueInput = Prisma.AtLeast<{
@@ -229,12 +228,6 @@ export type MissionScenarioUpdateManyMutationInput = {
 export type MissionScenarioUncheckedUpdateManyInput = {
   progressId?: Prisma.StringFieldUpdateOperationsInput | string
   scenarioData?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
-}
-
-export type MissionScenarioOrderByRelevanceInput = {
-  fields: Prisma.MissionScenarioOrderByRelevanceFieldEnum | Prisma.MissionScenarioOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
 }
 
 export type MissionScenarioCountOrderByAggregateInput = {
@@ -347,7 +340,15 @@ export type MissionScenarioSelect<ExtArgs extends runtime.Types.Extensions.Inter
   _count?: boolean | Prisma.MissionScenarioCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["missionScenario"]>
 
+export type MissionScenarioSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  progressId?: boolean
+  scenarioData?: boolean
+}, ExtArgs["result"]["missionScenario"]>
 
+export type MissionScenarioSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  progressId?: boolean
+  scenarioData?: boolean
+}, ExtArgs["result"]["missionScenario"]>
 
 export type MissionScenarioSelectScalar = {
   progressId?: boolean
@@ -359,6 +360,8 @@ export type MissionScenarioInclude<ExtArgs extends runtime.Types.Extensions.Inte
   MissionStatus?: boolean | Prisma.MissionScenario$MissionStatusArgs<ExtArgs>
   _count?: boolean | Prisma.MissionScenarioCountOutputTypeDefaultArgs<ExtArgs>
 }
+export type MissionScenarioIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
+export type MissionScenarioIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
 
 export type $MissionScenarioPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "MissionScenario"
@@ -486,6 +489,30 @@ export interface MissionScenarioDelegate<ExtArgs extends runtime.Types.Extension
   createMany<T extends MissionScenarioCreateManyArgs>(args?: Prisma.SelectSubset<T, MissionScenarioCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many MissionScenarios and returns the data saved in the database.
+   * @param {MissionScenarioCreateManyAndReturnArgs} args - Arguments to create many MissionScenarios.
+   * @example
+   * // Create many MissionScenarios
+   * const missionScenario = await prisma.missionScenario.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many MissionScenarios and only return the `progressId`
+   * const missionScenarioWithProgressIdOnly = await prisma.missionScenario.createManyAndReturn({
+   *   select: { progressId: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends MissionScenarioCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, MissionScenarioCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionScenarioPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a MissionScenario.
    * @param {MissionScenarioDeleteArgs} args - Arguments to delete one MissionScenario.
    * @example
@@ -548,6 +575,36 @@ export interface MissionScenarioDelegate<ExtArgs extends runtime.Types.Extension
    * 
    */
   updateMany<T extends MissionScenarioUpdateManyArgs>(args: Prisma.SelectSubset<T, MissionScenarioUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more MissionScenarios and returns the data updated in the database.
+   * @param {MissionScenarioUpdateManyAndReturnArgs} args - Arguments to update many MissionScenarios.
+   * @example
+   * // Update many MissionScenarios
+   * const missionScenario = await prisma.missionScenario.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more MissionScenarios and only return the `progressId`
+   * const missionScenarioWithProgressIdOnly = await prisma.missionScenario.updateManyAndReturn({
+   *   select: { progressId: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends MissionScenarioUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, MissionScenarioUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionScenarioPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one MissionScenario.
@@ -973,6 +1030,25 @@ export type MissionScenarioCreateManyArgs<ExtArgs extends runtime.Types.Extensio
 }
 
 /**
+ * MissionScenario createManyAndReturn
+ */
+export type MissionScenarioCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionScenario
+   */
+  select?: Prisma.MissionScenarioSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionScenario
+   */
+  omit?: Prisma.MissionScenarioOmit<ExtArgs> | null
+  /**
+   * The data used to create many MissionScenarios.
+   */
+  data: Prisma.MissionScenarioCreateManyInput | Prisma.MissionScenarioCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * MissionScenario update
  */
 export type MissionScenarioUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1002,6 +1078,32 @@ export type MissionScenarioUpdateArgs<ExtArgs extends runtime.Types.Extensions.I
  * MissionScenario updateMany
  */
 export type MissionScenarioUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update MissionScenarios.
+   */
+  data: Prisma.XOR<Prisma.MissionScenarioUpdateManyMutationInput, Prisma.MissionScenarioUncheckedUpdateManyInput>
+  /**
+   * Filter which MissionScenarios to update
+   */
+  where?: Prisma.MissionScenarioWhereInput
+  /**
+   * Limit how many MissionScenarios to update.
+   */
+  limit?: number
+}
+
+/**
+ * MissionScenario updateManyAndReturn
+ */
+export type MissionScenarioUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionScenario
+   */
+  select?: Prisma.MissionScenarioSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionScenario
+   */
+  omit?: Prisma.MissionScenarioOmit<ExtArgs> | null
   /**
    * The data used to update MissionScenarios.
    */

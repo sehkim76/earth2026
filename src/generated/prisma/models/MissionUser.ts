@@ -390,7 +390,6 @@ export type MissionUserOrderByWithRelationInput = {
   location_updated_at?: Prisma.SortOrderInput | Prisma.SortOrder
   location_cell?: Prisma.SortOrderInput | Prisma.SortOrder
   MissionStatus?: Prisma.MissionStatusOrderByRelationAggregateInput
-  _relevance?: Prisma.MissionUserOrderByRelevanceInput
 }
 
 export type MissionUserWhereUniqueInput = Prisma.AtLeast<{
@@ -662,12 +661,6 @@ export type MissionUserUncheckedUpdateManyInput = {
 export type MissionUserNullableScalarRelationFilter = {
   is?: Prisma.MissionUserWhereInput | null
   isNot?: Prisma.MissionUserWhereInput | null
-}
-
-export type MissionUserOrderByRelevanceInput = {
-  fields: Prisma.MissionUserOrderByRelevanceFieldEnum | Prisma.MissionUserOrderByRelevanceFieldEnum[]
-  sort: Prisma.SortOrder
-  search: string
 }
 
 export type MissionUserCountOrderByAggregateInput = {
@@ -957,7 +950,55 @@ export type MissionUserSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   _count?: boolean | Prisma.MissionUserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["missionUser"]>
 
+export type MissionUserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  userId?: boolean
+  password?: boolean
+  nickname?: boolean
+  code?: boolean
+  email?: boolean
+  createdate?: boolean
+  score?: boolean
+  ARMissionKey?: boolean
+  MainSceneName?: boolean
+  device_id?: boolean
+  Features?: boolean
+  access_time?: boolean
+  location?: boolean
+  edboxModel?: boolean
+  isCMSAdmin?: boolean
+  is_system_admin?: boolean
+  SubscriberCode?: boolean
+  data?: boolean
+  lat?: boolean
+  lon?: boolean
+  location_updated_at?: boolean
+  location_cell?: boolean
+}, ExtArgs["result"]["missionUser"]>
 
+export type MissionUserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
+  userId?: boolean
+  password?: boolean
+  nickname?: boolean
+  code?: boolean
+  email?: boolean
+  createdate?: boolean
+  score?: boolean
+  ARMissionKey?: boolean
+  MainSceneName?: boolean
+  device_id?: boolean
+  Features?: boolean
+  access_time?: boolean
+  location?: boolean
+  edboxModel?: boolean
+  isCMSAdmin?: boolean
+  is_system_admin?: boolean
+  SubscriberCode?: boolean
+  data?: boolean
+  lat?: boolean
+  lon?: boolean
+  location_updated_at?: boolean
+  location_cell?: boolean
+}, ExtArgs["result"]["missionUser"]>
 
 export type MissionUserSelectScalar = {
   userId?: boolean
@@ -989,6 +1030,8 @@ export type MissionUserInclude<ExtArgs extends runtime.Types.Extensions.Internal
   MissionStatus?: boolean | Prisma.MissionUser$MissionStatusArgs<ExtArgs>
   _count?: boolean | Prisma.MissionUserCountOutputTypeDefaultArgs<ExtArgs>
 }
+export type MissionUserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
+export type MissionUserIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
 
 export type $MissionUserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "MissionUser"
@@ -1136,6 +1179,30 @@ export interface MissionUserDelegate<ExtArgs extends runtime.Types.Extensions.In
   createMany<T extends MissionUserCreateManyArgs>(args?: Prisma.SelectSubset<T, MissionUserCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
 
   /**
+   * Create many MissionUsers and returns the data saved in the database.
+   * @param {MissionUserCreateManyAndReturnArgs} args - Arguments to create many MissionUsers.
+   * @example
+   * // Create many MissionUsers
+   * const missionUser = await prisma.missionUser.createManyAndReturn({
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Create many MissionUsers and only return the `userId`
+   * const missionUserWithUserIdOnly = await prisma.missionUser.createManyAndReturn({
+   *   select: { userId: true },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  createManyAndReturn<T extends MissionUserCreateManyAndReturnArgs>(args?: Prisma.SelectSubset<T, MissionUserCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionUserPayload<ExtArgs>, T, "createManyAndReturn", GlobalOmitOptions>>
+
+  /**
    * Delete a MissionUser.
    * @param {MissionUserDeleteArgs} args - Arguments to delete one MissionUser.
    * @example
@@ -1198,6 +1265,36 @@ export interface MissionUserDelegate<ExtArgs extends runtime.Types.Extensions.In
    * 
    */
   updateMany<T extends MissionUserUpdateManyArgs>(args: Prisma.SelectSubset<T, MissionUserUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<Prisma.BatchPayload>
+
+  /**
+   * Update zero or more MissionUsers and returns the data updated in the database.
+   * @param {MissionUserUpdateManyAndReturnArgs} args - Arguments to update many MissionUsers.
+   * @example
+   * // Update many MissionUsers
+   * const missionUser = await prisma.missionUser.updateManyAndReturn({
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * 
+   * // Update zero or more MissionUsers and only return the `userId`
+   * const missionUserWithUserIdOnly = await prisma.missionUser.updateManyAndReturn({
+   *   select: { userId: true },
+   *   where: {
+   *     // ... provide filter here
+   *   },
+   *   data: [
+   *     // ... provide data here
+   *   ]
+   * })
+   * Note, that providing `undefined` is treated as the value not being there.
+   * Read more here: https://pris.ly/d/null-undefined
+   * 
+   */
+  updateManyAndReturn<T extends MissionUserUpdateManyAndReturnArgs>(args: Prisma.SelectSubset<T, MissionUserUpdateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$MissionUserPayload<ExtArgs>, T, "updateManyAndReturn", GlobalOmitOptions>>
 
   /**
    * Create or update one MissionUser.
@@ -1643,6 +1740,25 @@ export type MissionUserCreateManyArgs<ExtArgs extends runtime.Types.Extensions.I
 }
 
 /**
+ * MissionUser createManyAndReturn
+ */
+export type MissionUserCreateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionUser
+   */
+  select?: Prisma.MissionUserSelectCreateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionUser
+   */
+  omit?: Prisma.MissionUserOmit<ExtArgs> | null
+  /**
+   * The data used to create many MissionUsers.
+   */
+  data: Prisma.MissionUserCreateManyInput | Prisma.MissionUserCreateManyInput[]
+  skipDuplicates?: boolean
+}
+
+/**
  * MissionUser update
  */
 export type MissionUserUpdateArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1672,6 +1788,32 @@ export type MissionUserUpdateArgs<ExtArgs extends runtime.Types.Extensions.Inter
  * MissionUser updateMany
  */
 export type MissionUserUpdateManyArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * The data used to update MissionUsers.
+   */
+  data: Prisma.XOR<Prisma.MissionUserUpdateManyMutationInput, Prisma.MissionUserUncheckedUpdateManyInput>
+  /**
+   * Filter which MissionUsers to update
+   */
+  where?: Prisma.MissionUserWhereInput
+  /**
+   * Limit how many MissionUsers to update.
+   */
+  limit?: number
+}
+
+/**
+ * MissionUser updateManyAndReturn
+ */
+export type MissionUserUpdateManyAndReturnArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the MissionUser
+   */
+  select?: Prisma.MissionUserSelectUpdateManyAndReturn<ExtArgs> | null
+  /**
+   * Omit specific fields from the MissionUser
+   */
+  omit?: Prisma.MissionUserOmit<ExtArgs> | null
   /**
    * The data used to update MissionUsers.
    */

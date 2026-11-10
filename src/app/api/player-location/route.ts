@@ -56,23 +56,21 @@ export async function POST(request: Request) {
   }
 
   const source =
-    typeof body.source === "string" && body.source.trim() === "joystick"
-      ? "joystick"
-      : typeof body.source === "string" && body.source.trim() === "start"
-        ? "start"
-        : "gps";
+    typeof body.source === "string" && body.source.trim() === "start"
+      ? "start"
+      : "gps";
 
   const now = new Date();
   const latString = lat.toFixed(6);
   const lonString = lon.toFixed(6);
 
   await prisma.$executeRaw`
-    UPDATE MissionUser
-    SET lat = ${latString},
-        lon = ${lonString},
+    UPDATE "MissionUser"
+    SET lat = ${lat},
+        lon = ${lon},
         location = ${`${latString},${lonString}`},
         location_updated_at = ${now}
-    WHERE userId = ${userId}
+    WHERE "userId" = ${userId}
   `;
 
   return NextResponse.json({ ok: true, mode: source });

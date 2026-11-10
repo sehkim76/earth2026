@@ -190,17 +190,7 @@ export default async function EventPage({ searchParams }: EventPageProps) {
   const armissionkey = userMissionKey || explicitMissionKey || (resolvedEvent.ARMissionKey || "").trim();
 
   if (eventType === "quiztype") {
-    const quizUrl = `/quiz/${encodeURIComponent(eventKey)}`;
-    const quizParams = new URLSearchParams();
-    if (armissionkey) {
-      quizParams.set("armissionkey", armissionkey);
-    }
-    if (!isDefaultReturn) {
-      quizParams.set("exitUrl", exitUrl);
-      quizParams.set("host", host);
-    }
-    const query = quizParams.toString();
-    redirect(query ? `${quizUrl}?${query}` : quizUrl);
+    redirect("/map?eventUnsupported=1");
   }
 
   if (eventType === "urltype") {
