@@ -239,7 +239,7 @@ const GLOBE_STYLE_ID = "globe-satellite-style";
 const ADMIN_GLOBE_SOURCE_ID = "admin-boundaries";
 /** 메모리에 유지할 고해상도 동 타일 상한 (초과 시 오래된 타일부터 단순화본으로 복귀). */
 const DONG_HD_TILE_LIMIT = 32;
-/** 행정경계 전용 Leaflet pane (canvas 렌더러, overlayPane(400) 아래). */
+/** 행정경계 전용 Leaflet pane (canvas 렌더러, overlayPane(400) 위·markerPane(600) 아래). */
 const ADMIN_LEAFLET_PANE = "adminBoundaryPane";
 const ADMIN_GLOBE_FILL_LAYER_ID = "admin-fill";
 const ADMIN_GLOBE_LINE_LAYER_ID = "admin-line";
@@ -9355,8 +9355,10 @@ const isMapPerfEnabled = (): boolean => {
     };
     // 3,500여 개 동 폴리곤을 SVG DOM 대신 단일 canvas로 그린다 (전용 pane, 오버레이 아래).
     if (!map.getPane(ADMIN_LEAFLET_PANE)) {
-      const pane = map.createPane(ADMIN_LEAFLET_PANE);
-      pane.style.zIndex = "350";
+      // leaflet-rotate: 기본 pane들은 rotatePane 안에 있다. 커스텀 pane도 그 안에 만들어야
+      // 회전·이동이 함께 적용된다 (mapPane에 두면 canvas가 엉뚱한 위치에 그려진다).
+      const pane = map.createPane(ADMIN_LEAFLET_PANE, map.getPane("rotatePane") ?? undefined);
+      pane.style.zIndex = "450";
     }
     let renderer = adminCanvasRendererRef.current;
     if (!renderer || adminCanvasRendererMapRef.current !== map) {
