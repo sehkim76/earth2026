@@ -1,6 +1,9 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* 정적 에셋(public/, 수백 MB의 JSON·모델)은 클래스 소스가 아니므로 자동 스캔에서 제외 (PostCSS 타임아웃 방지). */
+@source not "../../public";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
