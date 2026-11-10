@@ -720,6 +720,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     quizKey: string;
     quizTitle: string;
     path?: Array<{ lat: number; lon: number }> | null;
+    /** 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (서버 진행 인덱스). */
+    pathIdx?: number | null;
   }
   const [neutralUnits, setNeutralUnits] = useState<NeutralUnitRow[]>([]);
   const neutralUnitsRef = useRef<NeutralUnitRow[]>([]);
@@ -742,6 +744,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         endsAt: row.endsAt,
         via: null,
         path: row.path && row.path.length >= 2 ? row.path : null,
+        pathIdx: row.path && row.path.length >= 2 ? (row.pathIdx ?? null) : null,
       },
     }));
   const refreshNeutralUnits = useCallback(async () => {
@@ -808,6 +811,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             quizKey: typeof r.quizKey === "string" ? r.quizKey : "",
             quizTitle: typeof r.quizTitle === "string" ? r.quizTitle : "",
             path,
+            pathIdx:
+              typeof r.pathIdx === "number" && Number.isInteger(r.pathIdx) && r.pathIdx >= 0 ? r.pathIdx : null,
           },
         ];
       });

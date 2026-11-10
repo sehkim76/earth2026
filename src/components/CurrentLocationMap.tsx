@@ -1103,68 +1103,80 @@ const neutralLegSubpath = (
   toLat: number,
   toLon: number,
   path: Array<{ lat: number; lon: number }> | null | undefined,
+  pathIdx?: number | null,
 ): Array<{ lat: number; lon: number }> => {
   const fallback = [{ lat: fromLat, lon: fromLon }, { lat: toLat, lon: toLon }];
   if (!Array.isArray(path) || path.length === 0) {
     return fallback;
   }
   const kxOf = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
-  // 각 정점까지의 거리가 아닌, 각 구간(segment)까지의 최단거리로 본다.
-  let bestSeg = -1;
-  let bestT = 0;
-  let bestD = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < path.length; i += 1) {
+  const isPt = (p: { lat: number; lon: number } | undefined): p is { lat: number; lon: number } =>
+    !!p && Number.isFinite(p.lat) && Number.isFinite(p.lon);
+  /** 점에서 구간 a→b까지의 최단거리(m). b가 없으면 정점 a까지의 거리. */
+  const distToSeg = (lat: number, lon: number, i: number): number => {
     const a = path[i];
-    if (!a || !Number.isFinite(a.lat) || !Number.isFinite(a.lon)) {
-      continue;
+    if (!isPt(a)) {
+      return Number.POSITIVE_INFINITY;
     }
-    const b = i + 1 < path.length ? path[i + 1] : null;
+    const b = path[i + 1];
     const kx = kxOf(a.lat);
-    const d0 = Math.hypot((fromLon - a.lon) * kx, (fromLat - a.lat) * 110540);
-    if (d0 < bestD) {
-      bestD = d0;
-      bestSeg = i;
-    }
-    if (!b || !Number.isFinite(b.lat) || !Number.isFinite(b.lon)) {
-      continue;
+    if (!isPt(b)) {
+      return Math.hypot((lon - a.lon) * kx, (lat - a.lat) * 110540);
     }
     const dx = (b.lon - a.lon) * kx;
     const dy = (b.lat - a.lat) * 110540;
     const len2 = dx * dx + dy * dy;
-    const t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, (((fromLon - a.lon) * kx) * dx + (fromLat - a.lat) * 110540 * dy) / len2));
-    const d = Math.hypot((a.lon + (b.lon - a.lon) * t - fromLon) * kx, (a.lat + (b.lat - a.lat) * t - fromLat) * 110540);
-    if (d < bestD) {
-      bestD = d;
+    const t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, ((lon - a.lon) * kx * dx + (lat - a.lat) * 110540 * dy) / len2));
+    return Math.hypot((a.lon + (b.lon - a.lon) * t - lon) * kx, (a.lat + (b.lat - a.lat) * t - lat) * 110540);
+  };
+  // 서버 진행 인덱스: 목적지는 구간 path[pathIdx-1] → path[pathIdx] 위에 있다.
+  // 같은 길을 두 번 지나는 경로(왕복·루프)에서 엉뚱한 회차를 잡지 않도록
+  // 목적지 구간을 고정하고, 출발 구간은 그 이전에서만 찾는다.
+  const knownEndSeg =
+    typeof pathIdx === "number" &&
+    Number.isInteger(pathIdx) &&
+    pathIdx >= 1 &&
+    pathIdx < path.length &&
+    distToSeg(toLat, toLon, pathIdx - 1) <= 5
+      ? pathIdx - 1
+      : null;
+  // 출발점이 놓인 구간 (정점이 아닌 구간까지의 최단거리 기준, 동거리면 목적지에 가까운 뒤쪽 구간).
+  let bestSeg = -1;
+  let bestD = Number.POSITIVE_INFINITY;
+  const fromSearchEnd = knownEndSeg ?? path.length - 1;
+  for (let i = 0; i <= fromSearchEnd; i += 1) {
+    const d = distToSeg(fromLat, fromLon, i);
+    if (d < bestD - 0.5 || (knownEndSeg !== null && Math.abs(d - bestD) <= 0.5)) {
+      bestD = Math.min(d, bestD);
       bestSeg = i;
     }
   }
   if (bestSeg < 0) {
     return fallback;
   }
-  // 목적지에 가장 가까운 정점을 찾는다 (시작 구간 이후에서).
-  let endIdx = path.length - 1;
-  {
+  // 시작점이 경로에서 너무 멀면(잔재 경로) 직선으로 폴백한다.
+  if (!(bestD <= 100)) {
+    return fallback;
+  }
+  // 목적지가 놓인 구간 (서버 인덱스가 있으면 그대로, 없으면 출발 구간 이후에서 동거리면 앞선 구간).
+  let endSeg = knownEndSeg ?? bestSeg;
+  if (knownEndSeg === null) {
     let bd = Number.POSITIVE_INFINITY;
     for (let i = bestSeg; i < path.length; i += 1) {
-      const p = path[i];
-      if (!p) {
-        continue;
-      }
-      const d = calculateDistance(toLat, toLon, p.lat, p.lon);
-      if (d < bd) {
+      const d = distToSeg(toLat, toLon, i);
+      if (d < bd - 0.5) {
         bd = d;
-        endIdx = i;
+        endSeg = i;
       }
     }
   }
+  // 출발점·목적지는 대개 구간 "중간"에 있다. 출발 구간의 시작 정점(bestSeg)이나
+  // 목적지 구간의 끝 정점(endSeg+1)을 넣으면 뒤로 갔다가 되돌아오는 역주행이 생기므로
+  // 그 사이 정점(bestSeg+1 .. endSeg)만 잇는다.
   const sub: Array<{ lat: number; lon: number }> = [{ lat: fromLat, lon: fromLon }];
-  // 시작점이 경로에서 너무 멀면(잔재 경로) 직선으로 폴백한다.
-  if (!(bestD <= 100)) {
-    return [{ lat: fromLat, lon: fromLon }, { lat: toLat, lon: toLon }];
-  }
-  for (let i = bestSeg; i <= endIdx; i += 1) {
+  for (let i = bestSeg + 1; i <= endSeg; i += 1) {
     const p = path[i];
-    if (!p) {
+    if (!isPt(p)) {
       continue;
     }
     const last = sub[sub.length - 1];
@@ -2165,6 +2177,8 @@ interface UnitMoveTargetMark {
   startedAt: number;
   endsAt: number;
   path?: Array<{ lat: number; lon: number }> | null;
+  /** 무법자: 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (서버 진행 인덱스). */
+  pathIdx?: number | null;
 }
 
 interface OtherUnitMoveAnim {
@@ -6645,7 +6659,7 @@ interface OtherUnitMoveAnim {
           return { lat: m.lat, lon: m.lon };
         }
         try {
-          const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null);
+          const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
           const pos = positionAtMoveTarget(
             {
               fromLat: t.fromLat,
@@ -8147,7 +8161,7 @@ interface OtherUnitMoveAnim {
           try {
             const t = freshMark.moveTarget;
             if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && Date.now() < t.endsAt) {
-              const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null);
+              const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
               const pos = positionAtMoveTarget(
                 {
                   fromLat: t.fromLat,
@@ -8253,7 +8267,9 @@ interface OtherUnitMoveAnim {
         if (!raw || raw.length === 0) {
           return [{ lat: target.lat, lon: target.lon }];
         }
-        return neutralLegSubpath(target.fromLat, target.fromLon, target.lat, target.lon, raw);
+        // 무효 점이 걸러졌으면 인덱스가 어긋나므로 서버 진행 인덱스를 쓰지 않는다.
+        const idx = Array.isArray(target.path) && raw.length === target.path.length ? target.pathIdx ?? null : null;
+        return neutralLegSubpath(target.fromLat, target.fromLon, target.lat, target.lon, raw, idx);
       })();
       anims.set(mark.id, {
         key,

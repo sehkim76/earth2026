@@ -97,6 +97,10 @@ export interface NeutralUnitView {
   moving: boolean;
   quizKey: string;
   quizTitle: string;
+  /** 저장 경로 (없으면 직선 다리). */
+  path?: Array<{ lat: number; lon: number }> | null;
+  /** 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (구간 = path[pathIdx-1] → path[pathIdx]). */
+  pathIdx: number;
 }
 
 // quiz_titles.json: { "Quiz/xxx.json": "제목" } — 검증된 풀(quiz_pool.json) 우선, 없으면 전체에서.
@@ -525,6 +529,8 @@ interface NeutralSpawnPlan {
   at: { lat: number; lon: number };
   dest: { lat: number; lon: number };
   pathJson: string | null;
+  /** 첫 다리 목적지가 놓인 구간의 끝 정점 인덱스. */
+  pathIdx: number;
   quizKey: string;
   quizTitle: string;
 }
@@ -817,6 +823,7 @@ const planNeutralSpawn = async (
     at: { lat: at.lat, lon: at.lon },
     dest: { lat: dest.lat, lon: dest.lon },
     pathJson: path ? JSON.stringify(path) : null,
+    pathIdx: firstLeg ? firstLeg.idx : 0,
     quizKey: quiz.key,
     quizTitle: quiz.title.slice(0, 255),
   };
@@ -895,6 +902,7 @@ export const listNeutralUnits = async (
             createdAt: BigInt(now),
             updatedAt: BigInt(now),
             path: spawnPlan.pathJson,
+            pathIdx: spawnPlan.pathIdx,
           },
         });
         rows.push(created);
@@ -956,6 +964,7 @@ export const listNeutralUnits = async (
         quizKey: r.quizKey,
         quizTitle: r.quizTitle,
         path: parseStoredPath(r.path),
+        pathIdx: r.path ? r.pathIdx : 0,
       };
     });
   }).finally(() => {
