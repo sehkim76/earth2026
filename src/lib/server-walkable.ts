@@ -168,7 +168,11 @@ const ensureTopo = async (): Promise<boolean> => {
   }
   topoLoaded = true;
   try {
-    const res = await fetch(`${rasterBaseUrl}/boundaries/kor_dong.topojson`);
+    // 고해상도 경계(클라이언트 상세 타일과 동일 기하) 우선, 없으면 단순화본.
+    let res = await fetch(`${rasterBaseUrl}/boundaries/kor_dong_hd.topojson`);
+    if (!res.ok) {
+      res = await fetch(`${rasterBaseUrl}/boundaries/kor_dong.topojson`);
+    }
     if (!res.ok) {
       return false;
     }

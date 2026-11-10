@@ -467,3 +467,100 @@ export function normalizeProperties(
   }
   return normalized;
 }
+
+// ---- 한국 읍면동 고해상도 타일 (scripts/build-dong-boundaries-hd.mjs) ----
+// 전국 단순화본(kor_dong.topojson) 위에, 확대 시 화면 근처 타일의 고해상도 기하로
+// 같은 shapeID 피처를 교체한다. 타일 = 0.2° 그리드, 동은 bbox 중심 타일 하나에만 속한다.
+
+/** 고해상도 타일을 적용하기 시작하는 지도 줌 레벨. */
+export const DONG_HD_MIN_ZOOM = 12;
+
+/** 한 번에 불러올 타일 상한 (모바일 메모리·네트워크 보호). */
+const DONG_HD_MAX_TILES_PER_REQUEST = 16;
+
+const DONG_HD_BASE_URL = "/boundaries/kor_dong_hd";
+
+interface DongHdIndex {
+  v: number;
+  tileDeg: number;
+  tiles: Record<string, { b: [number, number, number, number]; n: number }>;
+}
+
+let dongHdIndexPromise: Promise<DongHdIndex | null> | null = null;
+const dongHdTileCache: Map<string, Promise<GeoJSON.Feature[]>> = new Map();
+
+function loadDongHdIndex(): Promise<DongHdIndex | null> {
+  if (dongHdIndexPromise) {
+    return dongHdIndexPromise;
+  }
+  dongHdIndexPromise = fetch(`${DONG_HD_BASE_URL}/index.json`, { credentials: "omit" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((json: unknown): DongHdIndex | null => {
+      if (
+        isRecord(json) &&
+        typeof json["tileDeg"] === "number" &&
+        isRecord(json["tiles"])
+      ) {
+        return json as unknown as DongHdIndex;
+      }
+      return null;
+    })
+    .catch(() => null);
+  return dongHdIndexPromise;
+}
+
+function fetchDongHdTile(id: string): Promise<GeoJSON.Feature[]> {
+  const cached = dongHdTileCache.get(id);
+  if (cached) {
+    return cached;
+  }
+  const promise = fetch(`${DONG_HD_BASE_URL}/${encodeURIComponent(id)}.topojson`, { credentials: "omit" })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((json: unknown): GeoJSON.Feature[] => {
+      if (!isTopology(json)) {
+        return [];
+      }
+      return topologyToGeoJson(json)?.features ?? [];
+    })
+    .catch((): GeoJSON.Feature[] => {
+      // 실패한 타일은 다음 요청에서 재시도한다.
+      dongHdTileCache.delete(id);
+      return [];
+    });
+  dongHdTileCache.set(id, promise);
+  return promise;
+}
+
+/** 경위도 사각형(들)과 겹치는 고해상도 타일 id 목록 (가까운 순, 상한 적용). */
+export async function findDongHdTiles(
+  boxes: ReadonlyArray<{ west: number; south: number; east: number; north: number }>,
+): Promise<string[]> {
+  const index = await loadDongHdIndex();
+  if (!index || boxes.length === 0) {
+    return [];
+  }
+  const hits: Array<{ id: string; d: number }> = [];
+  for (const [id, tile] of Object.entries(index.tiles)) {
+    const [w, s, e, n] = tile.b;
+    let best = Infinity;
+    for (const box of boxes) {
+      if (e < box.west || w > box.east || n < box.south || s > box.north) {
+        continue;
+      }
+      const d =
+        Math.abs((w + e) / 2 - (box.west + box.east) / 2) + Math.abs((s + n) / 2 - (box.south + box.north) / 2);
+      best = Math.min(best, d);
+    }
+    if (Number.isFinite(best)) {
+      hits.push({ id, d: best });
+    }
+  }
+  hits.sort((a, b) => a.d - b.d);
+  return hits.slice(0, DONG_HD_MAX_TILES_PER_REQUEST).map((h) => h.id);
+}
+
+/** 고해상도 타일의 원본 피처들 (properties는 geoBoundaries 원본: shapeID/shapeName...). */
+export async function fetchDongHdFeatures(tileIds: readonly string[]): Promise<GeoJSON.Feature[]> {
+  const lists = await Promise.all(tileIds.map((id) => fetchDongHdTile(id)));
+  return lists.flat();
+}
