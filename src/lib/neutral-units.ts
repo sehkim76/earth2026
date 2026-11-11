@@ -25,8 +25,8 @@ export const setNeutralRasterBaseUrl = (origin: string): void => {
 /** 중립 부대 규칙: 5분마다 1기 스폰, 시속 4km 배회. 상한은 이동가능면적 비례 (좌2동=20기 기준, 최대 50기). */
 export const NEUTRAL_UNIT_PER_DONG_CAP = 20;
 const REFERENCE_DONG = "71637012B36687171546688";
-const REFERENCE_DONG_CAP = 20;
-const NEUTRAL_UNIT_MAX_PER_DONG = 50;
+const REFERENCE_DONG_CAP = 10;
+const NEUTRAL_UNIT_MAX_PER_DONG = 25;
 import dongWalkableArea from "../../public/boundaries/dong-walkable-area.json" assert { type: "json" };
 
 // 중립성(동사무소 등) 위치 — 스폰 기준점용. key의 동 ID와 래스터 동 ID는 동일 체계다.
@@ -887,6 +887,25 @@ export const listNeutralUnits = async (
       });
       r.quizKey = quiz.key;
       r.quizTitle = quiz.title.slice(0, 255);
+    }
+    // 상한 초과분 정리: 상한이 낮아지면 초과 개체를 임의로 삭제한다.
+    // 다이얼로그로 일시정지된 개체(보고 있는 개체)는 가능한 한 남긴다.
+    const cap = capForDong(code);
+    if (rows.length > cap) {
+      const isHeld = (r: TerritoryNeutralUnit): boolean =>
+        r.lat === r.destLat && r.lon === r.destLon && Number(r.legEndsAt) > now;
+      const order = rows
+        .map((r) => ({ r, key: (isHeld(r) ? 1 : 0) + Math.random() }))
+        .sort((a, b) => a.key - b.key);
+      const doomed = new Set(order.slice(0, rows.length - cap).map((o) => o.r.id));
+      await tx.territoryNeutralUnit.deleteMany({ where: { id: { in: [...doomed] } } });
+      console.log(`[neutral] trimmed dong=${code} removed=${doomed.size} cap=${cap}`);
+      for (let i = rows.length - 1; i >= 0; i -= 1) {
+        const row = rows[i];
+        if (row && doomed.has(row.id)) {
+          rows.splice(i, 1);
+        }
+      }
     }
     // 스폰: 계획이 있으면 최신 스냅샷 기준으로 재검증 후 생성한다.
     if (spawnPlan) {
