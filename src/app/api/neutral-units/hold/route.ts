@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prismadb";
-import { neutralPositionAt } from "@/lib/neutral-leg";
+import { NEUTRAL_PATH_SNAP_MAX_M, neutralPositionAt, projectOntoPath } from "@/lib/neutral-leg";
 
 const parsePath = (raw: string | null): Array<{ lat: number; lon: number }> | null => {
   if (!raw) {
@@ -48,6 +48,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       return NextResponse.json({ ok: true, resumed: false });
     }
     // 경로를 따라 보간한 위치에 고정한다 (직선 보간은 꺾인 길에서 이동가능영역 밖을 가리킨다).
+    const path = parsePath(row.path);
     const pos = neutralPositionAt(
       {
         fromLat: Number(row.lat),
@@ -56,11 +57,19 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         destLon: Number(row.destLon),
         startedAt: Number(row.legStartedAt),
         endsAt: Number(row.legEndsAt),
-        path: parsePath(row.path),
+        path,
         pathIdx: row.pathIdx,
       },
       now,
     );
+    // 과거 직선 보간으로 경로 밖에 고정된 개체는 경로 위로 되돌린다 (멈춘 채로 숲 속에 남지 않게).
+    let pathIdx = row.pathIdx;
+    const onPath = projectOntoPath(pos.lat, pos.lon, path, row.pathIdx >= 1 ? row.pathIdx - 1 : null);
+    if (onPath && onPath.distM > 1 && onPath.distM <= NEUTRAL_PATH_SNAP_MAX_M) {
+      pos.lat = onPath.lat;
+      pos.lon = onPath.lon;
+      pathIdx = onPath.pathIdx;
+    }
     await prisma.territoryNeutralUnit.update({
       where: { id },
       data: {
@@ -68,6 +77,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
         lon: pos.lon,
         destLat: pos.lat,
         destLon: pos.lon,
+        pathIdx,
         legStartedAt: BigInt(now),
         legEndsAt: BigInt(hold ? now + HOLD_TTL_MS : now),
         updatedAt: BigInt(now),

@@ -13,7 +13,7 @@ import {
   setRasterBaseUrl,
   snapToWalkableServer,
 } from "@/lib/server-walkable";
-import { neutralPositionAt } from "@/lib/neutral-leg";
+import { NEUTRAL_PATH_SNAP_MAX_M, neutralPositionAt, projectOntoPath } from "@/lib/neutral-leg";
 import { findServerRoute, setGraphBaseUrl } from "@/lib/server-graph";
 
 /** 래스터·그래프 기준 URL (API 라우트에서 요청 origin으로 설정). */
@@ -558,6 +558,21 @@ const planNeutralLeg = async (
   const anchorLon = r.anchorLon;
   let baseLat = r.destLat;
   let baseLon = r.destLon;
+  // 경로 밖(과거 직선 보간 고정분)에 멈춘 개체는 저장 경로 위로 되돌린 뒤 이어서 걷는다.
+  // 그대로 두면 아래 이동가능 검사에 걸려 스폰 앵커로 순간이동하거나 경로 밖에서 출발한다.
+  {
+    const onPath = projectOntoPath(
+      baseLat,
+      baseLon,
+      parseStoredPath(r.path),
+      typeof r.pathIdx === "number" && r.pathIdx >= 1 ? r.pathIdx - 1 : null,
+    );
+    if (onPath && onPath.distM > 1 && onPath.distM <= NEUTRAL_PATH_SNAP_MAX_M) {
+      console.debug(`[neutral] base snapped to path id=${r.id} off=${onPath.distM.toFixed(1)}m`);
+      baseLat = onPath.lat;
+      baseLon = onPath.lon;
+    }
+  }
   if (
     isWalkableServer(dong, baseLat, baseLon) === false ||
     isInDongServer(dong, baseLat, baseLon) === false

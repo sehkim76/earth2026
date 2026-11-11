@@ -147,3 +147,44 @@ export const neutralPositionAt = (
     now,
   );
 };
+
+/**
+ * 점을 저장 경로 위 가장 가까운 지점으로 투영한다.
+ * maxSeg가 있으면 그 구간(path[maxSeg]→path[maxSeg+1])까지만 찾는다 (루프 경로에서 앞쪽 회차로 점프 방지).
+ * 동거리면 뒤쪽 구간을 택한다. 반환 pathIdx는 투영점이 놓인 구간의 끝 정점 인덱스(서버 pathIdx 의미와 같음).
+ */
+export const projectOntoPath = (
+  lat: number,
+  lon: number,
+  path: Array<{ lat: number; lon: number }> | null | undefined,
+  maxSeg?: number | null,
+): { lat: number; lon: number; distM: number; pathIdx: number } | null => {
+  if (!Array.isArray(path) || path.length < 2) {
+    return null;
+  }
+  const last = typeof maxSeg === "number" && Number.isInteger(maxSeg) ? Math.min(maxSeg, path.length - 2) : path.length - 2;
+  let best: { lat: number; lon: number; distM: number; pathIdx: number } | null = null;
+  for (let i = 0; i <= last; i += 1) {
+    const a = path[i];
+    const b = path[i + 1];
+    if (!a || !b || !Number.isFinite(a.lat) || !Number.isFinite(b.lat)) {
+      continue;
+    }
+    const kx = kxOf(a.lat);
+    const dx = (b.lon - a.lon) * kx;
+    const dy = (b.lat - a.lat) * 110540;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 <= 0 ? 0 : Math.max(0, Math.min(1, ((lon - a.lon) * kx * dx + (lat - a.lat) * 110540 * dy) / len2));
+    const p = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+    const d = Math.hypot((p.lon - lon) * kx, (p.lat - lat) * 110540);
+    if (!best || d <= best.distM + 0.5) {
+      if (!best || d < best.distM - 0.5 || i + 1 > best.pathIdx) {
+        best = { ...p, distM: d, pathIdx: i + 1 };
+      }
+    }
+  }
+  return best;
+};
+
+/** 경로 밖으로 벗어난 위치를 경로 위로 되돌리는 허용 거리(m). 이보다 멀면 잔재 경로로 보고 손대지 않는다. */
+export const NEUTRAL_PATH_SNAP_MAX_M = 40;
