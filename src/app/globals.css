@@ -320,13 +320,10 @@
 
 /* 무법자 걸음 모션: 한 주기(0.9s) = 두 걸음. 착지(0·50%)에 살짝 눌리고 걸음 중간에 떠오르며
  * 주기당 한 번 좌우로 흔들린다. 좌우 반전은 JS가 transform(scaleX)으로 하므로
- * 개별 속성(translate·rotate·scale)만 써서 충돌 없이 합성한다. 이동 중(data-walk="1")에만 재생. */
+ * 개별 속성(translate·rotate·scale)만 써서 충돌 없이 합성한다. 이동·정지와 무관하게 상시 재생. */
+/* 정지 중(선택 시 일시정지 포함)에도 제자리걸음을 계속한다 (구 8프레임 시절과 동일한 인상). */
 .territory-outlaw {
   transform-origin: 50% 92%;
-  /* 정지 중(선택 시 일시정지 포함)에도 굳은 그림으로 보이지 않게 숨쉬기 대기 모션. */
-  animation: outlaw-idle 1.8s ease-in-out infinite;
-}
-.territory-outlaw[data-walk="1"] {
   animation: outlaw-step 0.9s linear infinite;
 }
 @keyframes outlaw-step {
@@ -360,18 +357,8 @@
     scale: 1.02 0.98;
   }
 }
-@keyframes outlaw-idle {
-  0%,
-  100% {
-    scale: 1 1;
-  }
-  50% {
-    scale: 1.012 1.025;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .territory-outlaw,
-  .territory-outlaw[data-walk="1"] {
+  .territory-outlaw {
     animation: none;
   }
 }
