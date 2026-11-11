@@ -13,6 +13,7 @@ import {
   setRasterBaseUrl,
   snapToWalkableServer,
 } from "@/lib/server-walkable";
+import { neutralPositionAt } from "@/lib/neutral-leg";
 import { findServerRoute, setGraphBaseUrl } from "@/lib/server-graph";
 
 /** 래스터·그래프 기준 URL (API 라우트에서 요청 origin으로 설정). */
@@ -484,25 +485,24 @@ const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =
   return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)));
 };
 
-const lerpPos = (
-  fromLat: number,
-  fromLon: number,
-  destLat: number,
-  destLon: number,
-  startedAt: number,
-  endsAt: number,
+/** DB 행의 현재 위치: 저장 경로를 따라 보간한다 (화면 애니메이션과 동일 수식). */
+const rowPositionAt = (
+  r: TerritoryNeutralUnit,
   now: number,
-): { lat: number; lon: number; arrived: boolean } => {
-  if (now >= endsAt || endsAt <= startedAt) {
-    return { lat: destLat, lon: destLon, arrived: true };
-  }
-  const t = (now - startedAt) / (endsAt - startedAt);
-  return {
-    lat: fromLat + (destLat - fromLat) * t,
-    lon: fromLon + (destLon - fromLon) * t,
-    arrived: false,
-  };
-};
+): { lat: number; lon: number; arrived: boolean } =>
+  neutralPositionAt(
+    {
+      fromLat: r.lat,
+      fromLon: r.lon,
+      destLat: r.destLat,
+      destLon: r.destLon,
+      startedAt: Number(r.legStartedAt),
+      endsAt: Number(r.legEndsAt),
+      path: parseStoredPath(r.path),
+      pathIdx: r.pathIdx,
+    },
+    now,
+  );
 
 /**
  * 해당 동의 중립 부대를 조회한다. 부 side-effect:
@@ -543,7 +543,7 @@ const neutralOthersOf = (
   rows
     .filter((r) => r.id !== excludeId)
     .map((r) => {
-      const pos = lerpPos(r.lat, r.lon, r.destLat, r.destLon, Number(r.legStartedAt), Number(r.legEndsAt), now);
+      const pos = rowPositionAt(r, now);
       return { lat: pos.lat, lon: pos.lon };
     });
 
@@ -940,15 +940,7 @@ export const listNeutralUnits = async (
       r.pathIdx = plan.pathIdx;
     }
     return rows.map((r) => {
-      const pos = lerpPos(
-        r.lat,
-        r.lon,
-        r.destLat,
-        r.destLon,
-        Number(r.legStartedAt),
-        Number(r.legEndsAt),
-        now,
-      );
+      const pos = rowPositionAt(r, now);
       return {
         id: r.id,
         dong: r.dong,

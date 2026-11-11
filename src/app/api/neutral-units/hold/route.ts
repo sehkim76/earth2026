@@ -1,24 +1,32 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prismadb";
+import { neutralPositionAt } from "@/lib/neutral-leg";
+
+const parsePath = (raw: string | null): Array<{ lat: number; lon: number }> | null => {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    if (!Array.isArray(arr)) {
+      return null;
+    }
+    const pts: Array<{ lat: number; lon: number }> = [];
+    for (const p of arr) {
+      const rec = typeof p === "object" && p !== null ? (p as Record<string, unknown>) : {};
+      if (typeof rec.lat !== "number" || typeof rec.lon !== "number" || !Number.isFinite(rec.lat) || !Number.isFinite(rec.lon)) {
+        return null;
+      }
+      pts.push({ lat: rec.lat, lon: rec.lon });
+    }
+    return pts.length >= 2 ? pts : null;
+  } catch {
+    return null;
+  }
+};
 
 /** 무법자 일시정지 유지 시간 (클라이언트가 다이얼로그 표시 중 60초마다 연장한다). */
 const HOLD_TTL_MS = 120_000;
-
-const lerpNow = (
-  fromLat: number,
-  fromLon: number,
-  toLat: number,
-  toLon: number,
-  startedAt: number,
-  endsAt: number,
-  now: number,
-): { lat: number; lon: number } => {
-  if (now >= endsAt || endsAt <= startedAt) {
-    return { lat: toLat, lon: toLon };
-  }
-  const t = (now - startedAt) / (endsAt - startedAt);
-  return { lat: fromLat + (toLat - fromLat) * t, lon: fromLon + (toLon - fromLon) * t };
-};
 
 /** 무법자 일시정지/재개. 다이얼로그가 열린 동안 해당 개체를 멈춘다.
  * hold=true: 현재 보간 위치에 고정하고 legEndsAt를 TTL 뒤로 민다 (틱이 건너뛴다).
@@ -39,13 +47,18 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     if (!row) {
       return NextResponse.json({ ok: true, resumed: false });
     }
-    const pos = lerpNow(
-      Number(row.lat),
-      Number(row.lon),
-      Number(row.destLat),
-      Number(row.destLon),
-      Number(row.legStartedAt),
-      Number(row.legEndsAt),
+    // 경로를 따라 보간한 위치에 고정한다 (직선 보간은 꺾인 길에서 이동가능영역 밖을 가리킨다).
+    const pos = neutralPositionAt(
+      {
+        fromLat: Number(row.lat),
+        fromLon: Number(row.lon),
+        destLat: Number(row.destLat),
+        destLon: Number(row.destLon),
+        startedAt: Number(row.legStartedAt),
+        endsAt: Number(row.legEndsAt),
+        path: parsePath(row.path),
+        pathIdx: row.pathIdx,
+      },
       now,
     );
     await prisma.territoryNeutralUnit.update({
