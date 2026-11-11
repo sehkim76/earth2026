@@ -326,12 +326,11 @@ const SOLDIER_WALK_FRAME_URLS = Array.from(
   { length: 8 },
   (_, index) => `/markers/soldier_walk_${String(index + 1).padStart(2, "0")}.png`,
 );
-const OUTLAW_FRAME_URLS = Array.from(
-  { length: 8 },
-  (_, index) => `/markers/outlaw_walk_${String(index + 1).padStart(2, "0")}.png`,
-);
+// 무법자: 원본 걷기 프레임 8장은 다리 자세가 거의 같고 몸 위치·크기가 프레임마다 흔들려
+// 넘기면 걷기가 아니라 떨림처럼 보였다. 정지 프레임 1장 + CSS 걸음 모션(상하 바운스·좌우
+// 흔들림·착지 눌림)으로 대체한다 (globals.css .territory-outlaw[data-walk="1"]).
+const OUTLAW_SPRITE_URL = "/markers/outlaw_walk_base.png";
 const territorySoldierImages = new Set<HTMLImageElement>();
-const territoryOutlawImages = new Set<HTMLImageElement>();
 let territorySoldierAnimationTimer: number | null = null;
 // 지도 드래그·줌 중 스프라이트 stepping 일시정지 (getBoundingClientRect 강제 리플로우 방지).
 let territoryAnimPaused = false;
@@ -374,9 +373,6 @@ const ensureFramesPreloaded = (urls: string[]): void => {
 const ensureSoldierFramesPreloaded = (): void => {
   ensureFramesPreloaded([...SOLDIER_IDLE_FRAME_URLS, ...SOLDIER_WALK_FRAME_URLS]);
 };
-const ensureOutlawFramesPreloaded = (): void => {
-  ensureFramesPreloaded(OUTLAW_FRAME_URLS);
-};
 const resolveSoldierFrameUrl = (url: string): string => resolveFrameUrl(url);
 // 화면 밖 마커의 src 교체는 건너뛴다 (디코드·페인트 절약). 여유 64px.
 const stepFrameImage = (
@@ -402,24 +398,17 @@ const stepFrameImage = (
 const registerTerritorySoldierAnimation = (root: ParentNode | null): void => {
   if (typeof window === "undefined" || !root) return;
   ensureSoldierFramesPreloaded();
-  ensureOutlawFramesPreloaded();
   if (root instanceof HTMLImageElement) {
     if (root.classList.contains("territory-soldier-idle")) {
       territorySoldierImages.add(root);
-    }
-    if (root.classList.contains("territory-outlaw")) {
-      territoryOutlawImages.add(root);
     }
   }
   root.querySelectorAll<HTMLImageElement>("img.territory-soldier-idle").forEach((image) => {
     territorySoldierImages.add(image);
   });
-  root.querySelectorAll<HTMLImageElement>("img.territory-outlaw").forEach((image) => {
-    territoryOutlawImages.add(image);
-  });
   if (
     territorySoldierAnimationTimer !== null ||
-    (territorySoldierImages.size === 0 && territoryOutlawImages.size === 0)
+    territorySoldierImages.size === 0
   ) {
     return;
   }
@@ -443,20 +432,8 @@ const registerTerritorySoldierAnimation = (root: ParentNode | null): void => {
         image.dataset.appliedWalk = image.dataset.walk ?? "0";
       }
     });
-    // 무법자는 항상 걷기 사이클 (idle 프레임 없음).
-    territoryOutlawImages.forEach((image) => {
-      if (!image.isConnected) {
-        territoryOutlawImages.delete(image);
-        return;
-      }
-      const frameIndex = frameTick % OUTLAW_FRAME_URLS.length;
-      if (image.dataset.frameIndex !== String(frameIndex)) {
-        stepFrameImage(image, OUTLAW_FRAME_URLS, frameIndex, viewportWidth, viewportHeight);
-      }
-    });
     if (
       territorySoldierImages.size === 0 &&
-      territoryOutlawImages.size === 0 &&
       territorySoldierAnimationTimer !== null
     ) {
       window.clearInterval(territorySoldierAnimationTimer);
@@ -478,7 +455,8 @@ const territorySoldierAnimationMarkup = (): string =>
   `<img src="${SOLDIER_IDLE_FRAME_URLS[0]}" alt="" class="territory-soldier-idle" data-frame-index="0" />`;
 
 const territoryOutlawAnimationMarkup = (): string =>
-  `<img src="${OUTLAW_FRAME_URLS[0]}" alt="" class="territory-outlaw" data-frame-index="0" />`;
+  // 개체마다 걸음 위상을 흩어 무리가 한 박자로 출렁이지 않게 한다.
+  `<img src="${OUTLAW_SPRITE_URL}" alt="" class="territory-outlaw" style="animation-delay:-${(Math.random() * 0.64).toFixed(2)}s" />`;
 
 const neutralDamageAnimationMarkup = (): string =>
   `<div class="neutral-castle-damage-animation">${NEUTRAL_DAMAGE_FRAME_URLS.map(
