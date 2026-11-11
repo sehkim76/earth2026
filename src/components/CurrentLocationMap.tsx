@@ -456,7 +456,7 @@ const territorySoldierAnimationMarkup = (): string =>
 
 const territoryOutlawAnimationMarkup = (): string =>
   // 개체마다 걸음 위상을 흩어 무리가 한 박자로 출렁이지 않게 한다.
-  `<img src="${OUTLAW_SPRITE_URL}" alt="" class="territory-outlaw" style="animation-delay:-${(Math.random() * 0.64).toFixed(2)}s" />`;
+  `<img src="${OUTLAW_SPRITE_URL}" alt="" class="territory-outlaw" style="animation-delay:-${(Math.random() * 0.9).toFixed(2)}s" />`;
 
 const neutralDamageAnimationMarkup = (): string =>
   `<div class="neutral-castle-damage-animation">${NEUTRAL_DAMAGE_FRAME_URLS.map(
