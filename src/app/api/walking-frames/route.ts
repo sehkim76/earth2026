@@ -46,7 +46,8 @@ const listFrameFiles = async (framesDir: string): Promise<string[]> => {
   const entries = await readdir(framesDir, { withFileTypes: true });
 
   return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png"))
+    // 스프라이트 시트(*_sheet.png)는 프레임이 아니므로 목록에서 뺀다.
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".png") && !entry.name.toLowerCase().endsWith("_sheet.png"))
     .map((entry) => entry.name)
     .sort((a, b) => {
       const aNumber = parseFrameNumber(a);

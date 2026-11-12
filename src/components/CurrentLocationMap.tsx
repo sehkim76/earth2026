@@ -328,6 +328,10 @@ type MarkerPanel = {
 // 플레이어 캐릭터 걷기 프레임 (정적 에셋, CDN 캐시). 파일명은 000~023 고정.
 const WALKING_FRAMES_STATIC_DIR = "/map-assets/walking";
 const FALLEN_ANGEL_FRAMES_STATIC_DIR = "/map-assets/fallen-angel";
+// 영주 걷기 스프라이트 시트 (24프레임 × 198px, scripts/build-sprite-sheets.py로 생성). 90ms/프레임.
+const OGRE_WALK_SHEET_URL = `${WALKING_FRAMES_STATIC_DIR}/ogre_walk_sheet.png`;
+const FALLEN_ANGEL_WALK_SHEET_URL = `${FALLEN_ANGEL_FRAMES_STATIC_DIR}/fallen_angel_walk_sheet.png`;
+const PLAYER_WALK_CYCLE_MS = 24 * 90;
 const WALKING_FRAME_FILES = Array.from(
   { length: 24 },
   (_, index) => `0_Ogre_Walking_${String(index).padStart(3, "0")}.png`,
@@ -3987,109 +3991,57 @@ interface OtherUnitMoveAnim {
     return canvas.toDataURL("image/png");
   }, []);
 
-  const createWalkingPlayerMarkerElement = useCallback((): PlayerMarkerVisual => {
-    const size = 66;
-    const root = document.createElement("div");
-    root.style.width = `${size}px`;
-    root.style.height = `${size}px`;
-    root.style.pointerEvents = "auto";
-    root.style.cursor = "pointer";
+  // 영주 캐릭터: 24프레임 스프라이트 시트를 CSS steps(24)로 재생한다 (globals.css .player-walk-sprite).
+  // 프레임마다 img.src(blob URL)를 바꾸던 방식은 0.09초마다 이미지 요청·디코드가 발생했다.
+  // 프레임 목록(walkingFrameUrls 등)은 로드 완료 여부 판단·글로브 빌보드·선택 썸네일에 계속 쓴다.
+  const createSheetPlayerMarkerElement = useCallback(
+    (sheetUrl: string, framesReady: boolean, label: string): PlayerMarkerVisual => {
+      const size = 66;
+      const root = document.createElement("div");
+      root.style.width = `${size}px`;
+      root.style.height = `${size}px`;
+      root.style.pointerEvents = "auto";
+      root.style.cursor = "pointer";
 
-    const image = document.createElement("img");
-    image.style.width = "100%";
-    image.style.height = "100%";
-    image.style.objectFit = "contain";
-    image.style.display = "block";
-    image.style.filter = "drop-shadow(0 6px 10px rgba(2, 6, 23, 0.35))";
-    image.style.transformOrigin = "center";
-    image.style.transform = "scaleX(1)";
-    image.alt = "오크 캐릭터";
-    root.appendChild(image);
+      const sprite = document.createElement("div");
+      sprite.className = "player-walk-sprite";
+      sprite.setAttribute("role", "img");
+      sprite.setAttribute("aria-label", label);
+      // 그림자는 기존 img와 같이 인라인으로 둔다 (선택 시 .lord-selected filter보다 우선하던 동작 유지).
+      sprite.style.filter = "drop-shadow(0 6px 10px rgba(2, 6, 23, 0.35))";
+      sprite.style.transformOrigin = "center";
+      sprite.style.transform = "scaleX(1)";
+      if (framesReady) {
+        sprite.style.backgroundImage = `url("${sheetUrl}")`;
+        // 모든 영주 마커가 같은 위상으로 걷도록 전역 시계에 맞춘다.
+        sprite.style.animationDelay = `-${Math.round(performance.now() % PLAYER_WALK_CYCLE_MS)}ms`;
+      }
+      root.appendChild(sprite);
 
-    if (walkingFrameUrls.length === 0) {
       return {
         element: root,
         dispose: () => {},
         iconSize: [66, 66],
         iconAnchor: [33, 65],
         applyFacingDirection: (facingLeft: boolean) => {
-          image.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
+          sprite.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
         },
       };
-    }
+    },
+    [],
+  );
 
-    let frameIndex = 0;
-    image.src = walkingFrameUrls[frameIndex];
+  const createWalkingPlayerMarkerElement = useCallback(
+    (): PlayerMarkerVisual =>
+      createSheetPlayerMarkerElement(OGRE_WALK_SHEET_URL, walkingFrameUrls.length > 0, "오크 캐릭터"),
+    [createSheetPlayerMarkerElement, walkingFrameUrls.length],
+  );
 
-    const timerId = window.setInterval(() => {
-      frameIndex = (frameIndex + 1) % walkingFrameUrls.length;
-      image.src = walkingFrameUrls[frameIndex];
-    }, 90);
-
-    return {
-      element: root,
-      dispose: () => {
-        window.clearInterval(timerId);
-      },
-      iconSize: [66, 66],
-      iconAnchor: [33, 65],
-      applyFacingDirection: (facingLeft: boolean) => {
-        image.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
-      },
-    };
-  }, [walkingFrameUrls]);
-
-  const createFallenAngelPlayerMarkerElement = useCallback((): PlayerMarkerVisual => {
-    const size = 66;
-    const root = document.createElement("div");
-    root.style.width = `${size}px`;
-    root.style.height = `${size}px`;
-    root.style.pointerEvents = "auto";
-    root.style.cursor = "pointer";
-
-    const image = document.createElement("img");
-    image.style.width = "100%";
-    image.style.height = "100%";
-    image.style.objectFit = "contain";
-    image.style.display = "block";
-    image.style.filter = "drop-shadow(0 6px 10px rgba(2, 6, 23, 0.35))";
-    image.style.transformOrigin = "center";
-    image.style.transform = "scaleX(1)";
-    image.alt = "타락천사 캐릭터";
-    root.appendChild(image);
-
-    if (fallenAngelFrameUrls.length === 0) {
-      return {
-        element: root,
-        dispose: () => {},
-        iconSize: [66, 66],
-        iconAnchor: [33, 65],
-        applyFacingDirection: (facingLeft: boolean) => {
-          image.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
-        },
-      };
-    }
-
-    let frameIndex = 0;
-    image.src = fallenAngelFrameUrls[frameIndex];
-
-    const timerId = window.setInterval(() => {
-      frameIndex = (frameIndex + 1) % fallenAngelFrameUrls.length;
-      image.src = fallenAngelFrameUrls[frameIndex];
-    }, 90);
-
-    return {
-      element: root,
-      dispose: () => {
-        window.clearInterval(timerId);
-      },
-      iconSize: [66, 66],
-      iconAnchor: [33, 65],
-      applyFacingDirection: (facingLeft: boolean) => {
-        image.style.transform = facingLeft ? "scaleX(-1)" : "scaleX(1)";
-      },
-    };
-  }, [fallenAngelFrameUrls]);
+  const createFallenAngelPlayerMarkerElement = useCallback(
+    (): PlayerMarkerVisual =>
+      createSheetPlayerMarkerElement(FALLEN_ANGEL_WALK_SHEET_URL, fallenAngelFrameUrls.length > 0, "타락천사 캐릭터"),
+    [createSheetPlayerMarkerElement, fallenAngelFrameUrls.length],
+  );
 
   const createPlayerMarkerElement = useCallback(
     (character: PlayerCharacter): PlayerMarkerVisual => {
@@ -4470,8 +4422,11 @@ interface OtherUnitMoveAnim {
     }
 
     const markerVisual = createPlayerMarkerElement(character);
+    // 주변 플레이어는 지금까지처럼 첫 프레임 정지 그림으로 표시한다 (스냅샷 전에 애니메이션을 끈다).
+    markerVisual.element.querySelectorAll<HTMLElement>(".player-walk-sprite").forEach((sprite) => {
+      sprite.style.animation = "none";
+    });
     const html = `<div class="map-rotation-upright">${markerVisual.element.outerHTML}</div>`;
-    // outerHTML 스냅샷만 쓰므로 분리된 엘리먼트의 프레임 교체 타이머는 즉시 정리한다.
     markerVisual.dispose();
     const icon = L.divIcon({
       className: "map-nearby-player-marker",
