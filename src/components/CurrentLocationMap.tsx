@@ -332,14 +332,45 @@ const FALLEN_ANGEL_FRAMES_STATIC_DIR = "/map-assets/fallen-angel";
 const OGRE_WALK_SHEET_URL = `${WALKING_FRAMES_STATIC_DIR}/ogre_walk_sheet.png`;
 const FALLEN_ANGEL_WALK_SHEET_URL = `${FALLEN_ANGEL_FRAMES_STATIC_DIR}/fallen_angel_walk_sheet.png`;
 const PLAYER_WALK_CYCLE_MS = 24 * 90;
-const WALKING_FRAME_FILES = Array.from(
-  { length: 24 },
-  (_, index) => `0_Ogre_Walking_${String(index).padStart(3, "0")}.png`,
-);
-const FALLEN_ANGEL_FRAME_FILES = Array.from(
-  { length: 24 },
-  (_, index) => `0_Fallen_Angels_Walking_${String(index).padStart(3, "0")}.png`,
-);
+const PLAYER_WALK_FRAME_COUNT = 24;
+
+// 영주 시트를 한 번만 받아 브라우저 안에서 프레임별 blob URL로 잘라 낸다
+// (프레임 PNG 24장을 각각 요청하지 않는다). 지구본 빌보드·선택 썸네일·로드 완료 판단에 쓴다.
+const slicePlayerWalkSheet = async (sheetUrl: string, signal: AbortSignal): Promise<string[]> => {
+  const response = await fetch(sheetUrl, { credentials: "include", signal });
+  if (!response.ok) {
+    return [];
+  }
+  const bitmap = await createImageBitmap(await response.blob());
+  try {
+    const frameW = Math.floor(bitmap.width / PLAYER_WALK_FRAME_COUNT);
+    const frameH = bitmap.height;
+    if (frameW <= 0 || frameH <= 0) {
+      return [];
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = frameW;
+    canvas.height = frameH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return [];
+    }
+    const urls: string[] = [];
+    for (let i = 0; i < PLAYER_WALK_FRAME_COUNT; i += 1) {
+      ctx.clearRect(0, 0, frameW, frameH);
+      ctx.drawImage(bitmap, i * frameW, 0, frameW, frameH, 0, 0, frameW, frameH);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+      if (!blob) {
+        urls.forEach((url) => URL.revokeObjectURL(url));
+        return [];
+      }
+      urls.push(URL.createObjectURL(blob));
+    }
+    return urls;
+  } finally {
+    bitmap.close();
+  }
+};
 
 // 행정경계 피처별 경계 상자 캐시 (피처 객체는 adminGeoJson이 바뀌기 전까지 동일하다).
 type AdminFeatureBbox = { minLon: number; maxLon: number; minLat: number; maxLat: number };
@@ -2771,8 +2802,6 @@ interface OtherUnitMoveAnim {
     };
   }, []);
 
-  const [walkingFrameFiles, setWalkingFrameFiles] = useState<string[]>([]);
-  const [fallenAngelFrameFiles, setFallenAngelFrameFiles] = useState<string[]>([]);
   const [walkingFrameObjectUrls, setWalkingFrameObjectUrls] = useState<string[]>([]);
   const [fallenAngelFrameObjectUrls, setFallenAngelFrameObjectUrls] = useState<string[]>([]);
   const [walkingFramesFailed, setWalkingFramesFailed] = useState(false);
@@ -2785,171 +2814,58 @@ interface OtherUnitMoveAnim {
   const mapRotationDegRef = useRef(0);
   const updateEdgeIndicatorsRef = useRef<(() => void) | null>(null);
   const lastMapRotationCommitTimeRef = useRef<number | null>(null);
+  // 영주 캐릭터 프레임: 캐릭터별 스프라이트 시트 1장만 받아 프레임으로 잘라 쓴다.
   useEffect(() => {
     let isCancelled = false;
+    const controller = new AbortController();
+    const createdObjectUrls: string[] = [];
 
-    // 프레임 목록은 public/map-assets 아래 정적 파일이므로 API 조회 없이 그대로 쓴다.
-    const fetchFrameFiles = async (character: "walking" | "fallenAngel"): Promise<string[]> =>
-      character === "walking" ? WALKING_FRAME_FILES : FALLEN_ANGEL_FRAME_FILES;
-
-    const loadSpriteFrames = async () => {
-      const [walkingFrames, fallenAngelFrames] = await Promise.all([
-        fetchFrameFiles("walking"),
-        fetchFrameFiles("fallenAngel"),
-      ]);
-
-      if (isCancelled) {
-        return;
+    const load = async (
+      sheetUrl: string,
+      setUrls: (urls: string[]) => void,
+      setFailed: (failed: boolean) => void,
+      setLoading: (loading: boolean) => void,
+    ): Promise<void> => {
+      try {
+        const urls = await slicePlayerWalkSheet(sheetUrl, controller.signal);
+        if (isCancelled) {
+          urls.forEach((url) => URL.revokeObjectURL(url));
+          return;
+        }
+        createdObjectUrls.push(...urls);
+        setUrls(urls);
+        setFailed(urls.length === 0);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+          return;
+        }
+        if (!isCancelled) {
+          setUrls([]);
+          setFailed(true);
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
-
-      setWalkingFrameFiles(walkingFrames);
-      setFallenAngelFrameFiles(fallenAngelFrames);
-      setWalkingFramesFailed(walkingFrames.length === 0);
-      setFallenAngelFramesFailed(fallenAngelFrames.length === 0);
-      setIsWalkingFramesLoading(false);
-      setIsFallenAngelFramesLoading(false);
     };
 
-    void loadSpriteFrames();
+    void load(OGRE_WALK_SHEET_URL, setWalkingFrameObjectUrls, setWalkingFramesFailed, setIsWalkingFramesLoading);
+    void load(
+      FALLEN_ANGEL_WALK_SHEET_URL,
+      setFallenAngelFrameObjectUrls,
+      setFallenAngelFramesFailed,
+      setIsFallenAngelFramesLoading,
+    );
 
     return () => {
       isCancelled = true;
+      controller.abort();
+      for (const objectUrl of createdObjectUrls) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, []);
-
-  const walkingFrameRequestUrls = useMemo(() => {
-    return walkingFrameFiles.map((fileName) => {
-      return `${WALKING_FRAMES_STATIC_DIR}/${encodeURIComponent(fileName)}`;
-    });
-  }, [walkingFrameFiles]);
-
-  const fallenAngelFrameRequestUrls = useMemo(() => {
-    return fallenAngelFrameFiles.map((fileName) => {
-      return `${FALLEN_ANGEL_FRAMES_STATIC_DIR}/${encodeURIComponent(fileName)}`;
-    });
-  }, [fallenAngelFrameFiles]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    const controller = new AbortController();
-    const createdObjectUrls: string[] = [];
-
-    const preloadWalkingFrames = async () => {
-      if (walkingFrameRequestUrls.length === 0) {
-        setWalkingFrameObjectUrls([]);
-        return;
-      }
-
-      try {
-        const fetchedObjectUrls = await Promise.all(
-          walkingFrameRequestUrls.map(async (frameUrl) => {
-            const response = await fetch(frameUrl, {
-              credentials: "include",
-              signal: controller.signal,
-            });
-
-            if (!response.ok) {
-              return null;
-            }
-
-            const imageBlob = await response.blob();
-            const objectUrl = URL.createObjectURL(imageBlob);
-            createdObjectUrls.push(objectUrl);
-            return objectUrl;
-          }),
-        );
-        const nextObjectUrls = fetchedObjectUrls.filter(
-          (objectUrl): objectUrl is string => objectUrl !== null,
-        );
-
-        if (!isCancelled) {
-          setWalkingFrameObjectUrls(nextObjectUrls);
-          setWalkingFramesFailed(nextObjectUrls.length === 0);
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        if (!isCancelled) {
-          setWalkingFrameObjectUrls([]);
-          setWalkingFramesFailed(true);
-        }
-      }
-    };
-
-    void preloadWalkingFrames();
-
-    return () => {
-      isCancelled = true;
-      controller.abort();
-
-      for (const objectUrl of createdObjectUrls) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-  }, [walkingFrameRequestUrls]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    const controller = new AbortController();
-    const createdObjectUrls: string[] = [];
-
-    const preloadFallenAngelFrames = async () => {
-      if (fallenAngelFrameRequestUrls.length === 0) {
-        setFallenAngelFrameObjectUrls([]);
-        return;
-      }
-
-      try {
-        const fetchedObjectUrls = await Promise.all(
-          fallenAngelFrameRequestUrls.map(async (frameUrl) => {
-            const response = await fetch(frameUrl, {
-              credentials: "include",
-              signal: controller.signal,
-            });
-
-            if (!response.ok) {
-              return null;
-            }
-
-            const imageBlob = await response.blob();
-            const objectUrl = URL.createObjectURL(imageBlob);
-            createdObjectUrls.push(objectUrl);
-            return objectUrl;
-          }),
-        );
-        const nextObjectUrls = fetchedObjectUrls.filter(
-          (objectUrl): objectUrl is string => objectUrl !== null,
-        );
-
-        if (!isCancelled) {
-          setFallenAngelFrameObjectUrls(nextObjectUrls);
-          setFallenAngelFramesFailed(nextObjectUrls.length === 0);
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
-          return;
-        }
-
-        if (!isCancelled) {
-          setFallenAngelFrameObjectUrls([]);
-          setFallenAngelFramesFailed(true);
-        }
-      }
-    };
-
-    void preloadFallenAngelFrames();
-
-    return () => {
-      isCancelled = true;
-      controller.abort();
-
-      for (const objectUrl of createdObjectUrls) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    };
-  }, [fallenAngelFrameRequestUrls]);
 
   const walkingFrameUrls = useMemo(() => {
     return walkingFrameObjectUrls;
