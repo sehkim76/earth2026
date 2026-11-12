@@ -29,7 +29,7 @@
     "prisma": "^6.14.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "sst": "^3.17.38",
+    "sst": "^3.19.3",
     "supercluster": "^9.1.0",
     "tailwind-merge": "^3.4.0",
     "three": "^0.182.0",

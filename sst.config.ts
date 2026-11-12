@@ -16,11 +16,15 @@ export default $config({
     async run() {
         const site = new sst.aws.Nextjs("Web", {
         path: ".",
-        domain: {
-          name: "tribes.oceanwalk.kr",
-          dns: false,
-          cert: "arn:aws:acm:us-east-1:022520097536:certificate/489b1fdb-6a39-404e-9148-1c9fb3004e9a",
-        },
+        // 운영 도메인은 production 스테이지에만 연결한다 (검증용 스테이지가 같은 도메인을 점유하지 않게).
+        domain:
+          $app.stage === "production"
+            ? {
+                name: "tribes.oceanwalk.kr",
+                dns: false,
+                cert: "arn:aws:acm:us-east-1:022520097536:certificate/489b1fdb-6a39-404e-9148-1c9fb3004e9a",
+              }
+            : undefined,
 
         server: {
             architecture: "x86_64",
@@ -29,6 +33,10 @@ export default $config({
             memory: "2048 MB",
         },
         runtime: "nodejs20.x",
+        // 서버 함수는 Neon DB와 같은 리전(싱가포르)에 둔다. 서울에 두면 쿼리마다 서울↔싱가포르 왕복이 붙는다.
+        // CloudFront·S3·도메인은 그대로이고 서버 함수만 이 리전에 배포된다.
+        // (SST 3.19.x부터 함수 URL에 lambda:InvokeFunction 권한도 만들어 새 리전 함수의 403을 막는다.)
+        regions: ["ap-southeast-1"],
 
         // 정적 에셋 업로드 옵션 (.open-next/assets 기준 glob).
         // SST는 fileOptions를 역순으로 처리하므로 뒤쪽 항목이 우선한다.
