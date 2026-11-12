@@ -273,7 +273,8 @@
   height: 52px;
 }
 
-.unit-pin > span {
+/* 이름표 전용 (스프라이트도 span이므로 요소 선택자 대신 클래스로 지정한다). */
+.unit-pin > .unit-pin-label {
   margin-top: 1px;
   max-width: 72px;
   overflow: hidden;

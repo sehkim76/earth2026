@@ -8047,7 +8047,7 @@ interface OtherUnitMoveAnim {
         }
         applyUnitFacing(existing);
         applyUnitWalk(existing);
-        const el = existing.getElement()?.querySelector(".unit-pin span");
+        const el = existing.getElement()?.querySelector(".unit-pin-label");
         if (el && el.textContent !== mark.name) {
           el.textContent = mark.name;
         }
@@ -8060,7 +8060,7 @@ interface OtherUnitMoveAnim {
       }
       const icon = L.divIcon({
         className: "map-unit-marker",
-        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span>${esc(mark.name)}</span></div>`,
+        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
         iconSize: [72, 68],
         iconAnchor: [36, 26],
       });
