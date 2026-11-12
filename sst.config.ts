@@ -29,9 +29,6 @@ export default $config({
             memory: "2048 MB",
         },
         runtime: "nodejs20.x",
-        // 서버 함수는 Neon DB와 같은 리전(싱가포르)에 둔다. 서울에 두면 쿼리마다 서울↔싱가포르 왕복이 붙는다.
-        // CloudFront·S3·도메인은 그대로이고 서버 함수만 이 리전에 배포된다.
-        regions: ["ap-southeast-1"],
 
         // 정적 에셋 업로드 옵션 (.open-next/assets 기준 glob).
         // SST는 fileOptions를 역순으로 처리하므로 뒤쪽 항목이 우선한다.
