@@ -50,6 +50,7 @@ import Ranking, { type RankingItem } from "@/components/Ranking";
 import { clearAllGameSnapshots } from "@/lib/snapshots";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
+import { serverNow } from "@/lib/server-clock";
 import {
   ADMIN_LEVEL_LABEL,
   DONG_HD_MIN_ZOOM,
@@ -326,12 +327,11 @@ const SOLDIER_WALK_FRAME_URLS = Array.from(
   { length: 8 },
   (_, index) => `/markers/soldier_walk_${String(index + 1).padStart(2, "0")}.png`,
 );
-const OUTLAW_FRAME_URLS = Array.from(
-  { length: 8 },
-  (_, index) => `/markers/outlaw_walk_${String(index + 1).padStart(2, "0")}.png`,
-);
+// 무법자: 원본 걷기 프레임 8장은 다리 자세가 거의 같고 몸 위치·크기가 프레임마다 흔들려
+// 넘기면 걷기가 아니라 떨림처럼 보였다. 정지 프레임 1장 + CSS 걸음 모션(상하 바운스·좌우
+// 흔들림·착지 눌림)으로 대체한다 (globals.css .territory-outlaw[data-walk="1"]).
+const OUTLAW_SPRITE_URL = "/markers/outlaw_walk_base.png";
 const territorySoldierImages = new Set<HTMLImageElement>();
-const territoryOutlawImages = new Set<HTMLImageElement>();
 let territorySoldierAnimationTimer: number | null = null;
 // 지도 드래그·줌 중 스프라이트 stepping 일시정지 (getBoundingClientRect 강제 리플로우 방지).
 let territoryAnimPaused = false;
@@ -374,9 +374,6 @@ const ensureFramesPreloaded = (urls: string[]): void => {
 const ensureSoldierFramesPreloaded = (): void => {
   ensureFramesPreloaded([...SOLDIER_IDLE_FRAME_URLS, ...SOLDIER_WALK_FRAME_URLS]);
 };
-const ensureOutlawFramesPreloaded = (): void => {
-  ensureFramesPreloaded(OUTLAW_FRAME_URLS);
-};
 const resolveSoldierFrameUrl = (url: string): string => resolveFrameUrl(url);
 // 화면 밖 마커의 src 교체는 건너뛴다 (디코드·페인트 절약). 여유 64px.
 const stepFrameImage = (
@@ -402,24 +399,17 @@ const stepFrameImage = (
 const registerTerritorySoldierAnimation = (root: ParentNode | null): void => {
   if (typeof window === "undefined" || !root) return;
   ensureSoldierFramesPreloaded();
-  ensureOutlawFramesPreloaded();
   if (root instanceof HTMLImageElement) {
     if (root.classList.contains("territory-soldier-idle")) {
       territorySoldierImages.add(root);
-    }
-    if (root.classList.contains("territory-outlaw")) {
-      territoryOutlawImages.add(root);
     }
   }
   root.querySelectorAll<HTMLImageElement>("img.territory-soldier-idle").forEach((image) => {
     territorySoldierImages.add(image);
   });
-  root.querySelectorAll<HTMLImageElement>("img.territory-outlaw").forEach((image) => {
-    territoryOutlawImages.add(image);
-  });
   if (
     territorySoldierAnimationTimer !== null ||
-    (territorySoldierImages.size === 0 && territoryOutlawImages.size === 0)
+    territorySoldierImages.size === 0
   ) {
     return;
   }
@@ -443,20 +433,8 @@ const registerTerritorySoldierAnimation = (root: ParentNode | null): void => {
         image.dataset.appliedWalk = image.dataset.walk ?? "0";
       }
     });
-    // 무법자는 항상 걷기 사이클 (idle 프레임 없음).
-    territoryOutlawImages.forEach((image) => {
-      if (!image.isConnected) {
-        territoryOutlawImages.delete(image);
-        return;
-      }
-      const frameIndex = frameTick % OUTLAW_FRAME_URLS.length;
-      if (image.dataset.frameIndex !== String(frameIndex)) {
-        stepFrameImage(image, OUTLAW_FRAME_URLS, frameIndex, viewportWidth, viewportHeight);
-      }
-    });
     if (
       territorySoldierImages.size === 0 &&
-      territoryOutlawImages.size === 0 &&
       territorySoldierAnimationTimer !== null
     ) {
       window.clearInterval(territorySoldierAnimationTimer);
@@ -478,7 +456,8 @@ const territorySoldierAnimationMarkup = (): string =>
   `<img src="${SOLDIER_IDLE_FRAME_URLS[0]}" alt="" class="territory-soldier-idle" data-frame-index="0" />`;
 
 const territoryOutlawAnimationMarkup = (): string =>
-  `<img src="${OUTLAW_FRAME_URLS[0]}" alt="" class="territory-outlaw" data-frame-index="0" />`;
+  // 개체마다 걸음 위상을 흩어 무리가 한 박자로 출렁이지 않게 한다.
+  `<img src="${OUTLAW_SPRITE_URL}" alt="" class="territory-outlaw" style="animation-delay:-${(Math.random() * 0.9).toFixed(2)}s" />`;
 
 const neutralDamageAnimationMarkup = (): string =>
   `<div class="neutral-castle-damage-animation">${NEUTRAL_DAMAGE_FRAME_URLS.map(
@@ -2411,6 +2390,7 @@ interface OtherUnitMoveAnim {
   // 화면에 보이는 동들의 중립 부대 시드 (동 코드 + 대표 좌표, 12개 상한).
   // 중립성과 동일 조건: 플레이어 20km 이내 동 또는 선택 동만.
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
+  const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
   useEffect(() => {
     if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocation) {
       return;
@@ -4158,7 +4138,9 @@ interface OtherUnitMoveAnim {
   }, []);
 
   // 무법자 다이얼로그가 열린 동안 해당 개체를 서버에서 멈춘다 (닫으면 재개).
-  // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL 만료 후 자동 재개된다.
+  // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL(서버 300초) 만료 후 자동 재개된다.
+  // 백그라운드 탭은 타이머가 1분 단위로 몰려 실행되므로 30초마다 연장하고,
+  // 탭이 다시 보이는 즉시 연장해 TTL이 중간에 풀리지 않게 한다.
   useEffect(() => {
     const wildId = markerPanel?.wildId;
     if (!territoryEnabled || wildId === undefined || !Number.isFinite(wildId)) {
@@ -4170,17 +4152,31 @@ interface OtherUnitMoveAnim {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: wildId, hold: on }),
-      }).catch(() => undefined);
+      })
+        .then(() => {
+          // 서버가 고정한 위치를 다음 폴링(최대 15초)까지 기다리지 않고 바로 반영한다.
+          if (on && !stopped) {
+            setNeutralRefreshNonce((n) => n + 1);
+          }
+        })
+        .catch(() => undefined);
     };
     hold(true);
     const timerId = window.setInterval(() => {
       if (!stopped) {
         hold(true);
       }
-    }, 60_000);
+    }, 30_000);
+    const onVisible = (): void => {
+      if (!stopped && document.visibilityState === "visible") {
+        hold(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
       window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisible);
       hold(false);
     };
   }, [territoryEnabled, markerPanel?.wildId]);
@@ -6571,7 +6567,8 @@ interface OtherUnitMoveAnim {
               via: null,
               path: sub,
             },
-            nowMs,
+            // 무법자 다리 시각은 서버 시계 기준이다.
+            serverNow(),
           );
           return { lat: pos.lat, lon: pos.lon };
         } catch {
@@ -8060,7 +8057,7 @@ interface OtherUnitMoveAnim {
           let liveLon = freshMark.lon;
           try {
             const t = freshMark.moveTarget;
-            if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && Date.now() < t.endsAt) {
+            if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && serverNow() < t.endsAt) {
               const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
               const pos = positionAtMoveTarget(
                 {
@@ -8073,7 +8070,7 @@ interface OtherUnitMoveAnim {
                   via: null,
                   path: sub,
                 },
-                Date.now(),
+                serverNow(),
               );
               if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
                 liveLat = pos.lat;
@@ -8239,7 +8236,8 @@ interface OtherUnitMoveAnim {
             via: null,
             path: anim.path,
           },
-          Date.now(),
+          // 무법자 다리 시각은 서버 시계 기준 (기기 시계 오차로 앞서 걷다 되돌아가는 현상 방지).
+          id.startsWith("neutral-") ? serverNow() : Date.now(),
         );
         marker.setLatLng([pos.lat, pos.lon]);
         // 마커 엘리먼트는 재생성 전까지 동일하므로 img를 캐시해 매 프레임 querySelector를 피한다.
@@ -10772,6 +10770,7 @@ const isMapPerfEnabled = (): boolean => {
           dongCode={selectedAdminCode}
           playerDongCode={playerDongCode}
           wildSeeds={wildSeeds}
+          neutralRefreshNonce={neutralRefreshNonce}
           onExit={() => void handleExit()}
           onResetScore={() => void handleResetScore()}
           lordMoveTarget={playerMoveTarget}

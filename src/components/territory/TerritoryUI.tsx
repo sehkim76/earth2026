@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { noteServerTime } from "@/lib/server-clock";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -44,6 +45,8 @@ interface TerritoryUIProps {
   playerDongCode?: string | null;
   /** 화면에 보이는 동 시드 (동 코드 + 대표 좌표). */
   wildSeeds?: Array<{ dong: string; lat: number; lon: number }>;
+  /** 값이 바뀌면 무법자 목록을 즉시 다시 조회한다 (일시정지 직후 고정 위치 반영용). */
+  neutralRefreshNonce?: number;
   /** 축성 2단계: 위치 지정 모드 시작. */
   onStartPlacement: (draft: CastleBuildDraft) => void;
   /** 위치 지정 완료/실패 알림 (표시용). */
@@ -725,6 +728,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   }
   const [neutralUnits, setNeutralUnits] = useState<NeutralUnitRow[]>([]);
   const neutralUnitsRef = useRef<NeutralUnitRow[]>([]);
+  // 조회 순번: 여러 동을 순차 처리하는 조회는 수 초씩 걸려 응답이 뒤바뀔 수 있다.
+  // 이미 반영한 것보다 먼저 보낸 요청의 응답은 버린다 (옛 위치로 되돌아가는 순간이동 방지).
+  const neutralReqSeqRef = useRef(0);
+  const neutralAppliedSeqRef = useRef(0);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
     rows.map((row) => ({
       id: `neutral-${row.id}`,
@@ -748,24 +755,27 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       },
     }));
   const refreshNeutralUnits = useCallback(async () => {
+    neutralReqSeqRef.current += 1;
+    const seq = neutralReqSeqRef.current;
     try {
       const loc = props.getPlayerLocation();
       const seeds = (props.wildSeeds ?? []).filter(
         (s) => s && typeof s.dong === "string" && s.dong.length > 0 && Number.isFinite(s.lat) && Number.isFinite(s.lon),
       );
-      let data: { units?: unknown };
+      let data: { units?: unknown; serverNow?: unknown };
       if (seeds.length > 0) {
         // 화면 내 복수 동 일괄 조회 (보이는 모든 동의 방랑부대 표시).
-        data = await callApi<{ units?: unknown }>("/api/neutral-units", { seeds });
+        data = await callApi<{ units?: unknown; serverNow?: unknown }>("/api/neutral-units", { seeds });
       } else {
         const dong = props.playerDongCode ?? props.dongCode;
         if (!dong || !loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
           return;
         }
-        data = await callApi<{ units?: unknown }>(
+        data = await callApi<{ units?: unknown; serverNow?: unknown }>(
           `/api/neutral-units?dong=${encodeURIComponent(dong)}&lat=${loc.lat}&lon=${loc.lon}`,
         );
       }
+      noteServerTime(data.serverNow, Date.now());
       const rows = (Array.isArray(data.units) ? data.units : []).flatMap((u): NeutralUnitRow[] => {
         if (typeof u !== "object" || u === null) {
           return [];
@@ -816,6 +826,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           },
         ];
       });
+      if (seq < neutralAppliedSeqRef.current) {
+        return;
+      }
+      neutralAppliedSeqRef.current = seq;
       neutralUnitsRef.current = rows;
       setNeutralUnits(rows);
       try {
@@ -947,6 +961,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }, 15_000);
     return () => window.clearInterval(timerId);
   }, [refreshNeutralUnits]);
+
+  useEffect(() => {
+    if (!props.neutralRefreshNonce) {
+      return;
+    }
+    void refreshNeutralUnits();
+    // 논스 변화에만 반응한다 (refreshNeutralUnits 변경은 위 폴링 effect가 처리).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.neutralRefreshNonce]);
 
   useEffect(() => {
     if (movingUnitIds.length === 0) {

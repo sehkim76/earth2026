@@ -13,7 +13,7 @@ export const GET = async (request: Request): Promise<NextResponse> => {
       return NextResponse.json({ ok: false, code: "invalid" }, { status: 400 });
     }
     const units = await listNeutralUnits(dong, lat, lon);
-    return NextResponse.json({ ok: true, units });
+    return NextResponse.json({ ok: true, units, serverNow: Date.now() });
   } catch (e) {
     console.error("[neutral-units] GET failed", e);
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });
@@ -55,7 +55,7 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       const units = await listNeutralUnits(seed.dong, seed.lat, seed.lon);
       all.push(...units);
     }
-    return NextResponse.json({ ok: true, units: all });
+    return NextResponse.json({ ok: true, units: all, serverNow: Date.now() });
   } catch (e) {
     console.error("[neutral-units] POST failed", e);
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });

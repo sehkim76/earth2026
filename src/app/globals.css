@@ -318,6 +318,51 @@
   pointer-events: none;
 }
 
+/* 무법자 걸음 모션: 한 주기(0.9s) = 두 걸음. 착지(0·50%)에 살짝 눌리고 걸음 중간에 떠오르며
+ * 주기당 한 번 좌우로 흔들린다. 좌우 반전은 JS가 transform(scaleX)으로 하므로
+ * 개별 속성(translate·rotate·scale)만 써서 충돌 없이 합성한다. 이동·정지와 무관하게 상시 재생. */
+/* 정지 중(선택 시 일시정지 포함)에도 제자리걸음을 계속한다 (구 8프레임 시절과 동일한 인상). */
+.territory-outlaw {
+  transform-origin: 50% 92%;
+  animation: outlaw-step 0.9s linear infinite;
+}
+@keyframes outlaw-step {
+  0% {
+    translate: 0 0;
+    rotate: 2.5deg;
+    scale: 1.02 0.98;
+    animation-timing-function: ease-out;
+  }
+  25% {
+    translate: 0 -1.5px;
+    rotate: 0deg;
+    scale: 0.99 1.01;
+    animation-timing-function: ease-in;
+  }
+  50% {
+    translate: 0 0;
+    rotate: -2.5deg;
+    scale: 1.02 0.98;
+    animation-timing-function: ease-out;
+  }
+  75% {
+    translate: 0 -1.5px;
+    rotate: 0deg;
+    scale: 0.99 1.01;
+    animation-timing-function: ease-in;
+  }
+  100% {
+    translate: 0 0;
+    rotate: 2.5deg;
+    scale: 1.02 0.98;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .territory-outlaw {
+    animation: none;
+  }
+}
+
 .three-poi-marker-fallback {
   width: 30px;
   height: 30px;
