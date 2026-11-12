@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { listNeutralUnits, setNeutralRasterBaseUrl } from "@/lib/neutral-units";
+import type { NeutralUnitView } from "@/lib/neutral-units";
+import { mapConcurrent } from "@/lib/map-concurrent";
 
 /** 중립 부대 조회. GET=단일 동, POST=화면 내 복수 동. 스폰·배회는 읽기 시점에 lazy 처리된다. */
 export const GET = async (request: Request): Promise<NextResponse> => {
@@ -21,6 +23,9 @@ export const GET = async (request: Request): Promise<NextResponse> => {
 };
 
 type Seed = { dong: string; lat: number; lon: number };
+
+/** POST 동 처리 동시성 (prismadb connection_limit=3과 맞춘다). */
+const SEED_CONCURRENCY = 3;
 
 export const POST = async (request: Request): Promise<NextResponse> => {
   try {
@@ -50,9 +55,12 @@ export const POST = async (request: Request): Promise<NextResponse> => {
     if (seeds.length === 0) {
       return NextResponse.json({ ok: false, code: "invalid" }, { status: 400 });
     }
-    const all = [];
-    for (const seed of seeds) {
-      const units = await listNeutralUnits(seed.dong, seed.lat, seed.lon);
+    // 동 단위 처리는 서로 독립이므로 동시 3개(커넥션 풀 상한)로 돌리고, 출력은 시드 순서를 유지한다.
+    const results = await mapConcurrent(seeds, SEED_CONCURRENCY, (seed) =>
+      listNeutralUnits(seed.dong, seed.lat, seed.lon),
+    );
+    const all: NeutralUnitView[] = [];
+    for (const units of results) {
       all.push(...units);
     }
     return NextResponse.json({ ok: true, units: all, serverNow: Date.now() });

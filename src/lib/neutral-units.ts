@@ -15,6 +15,7 @@ import {
 } from "@/lib/server-walkable";
 import { NEUTRAL_PATH_SNAP_MAX_M, neutralPositionAt, projectOntoPath } from "@/lib/neutral-leg";
 import { findServerRoute, setGraphBaseUrl } from "@/lib/server-graph";
+import { mapConcurrent } from "@/lib/map-concurrent";
 
 /** 래스터·그래프 기준 URL (API 라우트에서 요청 origin으로 설정). */
 export const setNeutralRasterBaseUrl = (origin: string): void => {
@@ -277,6 +278,7 @@ const filterAwayFromPaths = (
 
 const otherStoredPaths = (
   rows: TerritoryNeutralUnit[],
+  parsePath: PathParser,
   excludeId?: number,
 ): Array<Array<{ lat: number; lon: number }>> => {
   const out: Array<Array<{ lat: number; lon: number }>> = [];
@@ -284,7 +286,7 @@ const otherStoredPaths = (
     if (o.id === excludeId || !o.path) {
       continue;
     }
-    const p = parseStoredPath(o.path);
+    const p = parsePath(o.path);
     if (p && p.length >= 2) {
       out.push(p);
     }
@@ -318,6 +320,30 @@ const parseStoredPath = (raw: string | null): Array<{ lat: number; lon: number }
   } catch {
     return null;
   }
+};
+
+type StoredPath = Array<{ lat: number; lon: number }>;
+type PathParser = (raw: string | null) => StoredPath | null;
+
+/**
+ * 요청 단위 path 파서: 같은 원문 문자열은 한 번만 JSON.parse 한다.
+ * (계획 단계에서 개체마다 다른 모든 행의 경로를 다시 파싱하던 O(n²) 비용 제거)
+ * 반환 배열은 여러 곳에서 공유되므로 호출자는 변경하지 않는다 (읽기 전용).
+ */
+const makePathParser = (): PathParser => {
+  const memo = new Map<string, StoredPath | null>();
+  return (raw: string | null): StoredPath | null => {
+    if (!raw) {
+      return null;
+    }
+    const hit = memo.get(raw);
+    if (hit !== undefined) {
+      return hit;
+    }
+    const parsed = parseStoredPath(raw);
+    memo.set(raw, parsed);
+    return parsed;
+  };
 };
 
 /**
@@ -489,6 +515,7 @@ const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =
 const rowPositionAt = (
   r: TerritoryNeutralUnit,
   now: number,
+  parsePath: PathParser,
 ): { lat: number; lon: number; arrived: boolean } =>
   neutralPositionAt(
     {
@@ -498,7 +525,7 @@ const rowPositionAt = (
       destLon: r.destLon,
       startedAt: Number(r.legStartedAt),
       endsAt: Number(r.legEndsAt),
-      path: parseStoredPath(r.path),
+      path: parsePath(r.path),
       pathIdx: r.pathIdx,
     },
     now,
@@ -535,15 +562,40 @@ interface NeutralSpawnPlan {
   quizTitle: string;
 }
 
+/** 계획 단계 공유 컨텍스트 (스냅샷 기준, 읽기 전용). */
+interface NeutralPlanContext {
+  parsePath: PathParser;
+  /** 스냅샷 행의 현재 위치 (행 id별 1회 계산). */
+  positionOf: (r: TerritoryNeutralUnit) => { lat: number; lon: number; arrived: boolean };
+}
+
+/** 스냅샷(계획 중 변경되지 않음) 기준 컨텍스트를 만든다. */
+const makePlanContext = (now: number): NeutralPlanContext => {
+  const parsePath = makePathParser();
+  const positions = new Map<number, { lat: number; lon: number; arrived: boolean }>();
+  return {
+    parsePath,
+    positionOf: (r) => {
+      const hit = positions.get(r.id);
+      if (hit) {
+        return hit;
+      }
+      const pos = rowPositionAt(r, now, parsePath);
+      positions.set(r.id, pos);
+      return pos;
+    },
+  };
+};
+
 const neutralOthersOf = (
   rows: TerritoryNeutralUnit[],
-  now: number,
+  ctx: NeutralPlanContext,
   excludeId?: number,
 ): Array<{ lat: number; lon: number }> =>
   rows
     .filter((r) => r.id !== excludeId)
     .map((r) => {
-      const pos = rowPositionAt(r, now);
+      const pos = ctx.positionOf(r);
       return { lat: pos.lat, lon: pos.lon };
     });
 
@@ -552,7 +604,7 @@ const planNeutralLeg = async (
   r: TerritoryNeutralUnit,
   rows: TerritoryNeutralUnit[],
   dong: string,
-  now: number,
+  ctx: NeutralPlanContext,
 ): Promise<NeutralLegPlan> => {
   const anchorLat = r.anchorLat;
   const anchorLon = r.anchorLon;
@@ -564,7 +616,7 @@ const planNeutralLeg = async (
     const onPath = projectOntoPath(
       baseLat,
       baseLon,
-      parseStoredPath(r.path),
+      ctx.parsePath(r.path),
       typeof r.pathIdx === "number" && r.pathIdx >= 1 ? r.pathIdx - 1 : null,
     );
     if (onPath && onPath.distM > 1 && onPath.distM <= NEUTRAL_PATH_SNAP_MAX_M) {
@@ -587,7 +639,7 @@ const planNeutralLeg = async (
   console.debug(
     `[neutral] arrived id=${r.id} base=(${baseLat.toFixed(5)},${baseLon.toFixed(5)}) prevDest=(${r.destLat.toFixed(5)},${r.destLon.toFixed(5)}) hasPath=${r.path ? r.path.length : 0}`,
   );
-  let storedPath = parseStoredPath(r.path);
+  let storedPath = ctx.parsePath(r.path);
   // 저장 경로 재검증 (fail-closed): 과거에 저장된 불량 경로(래스터 미로드 시 통과분,
   // 구버전 미클리핑분)가 있으면 버리고 새로 계획한다.
   if (storedPath) {
@@ -684,11 +736,11 @@ const planNeutralLeg = async (
     // 최종 목적지 도착(또는 경로 없음): 새 목적지 + 새 경로.
     // 후보 순서대로 경로 성공할 때까지 시도한다.
     // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
-    let goals = await pickFarthestDest(dong, neutralOthersOf(rows, now, r.id), { lat: baseLat, lon: baseLon });
+    let goals = await pickFarthestDest(dong, neutralOthersOf(rows, ctx, r.id), { lat: baseLat, lon: baseLon });
     if (goals.length > 1) {
       // 방금 걸은 경로 300m 안 후보는 제외한다 (왔던 길 루프백 방지).
       // 다른 개체의 저장 경로 300m 안도 제외한다 (일렬종대 방지).
-      goals = filterAwayFromPaths(goals, storedPath, otherStoredPaths(rows, r.id));
+      goals = filterAwayFromPaths(goals, storedPath, otherStoredPaths(rows, ctx.parsePath, r.id));
     }
     // 후보끼리 500m 이상 떨어뜨리고 순서를 섞는다.
     // (같은 구석 1순위로 몰리는 현상 + 동시 계획 개체들의 동조 방지 → 동 전역 배회)
@@ -790,6 +842,7 @@ const planNeutralSpawn = async (
   nearLat: number,
   nearLon: number,
   now: number,
+  ctx: NeutralPlanContext,
 ): Promise<NeutralSpawnPlan | null> => {
   const newest = rows.length > 0 ? rows[rows.length - 1] : null;
   if (
@@ -818,9 +871,9 @@ const planNeutralSpawn = async (
   const spawnedGoals = shuffleGoals(
     spreadGoals(
       filterAwayFromPaths(
-        await pickFarthestDest(dong, neutralOthersOf(rows, now)),
+        await pickFarthestDest(dong, neutralOthersOf(rows, ctx)),
         null,
-        otherStoredPaths(rows),
+        otherStoredPaths(rows, ctx.parsePath),
       ),
     ),
   );
@@ -843,6 +896,35 @@ const planNeutralSpawn = async (
     quizTitle: quiz.title.slice(0, 255),
   };
 };
+/** 출제 가능한 퀴즈 키 형식 (아니면 락 안에서 치유 대상). */
+const PLAYABLE_QUIZ_KEY_RE = /^Quiz\/[^/]+\.(csv|json)$/i;
+
+/** 동 하나에서 동시에 세우는 다리 계획 수 상한. */
+const LEG_PLAN_CONCURRENCY = 3;
+
+/** DB 행 → 응답 뷰. */
+const toNeutralView = (
+  r: TerritoryNeutralUnit,
+  pos: { lat: number; lon: number; arrived: boolean },
+  parsePath: PathParser,
+): NeutralUnitView => ({
+  id: r.id,
+  dong: r.dong,
+  lat: pos.lat,
+  lon: pos.lon,
+  fromLat: r.lat,
+  fromLon: r.lon,
+  destLat: r.destLat,
+  destLon: r.destLon,
+  startedAt: Number(r.legStartedAt),
+  endsAt: Number(r.legEndsAt),
+  moving: !pos.arrived,
+  quizKey: r.quizKey,
+  quizTitle: r.quizTitle,
+  path: parsePath(r.path),
+  pathIdx: r.path ? r.pathIdx : 0,
+});
+
 export const listNeutralUnits = async (
   dong: string,
   nearLat: number,
@@ -854,17 +936,43 @@ export const listNeutralUnits = async (
     return [];
   }
   const startedAt = Date.now();
+  const logIfSlow = (): void => {
+    // 200ms 초과 시에만 서버 로그에 남긴다 (성능 감시용).
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > 200) {
+      console.log(`[perf] neutral slow dong=${code} ${elapsed}ms`);
+    }
+  };
   // 1단계(락 밖): 스냅샷 조회 + 라우팅 포함 계획 수립.
   const snapshot = await prisma.territoryNeutralUnit.findMany({
     where: { dong: code },
     orderBy: { createdAt: "asc" },
   });
-  const spawnPlan = await planNeutralSpawn(snapshot, code, nearLat, nearLon, now);
+  const ctx = makePlanContext(now);
+  // 계획들은 모두 같은 스냅샷만 읽고 서로의 결과에 의존하지 않으므로 동시에 세운다 (상한 3).
+  const expired = snapshot.filter((r) => now >= Number(r.legEndsAt));
+  const [spawnPlan, legPlanList] = await Promise.all([
+    planNeutralSpawn(snapshot, code, nearLat, nearLon, now, ctx),
+    mapConcurrent(expired, LEG_PLAN_CONCURRENCY, (r) => planNeutralLeg(r, snapshot, code, ctx)),
+  ]);
   const legPlans = new Map<number, NeutralLegPlan>();
-  for (const r of snapshot) {
-    if (now >= Number(r.legEndsAt)) {
-      legPlans.set(r.id, await planNeutralLeg(r, snapshot, code, now));
+  expired.forEach((r, i) => {
+    const plan = legPlanList[i];
+    if (plan) {
+      legPlans.set(r.id, plan);
     }
+  });
+  // 빠른 경로: 락 안에서 쓸 일이 전혀 없으면(스폰·다리 연결·상한 정리·퀴즈 키 치유 모두 해당 없음)
+  // 트랜잭션·advisory lock 없이 스냅샷으로 응답한다. 락 안 경로도 이 경우 쓰기 없이 같은 뷰를 만든다.
+  const canSkipLock =
+    spawnPlan === null &&
+    legPlans.size === 0 &&
+    snapshot.length <= capForDong(code) &&
+    snapshot.every((r) => PLAYABLE_QUIZ_KEY_RE.test(r.quizKey));
+  if (canSkipLock) {
+    const views = snapshot.map((r) => toNeutralView(r, ctx.positionOf(r), ctx.parsePath));
+    logIfSlow();
+    return views;
   }
   // 2단계(락 안): 검증 후 적용만 — 수십 초 걸리던 라우팅이 빠져 락 점유가 ms 단위다.
   return withNamedLock(`neutral:${code}`, async (tx) => {
@@ -874,7 +982,7 @@ export const listNeutralUnits = async (
     });
     // 기존 행 중 출제 불가 키(JSON 등)는 playable CSV로 교체한다 (치유 1회성).
     for (const r of rows) {
-      if (/^Quiz\/[^/]+\.(csv|json)$/i.test(r.quizKey)) {
+      if (PLAYABLE_QUIZ_KEY_RE.test(r.quizKey)) {
         continue;
       }
       const quiz = pickQuiz();
@@ -973,31 +1081,7 @@ export const listNeutralUnits = async (
       r.path = plan.pathJson;
       r.pathIdx = plan.pathIdx;
     }
-    return rows.map((r) => {
-      const pos = rowPositionAt(r, now);
-      return {
-        id: r.id,
-        dong: r.dong,
-        lat: pos.lat,
-        lon: pos.lon,
-        fromLat: r.lat,
-        fromLon: r.lon,
-        destLat: r.destLat,
-        destLon: r.destLon,
-        startedAt: Number(r.legStartedAt),
-        endsAt: Number(r.legEndsAt),
-        moving: !pos.arrived,
-        quizKey: r.quizKey,
-        quizTitle: r.quizTitle,
-        path: parseStoredPath(r.path),
-        pathIdx: r.path ? r.pathIdx : 0,
-      };
-    });
-  }).finally(() => {
-    // 200ms 초과 시에만 서버 로그에 남긴다 (성능 감시용).
-    const elapsed = Date.now() - startedAt;
-    if (elapsed > 200) {
-      console.log(`[perf] neutral slow dong=${code} ${elapsed}ms`);
-    }
-  });
+    // 락 안에서 행이 갱신됐을 수 있으므로 위치는 메모 없이 다시 계산한다 (path 파싱 메모는 원문 키라 안전).
+    return rows.map((r) => toNeutralView(r, rowPositionAt(r, now, ctx.parsePath), ctx.parsePath));
+  }).finally(logIfSlow);
 };

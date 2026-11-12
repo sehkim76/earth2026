@@ -1,7 +1,8 @@
 generator client {
   provider      = "prisma-client"
   output        = "../src/generated/prisma"
-  binaryTargets = ["native", "rhel-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+  // 람다는 x86_64(AL2023 = rhel-openssl-3.0.x), 로컬 개발은 native. arm64는 미사용이라 제외.
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
 datasource db {
@@ -58,6 +59,8 @@ model ARMissionUserScore {
   ARMissionKey String?   @db.VarChar(255)
   ScoreId      Int       @id @default(autoincrement())
   islastscore  Int?
+
+  @@index([UserId, EventKey])
 }
 
 model AddressableResourceWithThumbnail {
@@ -155,6 +158,8 @@ model MissionTable {
   hasTerritory         Boolean?  @default(false)
   id                   Int       @id @default(autoincrement())
   isUpdating           Int?      @default(0)
+
+  @@index([ARMissionKey])
 }
 
 model MissionTeam {
@@ -164,6 +169,8 @@ model MissionTeam {
   classId      String? @db.VarChar(255)
   Features     String? @db.VarChar(255)
   id           Int     @id @default(autoincrement())
+
+  @@index([userId, id])
 }
 
 model MissionUser {

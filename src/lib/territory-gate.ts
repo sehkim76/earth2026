@@ -7,17 +7,37 @@ import prisma from "@/lib/prismadb";
  * MissionTable.hasTerritory = 1인 ARMissionKey 소속 유저에게만 영토 기능을 개방한다.
  * 기본값은 차단(fail-close).
  */
+// 미션별 영토 개방 여부 캐시 (컨테이너 메모리, 30초 TTL).
+// hasTerritory 토글은 최대 30초 늦게 반영된다. 조회 실패는 캐시하지 않는다.
+const TERRITORY_GATE_TTL_MS = 30_000;
+const TERRITORY_GATE_CACHE_MAX = 256;
+const territoryGateCache = new Map<string, { enabled: boolean; expiresAt: number }>();
+
 export async function isTerritoryEnabled(missionKey: string): Promise<boolean> {
   const key = missionKey.trim();
   if (!key) {
     return false;
+  }
+  const now = Date.now();
+  const cached = territoryGateCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.enabled;
   }
   try {
     const row = await prisma.missionTable.findFirst({
       where: { ARMissionKey: key },
       select: { hasTerritory: true },
     });
-    return row?.hasTerritory === true;
+    const enabled = row?.hasTerritory === true;
+    territoryGateCache.delete(key);
+    territoryGateCache.set(key, { enabled, expiresAt: now + TERRITORY_GATE_TTL_MS });
+    if (territoryGateCache.size > TERRITORY_GATE_CACHE_MAX) {
+      const oldest = territoryGateCache.keys().next();
+      if (!oldest.done) {
+        territoryGateCache.delete(oldest.value);
+      }
+    }
+    return enabled;
   } catch {
     return false;
   }

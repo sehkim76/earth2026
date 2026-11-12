@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
@@ -754,14 +754,30 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         pathIdx: row.path && row.path.length >= 2 ? (row.pathIdx ?? null) : null,
       },
     }));
+  // getPlayerLocation은 부모가 영주 이동 중 수백 ms마다 새로 만들 수 있으므로
+  // ref로 최신 함수를 참조한다 (콜백 identity가 바뀌어 폴링이 재시작되지 않게).
+  const getPlayerLocationRef = useRef(props.getPlayerLocation);
+  useEffect(() => {
+    getPlayerLocationRef.current = props.getPlayerLocation;
+  });
+  // 시드 배열은 내용이 같아도 새 배열로 올 수 있으므로 내용 키로 안정화한다.
+  const wildSeedsKey = JSON.stringify(
+    (props.wildSeeds ?? [])
+      .filter(
+        (s) => s && typeof s.dong === "string" && s.dong.length > 0 && Number.isFinite(s.lat) && Number.isFinite(s.lon),
+      )
+      .map((s) => ({ dong: s.dong, lat: s.lat, lon: s.lon })),
+  );
+  const stableWildSeeds = useMemo(
+    () => JSON.parse(wildSeedsKey) as Array<{ dong: string; lat: number; lon: number }>,
+    [wildSeedsKey],
+  );
   const refreshNeutralUnits = useCallback(async () => {
     neutralReqSeqRef.current += 1;
     const seq = neutralReqSeqRef.current;
     try {
-      const loc = props.getPlayerLocation();
-      const seeds = (props.wildSeeds ?? []).filter(
-        (s) => s && typeof s.dong === "string" && s.dong.length > 0 && Number.isFinite(s.lat) && Number.isFinite(s.lon),
-      );
+      const loc = getPlayerLocationRef.current();
+      const seeds = stableWildSeeds;
       let data: { units?: unknown; serverNow?: unknown };
       if (seeds.length > 0) {
         // 화면 내 복수 동 일괄 조회 (보이는 모든 동의 방랑부대 표시).
@@ -841,7 +857,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     } catch {
       // 조회 실패 시 기존 목록 유지
     }
-  }, [props.wildSeeds, props.playerDongCode, props.dongCode, props.getPlayerLocation]);
+  }, [stableWildSeeds, props.playerDongCode, props.dongCode]);
 
   const refreshTrainingCastles = useCallback(async () => {
     setTrainingCastlesLoading(true);
@@ -937,29 +953,110 @@ export default function TerritoryUI(props: TerritoryUIProps) {
 
   useEffect(() => {
     // DB 커넥션 고갈(1040) 방지: 폴링은 15초 간격으로 제한한다.
-    const timerId = window.setInterval(() => {
-      void refreshUnits();
-    }, 15_000);
-    return () => window.clearInterval(timerId);
+    // 탭이 숨겨진 동안에는 폴링을 멈추고, 다시 보이면 즉시 1회 갱신 후 재개한다.
+    let timerId: number | null = null;
+    const start = (): void => {
+      if (timerId === null) {
+        timerId = window.setInterval(() => {
+          void refreshUnits();
+        }, 15_000);
+      }
+    };
+    const stop = (): void => {
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    };
+    const onVisibilityChange = (): void => {
+      if (document.hidden) {
+        stop();
+      } else {
+        void refreshUnits();
+        start();
+      }
+    };
+    if (!document.hidden) {
+      start();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [refreshUnits]);
 
+  // 훈련 중이면 별도 폴링 대신 가장 이른 훈련 완료 시각에 맞춰 1회 갱신한다.
+  const earliestTrainingCompleteAt = units.reduce<number | null>((earliest, unit) => {
+    if (unit.state !== "training" || typeof unit.trainingCompleteAt !== "number") {
+      return earliest;
+    }
+    return earliest === null ? unit.trainingCompleteAt : Math.min(earliest, unit.trainingCompleteAt);
+  }, null);
   useEffect(() => {
-    if (!hasUnitTraining) {
+    if (earliestTrainingCompleteAt === null) {
       return;
     }
-    const timerId = window.setInterval(() => {
-      void refreshUnits();
-    }, 15_000);
-    return () => window.clearInterval(timerId);
-  }, [hasUnitTraining, refreshUnits]);
+    let timerId: number | null = null;
+    const schedule = (): void => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+      if (document.hidden) {
+        return;
+      }
+      const delay = Math.max(0, earliestTrainingCompleteAt - Date.now()) + 500;
+      timerId = window.setTimeout(() => {
+        timerId = null;
+        void refreshUnits();
+      }, delay);
+    };
+    // 숨김 중에는 예약하지 않는다 (다시 보이면 15초 폴링 effect가 즉시 갱신한다).
+    schedule();
+    document.addEventListener("visibilitychange", schedule);
+    return () => {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+      }
+      document.removeEventListener("visibilitychange", schedule);
+    };
+  }, [earliestTrainingCompleteAt, refreshUnits]);
 
   useEffect(() => {
     // 중립 부대 폴링 (선택 동 기준, 15초). 스폰·배회는 서버가 lazy 처리한다.
+    // 탭이 숨겨진 동안에는 폴링을 멈추고, 다시 보이면 즉시 1회 갱신 후 재개한다.
+    let timerId: number | null = null;
+    const start = (): void => {
+      if (timerId === null) {
+        timerId = window.setInterval(() => {
+          void refreshNeutralUnits();
+        }, 15_000);
+      }
+    };
+    const stop = (): void => {
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    };
+    const onVisibilityChange = (): void => {
+      if (document.hidden) {
+        stop();
+      } else {
+        void refreshNeutralUnits();
+        start();
+      }
+    };
     void refreshNeutralUnits();
-    const timerId = window.setInterval(() => {
-      void refreshNeutralUnits();
-    }, 15_000);
-    return () => window.clearInterval(timerId);
+    if (!document.hidden) {
+      start();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [refreshNeutralUnits]);
 
   useEffect(() => {
@@ -2322,18 +2419,47 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     setMoveNow(Date.now());
     void durationMs;
     let lastPos = { lat: fromLat, lon: fromLon };
+    // 실시간 위치는 프레임마다 계산하되, 상태 커밋은 지도 마커 전달 스로틀(200ms)에
+    // 맞춰 200ms 간격 + 도착/중지 시 1회만 한다 (매 프레임 setUnits 재렌더 방지).
+    let lastCommitAt = 0;
+    let committedPos: { lat: number; lon: number } | null = null;
+    const commitPos = (pos: { lat: number; lon: number }): void => {
+      lastCommitAt = Date.now();
+      committedPos = pos;
+      setUnits((prev) =>
+        prev.map((u) => (u.id === unitId ? { ...u, lat: pos.lat, lon: pos.lon } : u)),
+      );
+    };
     await new Promise<void>((resolve) => {
       const tick = (): void => {
         // 이동 중지되면 애니메이션을 즉시 중단한다.
         if (!movingUnitIdsRef.current.has(unitId)) {
+          // 마지막 계산 위치가 아직 커밋되지 않았다면 반영한다.
+          // 단, 그 사이 다른 경로(서버 동기화 등)로 위치가 바뀌었으면 덮어쓰지 않는다.
+          const pending = lastPos;
+          const prevCommitted = committedPos;
+          // (첫 프레임은 항상 커밋되므로 커밋 이력이 없으면 계산된 위치도 없다.)
+          if (
+            prevCommitted !== null &&
+            (prevCommitted.lat !== pending.lat || prevCommitted.lon !== pending.lon)
+          ) {
+            setUnits((prev) =>
+              prev.map((u) =>
+                u.id === unitId && u.lat === prevCommitted.lat && u.lon === prevCommitted.lon
+                  ? { ...u, lat: pending.lat, lon: pending.lon }
+                  : u,
+              ),
+            );
+          }
           resolve();
           return;
         }
-        const pos = positionAtMoveTarget(orderLike, Date.now());
+        const now = Date.now();
+        const pos = positionAtMoveTarget(orderLike, now);
         lastPos = { lat: pos.lat, lon: pos.lon };
-        setUnits((prev) =>
-          prev.map((u) => (u.id === unitId ? { ...u, lat: pos.lat, lon: pos.lon } : u)),
-        );
+        if (pos.arrived || now - lastCommitAt >= 200) {
+          commitPos(lastPos);
+        }
         if (!pos.arrived) {
           requestAnimationFrame(tick);
         } else {

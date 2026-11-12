@@ -316,6 +316,36 @@
   object-fit: contain;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
   pointer-events: none;
+  /* 8프레임 가로 스프라이트 시트 (프레임당 156px = 52px의 3배).
+   * 120ms/프레임(960ms 주기), 위상은 생성 시 animation-delay로 전역 시계에 맞춘다. */
+  background-repeat: no-repeat;
+  background-size: 800% 100%;
+  background-position: 0 0;
+  animation: territory-sprite-frames 960ms steps(8) infinite;
+}
+
+.territory-soldier-idle {
+  background-image: url("/markers/soldier_idle_sheet.png");
+}
+
+/* 이동 중 병사는 걷기 시트를 사용한다 (프레임 위상은 그대로 유지). */
+.territory-soldier-idle[data-walk="1"] {
+  background-image: url("/markers/soldier_walk_sheet.png");
+}
+
+/* 무법자는 항상 걷기 사이클 (idle 프레임 없음). */
+.territory-outlaw {
+  background-image: url("/markers/outlaw_walk_sheet.png");
+}
+
+@keyframes territory-sprite-frames {
+  from {
+    background-position: 0 0;
+  }
+  /* 시트 폭 = 8×요소 폭이므로 퍼센트 위치 k/7이 k번째 프레임이다 (steps(8) → 0..7/7). */
+  to {
+    background-position: calc(800% / 7) 0;
+  }
 }
 
 .three-poi-marker-fallback {

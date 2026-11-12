@@ -134,6 +134,8 @@ const loadDongGrids = (dong: string): BakedGrid[] | null => {
       return null;
     }
     gridCache.set(dong, grids);
+    // 디코드 완료 후 원문 텍스트는 더 쓰지 않는다 (gridCache에서 밀려나면 다시 HTTP로 받는다).
+    fetchCache.delete(dong);
     if (gridCache.size > MAX_CACHED_DONGS) {
       const oldest = gridCache.keys().next();
       if (!oldest.done) {
@@ -156,17 +158,35 @@ let topoDoc: {
   transform: { scale: [number, number]; translate: [number, number] };
   byId: Map<string, number[][][]>;
 } | null = null;
-let topoLoaded = false;
+// 경계 로드 실패 시 컨테이너 수명 내내 경계가 꺼지지 않도록, 짧은 백오프 후 재시도한다.
+const TOPO_RETRY_BACKOFF_MS = 30_000;
+let topoRetryAt = 0;
+let topoInflight: Promise<boolean> | null = null;
 const dongRingCache = new Map<string, TopoRing[]>();
 
 const ensureTopo = async (): Promise<boolean> => {
   if (topoDoc) {
     return true;
   }
-  if (topoLoaded || !rasterBaseUrl) {
+  if (topoInflight) {
+    return topoInflight;
+  }
+  if (!rasterBaseUrl || Date.now() < topoRetryAt) {
     return false;
   }
-  topoLoaded = true;
+  topoInflight = loadTopo()
+    .catch(() => false)
+    .then((ok) => {
+      if (!ok) {
+        topoRetryAt = Date.now() + TOPO_RETRY_BACKOFF_MS;
+      }
+      topoInflight = null;
+      return ok;
+    });
+  return topoInflight;
+};
+
+const loadTopo = async (): Promise<boolean> => {
   try {
     // 고해상도 경계(클라이언트 상세 타일과 동일 기하) 우선, 없으면 단순화본.
     let res = await fetch(`${rasterBaseUrl}/boundaries/kor_dong_hd.topojson`);

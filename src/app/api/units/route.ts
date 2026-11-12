@@ -8,6 +8,7 @@ import {
   settleExpiredMoveTarget,
   withUnits,
 } from "@/lib/units";
+import type { Unit } from "@/lib/units";
 import {
   getUserClass,
   loadCastle,
@@ -29,9 +30,26 @@ export async function GET(request: Request) {
     return territoryDisabledResponse();
   }
 
-  const [klass, units] = await Promise.all([
-    getUserClass(prisma, userId),
-    withNamedLock(`unit:${userId}`, async (tx) => {
+  // 락 없이 먼저 읽고, 확정(훈련 완료·만료 주문서)할 부대가 있을 때만 락을 잡는다.
+  // 확정 대상이 없으면 락 안 경로도 쓰기 없이 같은 목록을 돌려주므로 응답이 동일하다.
+  const loadSettledUnits = async (): Promise<Unit[]> => {
+    const snapshot = await prisma.missionUser.findUnique({
+      where: { userId },
+      select: { data: true },
+    });
+    const snapUnits = loadUnits(snapshot?.data);
+    const snapNow = Date.now();
+    const needsSettle = snapUnits.some(
+      (unit) =>
+        (unit.state === "training" &&
+          typeof unit.trainingCompleteAt === "number" &&
+          unit.trainingCompleteAt <= snapNow) ||
+        (!!unit.moveTarget && unit.moveTarget.endsAt <= snapNow),
+    );
+    if (!needsSettle) {
+      return snapUnits;
+    }
+    return withNamedLock(`unit:${userId}`, async (tx) => {
       const row = await tx.missionUser.findUnique({
         where: { userId },
         select: { data: true },
@@ -98,8 +116,10 @@ export async function GET(request: Request) {
         });
       }
       return updatedUnits;
-    }),
-  ]);
+    });
+  };
+
+  const [klass, units] = await Promise.all([getUserClass(prisma, userId), loadSettledUnits()]);
 
   const unitList = units.map((s) => {
     // 이동 중이면 서버 권위 보간 위치를 반환한다 (클라 재계산 불필요).

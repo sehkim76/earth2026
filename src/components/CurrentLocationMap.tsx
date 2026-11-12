@@ -4,10 +4,22 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
 import type { Circle, LayerGroup, Map as LeafletMap, MapOptions, Marker } from "leaflet";
-import * as THREE from "three";
+import type * as ThreeTypes from "three";
 
 import Supercluster from "supercluster";
 import type * as CesiumTypes from "cesium";
+
+// three.js는 나침반 아이콘 1회 렌더에만 쓰므로 필요할 때 동적으로 불러온다 (초기 번들 축소).
+let threeModulePromise: Promise<typeof import("three")> | null = null;
+const loadThree = (): Promise<typeof import("three")> => {
+  if (!threeModulePromise) {
+    threeModulePromise = import("three").catch((error: unknown) => {
+      threeModulePromise = null;
+      throw error;
+    });
+  }
+  return threeModulePromise;
+};
 
 const CESIUM_CDN_BASE = "https://cdn.jsdelivr.net/npm/cesium@1.146.0/Build/Cesium";
 
@@ -313,173 +325,133 @@ type MarkerPanel = {
   lon?: number;
 };
 
+// 플레이어 캐릭터 걷기 프레임 (정적 에셋, CDN 캐시). 파일명은 000~023 고정.
+const WALKING_FRAMES_STATIC_DIR = "/map-assets/walking";
+const FALLEN_ANGEL_FRAMES_STATIC_DIR = "/map-assets/fallen-angel";
+const WALKING_FRAME_FILES = Array.from(
+  { length: 24 },
+  (_, index) => `0_Ogre_Walking_${String(index).padStart(3, "0")}.png`,
+);
+const FALLEN_ANGEL_FRAME_FILES = Array.from(
+  { length: 24 },
+  (_, index) => `0_Fallen_Angels_Walking_${String(index).padStart(3, "0")}.png`,
+);
+
+// 행정경계 피처별 경계 상자 캐시 (피처 객체는 adminGeoJson이 바뀌기 전까지 동일하다).
+type AdminFeatureBbox = { minLon: number; maxLon: number; minLat: number; maxLat: number };
+const adminFeatureBboxCache = new WeakMap<object, AdminFeatureBbox | null>();
+const getAdminFeatureBbox = (feature: object): AdminFeatureBbox | null => {
+  const cached = adminFeatureBboxCache.get(feature);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const geometry = (feature as { geometry?: unknown }).geometry as { type?: unknown; coordinates?: unknown } | null | undefined;
+  if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
+    adminFeatureBboxCache.set(feature, null);
+    return null;
+  }
+  const polys = (geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates) as number[][][][];
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const poly of polys) {
+    if (!Array.isArray(poly)) {
+      continue;
+    }
+    for (const ring of poly) {
+      if (!Array.isArray(ring)) {
+        continue;
+      }
+      for (const pt of ring as number[][]) {
+        const x = pt[0];
+        const y = pt[1];
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          continue;
+        }
+        if (x < minLon) {
+          minLon = x;
+        }
+        if (x > maxLon) {
+          maxLon = x;
+        }
+        if (y < minLat) {
+          minLat = y;
+        }
+        if (y > maxLat) {
+          maxLat = y;
+        }
+      }
+    }
+  }
+  const bbox = Number.isFinite(minLon) ? { minLon, maxLon, minLat, maxLat } : null;
+  adminFeatureBboxCache.set(feature, bbox);
+  return bbox;
+};
+
 const MARKER_CELEBRATED_STORAGE_KEY = "marker-celebrated";
 const CELEBRATE_REPLAY_GRACE_MS = 1000;
 const NEUTRAL_DAMAGE_ANIMATION_MS = 60_000;
 const NEUTRAL_DAMAGE_FRAME_URLS = [1, 2, 3, 4].map(
   (frame) => `/markers/neutral-castle-v2-damaged-${frame}.png`,
 );
-const SOLDIER_IDLE_FRAME_URLS = Array.from(
-  { length: 8 },
-  (_, index) => `/markers/soldier_idle_${String(index + 1).padStart(2, "0")}.png`,
-);
-const SOLDIER_WALK_FRAME_URLS = Array.from(
-  { length: 8 },
-  (_, index) => `/markers/soldier_walk_${String(index + 1).padStart(2, "0")}.png`,
-);
-const OUTLAW_FRAME_URLS = Array.from(
-  { length: 8 },
-  (_, index) => `/markers/outlaw_walk_${String(index + 1).padStart(2, "0")}.png`,
-);
-const territorySoldierImages = new Set<HTMLImageElement>();
-const territoryOutlawImages = new Set<HTMLImageElement>();
-let territorySoldierAnimationTimer: number | null = null;
-// 지도 드래그·줌 중 스프라이트 stepping 일시정지 (getBoundingClientRect 강제 리플로우 방지).
-let territoryAnimPaused = false;
-export const setTerritoryAnimPaused = (paused: boolean): void => {
-  territoryAnimPaused = paused;
-};
-// 프레임 PNG를 최초 1회 fetch→blob URL로 상주시켜 이후 src 교체가 네트워크 없이 메모리에서 해결되게 한다.
-const frameObjectUrls = new Map<string, string>();
-const framePreloading = new Set<string>();
-const resolveFrameUrl = (url: string): string => frameObjectUrls.get(url) ?? url;
-const ensureFramesPreloaded = (urls: string[]): void => {
-  if (typeof window === "undefined") {
+// 병사(대기·걷기)·무법자 8프레임 스프라이트 시트 (프레임당 156px, 표시 52px).
+// 프레임 전환은 globals.css의 CSS 애니메이션(steps(8), 120ms/프레임)이 담당한다.
+const TERRITORY_SPRITE_SHEET_URLS = [
+  "/markers/soldier_idle_sheet.png",
+  "/markers/soldier_walk_sheet.png",
+  "/markers/outlaw_walk_sheet.png",
+];
+const TERRITORY_SPRITE_CYCLE_MS = 960;
+const territorySpriteSheetImages: HTMLImageElement[] = [];
+// 걷기 시트로 처음 전환될 때 빈 프레임이 보이지 않도록 시트를 미리 받아 둔다.
+const ensureTerritorySpriteSheetsPreloaded = (): void => {
+  if (typeof window === "undefined" || territorySpriteSheetImages.length > 0) {
     return;
   }
-  const pending = urls.filter((url) => !frameObjectUrls.has(url) && !framePreloading.has(url));
-  if (pending.length === 0) {
-    return;
+  for (const url of TERRITORY_SPRITE_SHEET_URLS) {
+    const image = new Image();
+    image.src = url;
+    territorySpriteSheetImages.push(image);
   }
-  for (const url of pending) {
-    framePreloading.add(url);
-  }
-  void Promise.all(
-    pending.map(async (url) => {
-      try {
-        const response = await fetch(url);
-        if (!response.ok) {
-          return;
-        }
-        const objectUrl = URL.createObjectURL(await response.blob());
-        frameObjectUrls.set(url, objectUrl);
-        // 디코딩까지 미리 끝내 실제 교체 시점에 깜빡임이 없게 한다.
-        const warmup = new Image();
-        warmup.src = objectUrl;
-      } catch {
-        // 실패 시 원본 URL 폴백 (기존 동작 유지).
-      }
-    }),
-  );
 };
-const ensureSoldierFramesPreloaded = (): void => {
-  ensureFramesPreloaded([...SOLDIER_IDLE_FRAME_URLS, ...SOLDIER_WALK_FRAME_URLS]);
+// 모든 스프라이트가 같은 프레임을 보이도록 문서 타임라인 기준 위상을 맞춘다.
+const territorySpritePhaseDelay = (): string => {
+  const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+  return `-${Math.floor(now % TERRITORY_SPRITE_CYCLE_MS)}ms`;
 };
-const ensureOutlawFramesPreloaded = (): void => {
-  ensureFramesPreloaded(OUTLAW_FRAME_URLS);
-};
-const resolveSoldierFrameUrl = (url: string): string => resolveFrameUrl(url);
-// 화면 밖 마커의 src 교체는 건너뛴다 (디코드·페인트 절약). 여유 64px.
-const stepFrameImage = (
-  image: HTMLImageElement,
-  urls: string[],
-  frameIndex: number,
-  viewportWidth: number,
-  viewportHeight: number,
-): void => {
-  const rect = image.getBoundingClientRect();
-  const offscreen =
-    rect.width === 0 ||
-    rect.bottom < -64 ||
-    rect.top > viewportHeight + 64 ||
-    rect.right < -64 ||
-    rect.left > viewportWidth + 64;
-  if (!offscreen) {
-    image.src = resolveFrameUrl(urls[frameIndex]);
-  }
-  image.dataset.frameIndex = String(frameIndex);
-};
+const TERRITORY_SPRITE_SELECTOR = ".territory-soldier-idle, .territory-outlaw";
 
+// 새로 붙은 스프라이트의 애니메이션 위상을 전역 위상에 다시 맞춘다 (레이아웃 조회 없음).
 const registerTerritorySoldierAnimation = (root: ParentNode | null): void => {
   if (typeof window === "undefined" || !root) return;
-  ensureSoldierFramesPreloaded();
-  ensureOutlawFramesPreloaded();
-  if (root instanceof HTMLImageElement) {
-    if (root.classList.contains("territory-soldier-idle")) {
-      territorySoldierImages.add(root);
-    }
-    if (root.classList.contains("territory-outlaw")) {
-      territoryOutlawImages.add(root);
-    }
+  ensureTerritorySpriteSheetsPreloaded();
+  const delay = territorySpritePhaseDelay();
+  if (root instanceof HTMLElement && root.matches(TERRITORY_SPRITE_SELECTOR)) {
+    root.style.animationDelay = delay;
   }
-  root.querySelectorAll<HTMLImageElement>("img.territory-soldier-idle").forEach((image) => {
-    territorySoldierImages.add(image);
+  root.querySelectorAll<HTMLElement>(TERRITORY_SPRITE_SELECTOR).forEach((element) => {
+    element.style.animationDelay = delay;
   });
-  root.querySelectorAll<HTMLImageElement>("img.territory-outlaw").forEach((image) => {
-    territoryOutlawImages.add(image);
-  });
-  if (
-    territorySoldierAnimationTimer !== null ||
-    (territorySoldierImages.size === 0 && territoryOutlawImages.size === 0)
-  ) {
-    return;
-  }
-  territorySoldierAnimationTimer = window.setInterval(() => {
-    if (territoryAnimPaused) {
-      return;
-    }
-    const frameTick = Math.floor(Date.now() / 120);
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    territorySoldierImages.forEach((image) => {
-      if (!image.isConnected) {
-        territorySoldierImages.delete(image);
-        return;
-      }
-      // 이동 중 마커는 걷기 프레임, 정지 중 마커는 기본 프레임을 사용한다.
-      const urls = image.dataset.walk === "1" ? SOLDIER_WALK_FRAME_URLS : SOLDIER_IDLE_FRAME_URLS;
-      const frameIndex = frameTick % urls.length;
-      if (image.dataset.frameIndex !== String(frameIndex) || image.dataset.walk !== image.dataset.appliedWalk) {
-        stepFrameImage(image, urls, frameIndex, viewportWidth, viewportHeight);
-        image.dataset.appliedWalk = image.dataset.walk ?? "0";
-      }
-    });
-    // 무법자는 항상 걷기 사이클 (idle 프레임 없음).
-    territoryOutlawImages.forEach((image) => {
-      if (!image.isConnected) {
-        territoryOutlawImages.delete(image);
-        return;
-      }
-      const frameIndex = frameTick % OUTLAW_FRAME_URLS.length;
-      if (image.dataset.frameIndex !== String(frameIndex)) {
-        stepFrameImage(image, OUTLAW_FRAME_URLS, frameIndex, viewportWidth, viewportHeight);
-      }
-    });
-    if (
-      territorySoldierImages.size === 0 &&
-      territoryOutlawImages.size === 0 &&
-      territorySoldierAnimationTimer !== null
-    ) {
-      window.clearInterval(territorySoldierAnimationTimer);
-      territorySoldierAnimationTimer = null;
-    }
-  }, 120);
 };
 
 const appendTerritorySoldierAnimation = (element: HTMLElement): void => {
-  const image = document.createElement("img");
-  image.src = SOLDIER_IDLE_FRAME_URLS[0];
-  image.alt = "";
-  image.className = "territory-soldier-idle";
-  element.appendChild(image);
-  registerTerritorySoldierAnimation(image);
+  const sprite = document.createElement("span");
+  sprite.className = "territory-soldier-idle";
+  sprite.setAttribute("aria-hidden", "true");
+  element.appendChild(sprite);
+  registerTerritorySoldierAnimation(sprite);
 };
 
-const territorySoldierAnimationMarkup = (): string =>
-  `<img src="${SOLDIER_IDLE_FRAME_URLS[0]}" alt="" class="territory-soldier-idle" data-frame-index="0" />`;
+const territorySoldierAnimationMarkup = (): string => {
+  ensureTerritorySpriteSheetsPreloaded();
+  return `<span class="territory-soldier-idle" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
+};
 
-const territoryOutlawAnimationMarkup = (): string =>
-  `<img src="${OUTLAW_FRAME_URLS[0]}" alt="" class="territory-outlaw" data-frame-index="0" />`;
+const territoryOutlawAnimationMarkup = (): string => {
+  ensureTerritorySpriteSheetsPreloaded();
+  return `<span class="territory-outlaw" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
+};
 
 const neutralDamageAnimationMarkup = (): string =>
   `<div class="neutral-castle-damage-animation">${NEUTRAL_DAMAGE_FRAME_URLS.map(
@@ -1577,6 +1549,14 @@ export default function CurrentLocationMap({
     }
     return null;
   }, [playerMoveTarget, playerManualBase, territoryEnabled, territoryStart, location, playerMoveTick]);
+  // 최신 플레이어 위치 ref (영주 이동 중 500ms마다 바뀌는 객체를 이펙트 의존성 없이 읽기 위함).
+  const playerLocationRef = useRef(playerLocation);
+  useLayoutEffect(() => {
+    playerLocationRef.current = playerLocation;
+  }, [playerLocation]);
+  // 약 100m 격자 좌표 (위치 변화에 둔감해도 되는 이펙트의 의존성용).
+  const playerGridLat = playerLocation ? Math.round(playerLocation.lat * 1000) : null;
+  const playerGridLon = playerLocation ? Math.round(playerLocation.lon * 1000) : null;
   const [proximityMarkerInfo, setProximityMarkerInfo] = useState<MarkerPanel | null>(null);
   // ?vdebug=1 뷰포트 진단 오버레이 (아이폰 UI 잘림 원인 특정용).
   const [viewportDebugLines, setViewportDebugLines] = useState<string[]>([]);
@@ -1647,8 +1627,14 @@ export default function CurrentLocationMap({
     mine: boolean;
   }
   const [territoryCastles, setTerritoryCastles] = useState<TerritoryOwnedCastle[]>([]);
+  // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성). 같은 /api/castles/list 폴링에서 파생한다.
+  const [castleKindMap, setCastleKindMap] = useState<Map<string, string>>(new Map());
+  // 폴링 결과가 같으면 setState를 생략해 영토 색칠 레이어 재스타일을 막는다.
+  const territoryCastlesSigRef = useRef<string | null>(null);
+  const castleKindSigRef = useRef<string | null>(null);
   useEffect(() => {
     if (!territoryEnabled) {
+      territoryCastlesSigRef.current = null;
       setTerritoryCastles([]);
       return;
     }
@@ -1664,7 +1650,11 @@ export default function CurrentLocationMap({
           return;
         }
         const next: TerritoryOwnedCastle[] = [];
+        const nextKinds = new Map<string, string>();
         for (const row of data.castles as Record<string, unknown>[]) {
+          if (typeof row.castleKey === "string" && typeof row.kind === "string") {
+            nextKinds.set(row.castleKey.trim(), row.kind);
+          }
           if (
             typeof row.castleKey !== "string" ||
             typeof row.dong !== "string" ||
@@ -1682,20 +1672,43 @@ export default function CurrentLocationMap({
             mine: row.mine === true,
           });
         }
-        if (!cancelled) {
+        if (cancelled) {
+          return;
+        }
+        const sig = JSON.stringify(
+          next.map((c) => [c.castleKey, c.kind, c.name, c.owner, c.ownerNickname, c.dong, c.mine]),
+        );
+        if (sig !== territoryCastlesSigRef.current) {
+          territoryCastlesSigRef.current = sig;
           setTerritoryCastles(next);
+        }
+        const kindSig = JSON.stringify([...nextKinds.entries()]);
+        if (kindSig !== castleKindSigRef.current) {
+          castleKindSigRef.current = kindSig;
+          setCastleKindMap(nextKinds);
         }
       } catch {
         // 조회 실패 시 기존 색 유지
       }
     };
     void load();
+    // 탭이 숨겨진 동안은 폴링을 쉬고, 다시 보이면 즉시 갱신한다.
     const timer = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
       void load();
     }, 30000);
+    const onVisible = (): void => {
+      if (document.visibilityState === "visible") {
+        void load();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [territoryEnabled]);
 
@@ -1713,6 +1726,11 @@ export default function CurrentLocationMap({
     }
     return map;
   }, [territoryCastles]);
+  // 행정경계 레이어 생성 시 최신 소유 현황을 읽기 위한 ref (소유 변경은 setStyle 이펙트가 반영).
+  const ownedDongMapRef = useRef(ownedDongMap);
+  useLayoutEffect(() => {
+    ownedDongMapRef.current = ownedDongMap;
+  }, [ownedDongMap]);
   // 내가 주인인 성 키 (성 메뉴 "나의 성" 목록용).
   const ownedCastleKeys = useMemo(
     () => territoryCastles.filter((c) => c.mine).map((c) => c.castleKey),
@@ -2082,6 +2100,15 @@ interface UnitMoveTargetMark {
   pathIdx?: number | null;
 }
 
+interface PoiMarkerEntry {
+  marker: Marker;
+  layers: import("leaflet").Layer[];
+  /** poiMarkerByKeyRef 키 (단일 마커 eventKey). */
+  eventKey: string | null;
+  /** poiMarkerElementsRef 키 (방문 완료 단일 마커). */
+  visitedKey: string | null;
+}
+
 interface OtherUnitMoveAnim {
   key: string;
   path: Array<{ lat: number; lon: number }>;
@@ -2093,7 +2120,12 @@ interface OtherUnitMoveAnim {
   destLon: number;
   done: boolean;
   lastLon: number;
-  img: HTMLImageElement | null;
+  img: HTMLElement | null;
+  /** 마지막으로 setLatLng한 레이어 픽셀 좌표 (반올림). 같으면 DOM 갱신을 건너뛴다. */
+  lastPx: number;
+  lastPy: number;
+  /** lastPx/lastPy를 기록한 마커 (마커가 재생성되면 캐시를 무시한다). */
+  pxMarker: Marker | null;
 }
   const unitLayerRef = useRef<LayerGroup | null>(null);
   const unitMarkerMapRef = useRef<Map<string, Marker>>(new Map());
@@ -2101,6 +2133,11 @@ interface OtherUnitMoveAnim {
   const markerBuildSigRef = useRef<string | null>(null);
   // 비동기 청크 빌드 실행 id (구 실행 취소용).
   const markerBuildRunRef = useRef(0);
+  // 위성 POI 마커 레지스트리 (클러스터/단일 마커 키 → 레이어). 줌만 바뀌면 바뀐 마커만 교체한다.
+  const poiMarkerEntriesRef = useRef<Map<string, PoiMarkerEntry>>(new Map());
+  // 레지스트리가 만들어진 기준 (줌 제외 서명 + 레이어 그룹). 다르면 전체 재빌드한다.
+  const poiMarkerBaseSigRef = useRef<string | null>(null);
+  const poiMarkerEntriesLayerRef = useRef<LayerGroup | null>(null);
   const unitFacingRef = useRef<Map<string, { lon: number; left: boolean }>>(new Map());
   const [unitMovePath, setUnitMovePath] = useState<Array<{ lat: number; lon: number }> | null>(null);
   // 무법자 이동경로 (클릭 시 빨간 점선).
@@ -2414,16 +2451,18 @@ interface OtherUnitMoveAnim {
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
   const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
   useEffect(() => {
-    if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocation) {
+    if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocationRef.current) {
       return;
     }
-    const playerSeedLat = playerLocation.lat;
-    const playerSeedLon = playerLocation.lon;
     const compute = (): void => {
       const map = mapInstanceRef.current;
-      if (!map) {
+      // 계산 시점의 최신 플레이어 위치를 쓴다 (이펙트는 약 100m 이동 시에만 다시 구독).
+      const playerNow = playerLocationRef.current;
+      if (!map || !playerNow) {
         return;
       }
+      const playerSeedLat = playerNow.lat;
+      const playerSeedLon = playerNow.lon;
       let bounds: { getNorth: () => number; getSouth: () => number; getWest: () => number; getEast: () => number } | null = null;
       let centerLat = 0;
       let centerLon = 0;
@@ -2450,47 +2489,11 @@ interface OtherUnitMoveAnim {
         if (typeof raw !== "string" || !raw || seen.has(raw)) {
           continue;
         }
-        const geometry = feature.geometry as { type?: unknown; coordinates?: unknown } | null;
-        if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) {
+        const bbox = getAdminFeatureBbox(feature);
+        if (!bbox) {
           continue;
         }
-        const polys = (geometry.type === "Polygon" ? [geometry.coordinates] : geometry.coordinates) as number[][][][];
-        let minLon = Infinity;
-        let maxLon = -Infinity;
-        let minLat = Infinity;
-        let maxLat = -Infinity;
-        for (const poly of polys) {
-          if (!Array.isArray(poly)) {
-            continue;
-          }
-          for (const ring of poly) {
-            if (!Array.isArray(ring)) {
-              continue;
-            }
-            for (const pt of ring as number[][]) {
-              const x = pt[0];
-              const y = pt[1];
-              if (!Number.isFinite(x) || !Number.isFinite(y)) {
-                continue;
-              }
-              if (x < minLon) {
-                minLon = x;
-              }
-              if (x > maxLon) {
-                maxLon = x;
-              }
-              if (y < minLat) {
-                minLat = y;
-              }
-              if (y > maxLat) {
-                maxLat = y;
-              }
-            }
-          }
-        }
-        if (!Number.isFinite(minLon)) {
-          continue;
-        }
+        const { minLon, maxLon, minLat, maxLat } = bbox;
         // 중립성 반경(20km) 밖이고 선택 동도 아니면 제외한다.
         const seedLat = (minLat + maxLat) / 2;
         const seedLon = (minLon + maxLon) / 2;
@@ -2527,7 +2530,7 @@ interface OtherUnitMoveAnim {
         map?.off("moveend", compute);
       } catch {}
     };
-  }, [territoryEnabled, isMapReady, adminGeoJson, playerLocation, selectedAdminCode]);
+  }, [territoryEnabled, isMapReady, adminGeoJson, playerGridLat, playerGridLon, selectedAdminCode]);
 
   useEffect(() => {
     adminGeoJsonRef.current = adminGeoJson;
@@ -2781,24 +2784,9 @@ interface OtherUnitMoveAnim {
   useEffect(() => {
     let isCancelled = false;
 
-    const fetchFrameFiles = async (character: "walking" | "fallenAngel"): Promise<string[]> => {
-      try {
-        const response = await fetch(`/api/walking-frames?character=${character}`, {
-          credentials: "include",
-        });
-
-        if (!response.ok) {
-          return [];
-        }
-
-        const json = (await response.json()) as { frames?: unknown };
-        return Array.isArray(json.frames)
-          ? json.frames.filter((value): value is string => typeof value === "string")
-          : [];
-      } catch {
-        return [];
-      }
-    };
+    // 프레임 목록은 public/map-assets 아래 정적 파일이므로 API 조회 없이 그대로 쓴다.
+    const fetchFrameFiles = async (character: "walking" | "fallenAngel"): Promise<string[]> =>
+      character === "walking" ? WALKING_FRAME_FILES : FALLEN_ANGEL_FRAME_FILES;
 
     const loadSpriteFrames = async () => {
       const [walkingFrames, fallenAngelFrames] = await Promise.all([
@@ -2827,13 +2815,13 @@ interface OtherUnitMoveAnim {
 
   const walkingFrameRequestUrls = useMemo(() => {
     return walkingFrameFiles.map((fileName) => {
-      return `/api/walking-frames?character=walking&file=${encodeURIComponent(fileName)}`;
+      return `${WALKING_FRAMES_STATIC_DIR}/${encodeURIComponent(fileName)}`;
     });
   }, [walkingFrameFiles]);
 
   const fallenAngelFrameRequestUrls = useMemo(() => {
     return fallenAngelFrameFiles.map((fileName) => {
-      return `/api/walking-frames?character=fallenAngel&file=${encodeURIComponent(fileName)}`;
+      return `${FALLEN_ANGEL_FRAMES_STATIC_DIR}/${encodeURIComponent(fileName)}`;
     });
   }, [fallenAngelFrameFiles]);
 
@@ -2994,37 +2982,7 @@ interface OtherUnitMoveAnim {
   const [selectedNeutralPoints, setSelectedNeutralPoints] = useState<MapPoint[]>([]);
   const neutralCenterRef = useRef<{ lat: number; lon: number } | null>(null);
 
-  // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성).
-  const [castleKindMap, setCastleKindMap] = useState<Map<string, string>>(new Map());
-  useEffect(() => {
-    if (!territoryEnabled) {
-      return;
-    }
-    let cancelled = false;
-    void fetch("/api/castles/list")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: unknown) => {
-        if (cancelled || !data || typeof data !== "object") {
-          return;
-        }
-        const castles = (data as { castles?: unknown }).castles;
-        if (!Array.isArray(castles)) {
-          return;
-        }
-        const next = new Map<string, string>();
-        for (const row of castles as Record<string, unknown>[]) {
-          if (typeof row.castleKey === "string" && typeof row.kind === "string") {
-            next.set(row.castleKey.trim(), row.kind);
-          }
-        }
-        setCastleKindMap(next);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [territoryEnabled]);
-
+  // 성 종류표(castleKindMap)는 위 /api/castles/list 폴링에서 함께 갱신한다.
   const castleKindOf = (eventKey?: string | null): string | null => {
     const key = (eventKey ?? "").trim();
     if (!key.startsWith("castle-")) {
@@ -3819,8 +3777,14 @@ interface OtherUnitMoveAnim {
     return () => window.cancelAnimationFrame(frameId);
   }, [territoryEnabled, createThreePoiMarkerDataUrl]);
 
-  const createThreeCompassDataUrl = useCallback((): string | null => {
+  const createThreeCompassDataUrl = useCallback(async (): Promise<string | null> => {
     if (typeof document === "undefined" || typeof window === "undefined") {
+      return null;
+    }
+    let THREE: typeof import("three");
+    try {
+      THREE = await loadThree();
+    } catch {
       return null;
     }
 
@@ -3829,12 +3793,12 @@ interface OtherUnitMoveAnim {
     canvas.width = size;
     canvas.height = size;
 
-    let renderer: THREE.WebGLRenderer | null = null;
-    let ringGeometry: THREE.TorusGeometry | null = null;
-    let coreGeometry: THREE.CylinderGeometry | null = null;
-    let needleGeometry: THREE.CylinderGeometry | null = null;
-    let northGeometry: THREE.ConeGeometry | null = null;
-    let southGeometry: THREE.ConeGeometry | null = null;
+    let renderer: ThreeTypes.WebGLRenderer | null = null;
+    let ringGeometry: ThreeTypes.TorusGeometry | null = null;
+    let coreGeometry: ThreeTypes.CylinderGeometry | null = null;
+    let needleGeometry: ThreeTypes.CylinderGeometry | null = null;
+    let northGeometry: ThreeTypes.ConeGeometry | null = null;
+    let southGeometry: ThreeTypes.ConeGeometry | null = null;
 
     const scene = new THREE.Scene();
 
@@ -3930,7 +3894,7 @@ interface OtherUnitMoveAnim {
       northGeometry?.dispose();
       southGeometry?.dispose();
       scene.traverse((node) => {
-        const mesh = node as THREE.Mesh;
+        const mesh = node as ThreeTypes.Mesh;
         if (!mesh.material) {
           return;
         }
@@ -4506,16 +4470,19 @@ interface OtherUnitMoveAnim {
     }
 
     const markerVisual = createPlayerMarkerElement(character);
+    const html = `<div class="map-rotation-upright">${markerVisual.element.outerHTML}</div>`;
+    // outerHTML 스냅샷만 쓰므로 분리된 엘리먼트의 프레임 교체 타이머는 즉시 정리한다.
+    markerVisual.dispose();
     const icon = L.divIcon({
       className: "map-nearby-player-marker",
-      html: `<div class="map-rotation-upright">${markerVisual.element.outerHTML}</div>`,
+      html,
       iconSize: markerVisual.iconSize,
       iconAnchor: markerVisual.iconAnchor,
     });
 
     return {
       icon,
-      dispose: markerVisual.dispose,
+      dispose: (): void => {},
     };
   }, [createPlayerMarkerElement]);
 
@@ -6789,6 +6756,24 @@ interface OtherUnitMoveAnim {
     };
   }, [territoryEnabled]);
 
+  // 도보 오버레이는 플레이어 좌표 자체가 아니라 플레이어가 속한 도로망 동 집합에만 의존한다.
+  // 영주 이동 중 500ms마다 오버레이 이펙트가 다시 돌지 않도록 동 집합 키로 의존성을 좁힌다.
+  // (동을 판정할 수 없으면 기존처럼 좌표 키를 써서 매 위치 변화마다 다시 시도한다.)
+  const playerWalkableDongKey = useMemo((): string | null => {
+    if (!playerLocation) {
+      return null;
+    }
+    let ids: string[] = [];
+    try {
+      ids = getWalkableDongIdsAt(playerLocation.lat, playerLocation.lon).slice().sort();
+    } catch {
+      ids = [];
+    }
+    return ids.length > 0 ? `d:${ids.join(",")}` : `p:${playerLocation.lat},${playerLocation.lon}`;
+    // walkableTick: 도로망 인덱스·데이터 로드 후 동 판정을 다시 한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerLocation, walkableTick]);
+
   // ---- 영토전 도보 가능 영역 오버레이: 위성(Leaflet, 단일 캔버스) ----
   useEffect(() => {
     const L = leafletRef.current;
@@ -6800,7 +6785,7 @@ interface OtherUnitMoveAnim {
       }
       return;
     }
-    const base = playerLocation;
+    const base = playerLocationRef.current;
     if (!territoryEnabled || !base || zoomLevel < 15 || isWalkableDisabled()) {
       if (walkableLayerRef.current) {
         try {
@@ -6872,7 +6857,8 @@ interface OtherUnitMoveAnim {
         walkableLayerRef.current = created;
       }
     } catch {}
-  }, [mapStyle, isMapReady, territoryEnabled, walkableTick, location, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle, isMapReady, territoryEnabled, walkableTick, location, playerWalkableDongKey, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
   // ---- 영토전 도보 가능 영역 오버레이: 글로브(MapLibre, 래스터 이미지) ----
   useEffect(() => {
@@ -7506,7 +7492,15 @@ interface OtherUnitMoveAnim {
   }, [playerScore]);
 
   useEffect(() => {
-    setCompassIconDataUrl(createThreeCompassDataUrl());
+    let cancelled = false;
+    void createThreeCompassDataUrl().then((url) => {
+      if (!cancelled) {
+        setCompassIconDataUrl(url);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [createThreeCompassDataUrl]);
 
   useEffect(() => {
@@ -7775,15 +7769,26 @@ interface OtherUnitMoveAnim {
       }
     };
 
+    // 탭이 숨겨진 동안은 위치 기록·주변 플레이어 폴링을 쉬고, 다시 보이면 즉시 갱신한다.
     const timerId = window.setInterval(() => {
+      if (document.hidden) {
+        return;
+      }
       void syncNearbyPlayers();
     }, NEARBY_PLAYERS_POLL_INTERVAL_MS);
+    const onVisible = (): void => {
+      if (!cancelled && document.visibilityState === "visible") {
+        void syncNearbyPlayers();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
 
     void syncNearbyPlayers();
 
     return () => {
       cancelled = true;
       window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisible);
       markerMap.forEach((entry) => {
         entry.marker.remove();
         entry.dispose();
@@ -7813,12 +7818,14 @@ interface OtherUnitMoveAnim {
   }, []);
 
   // 플레이어 위치 (조이스틱 기점 우선). 게임 로직은 이 getter만 쓴다.
+  // identity가 바뀌지 않도록 ref에서 최신 위치를 읽는다 (영주 이동 중 하위 이펙트 재실행 방지).
   const getPlayerLocation = useCallback((): { lat: number; lon: number } | null => {
-    if (!playerLocation) {
+    const current = playerLocationRef.current;
+    if (!current) {
       return null;
     }
-    return { lat: playerLocation.lat, lon: playerLocation.lon };
-  }, [playerLocation]);
+    return { lat: current.lat, lon: current.lon };
+  }, []);
 
   const isTerritoryVisible = useCallback(
     (lat: number, lon: number): boolean => {
@@ -8002,7 +8009,7 @@ interface OtherUnitMoveAnim {
       }
       unitFacingRef.current.set(mark.id, { lon: mark.lon, left: facingLeft });
       const applyUnitFacing = (marker: Marker): void => {
-        const img = marker.getElement()?.querySelector<HTMLImageElement>("img.territory-soldier-idle, img.territory-outlaw");
+        const img = marker.getElement()?.querySelector<HTMLElement>(TERRITORY_SPRITE_SELECTOR);
         if (img) {
           // 병사 스프라이트 기본 방향이 왼쪽이므로 플레이어와 반대로 뒤집는다.
           // 무법자는 기본 방향이 오른쪽이라 플레이어와 동일하게 뒤집는다.
@@ -8020,7 +8027,7 @@ interface OtherUnitMoveAnim {
         }
       };
       const applyUnitWalk = (marker: Marker): void => {
-        const img = marker.getElement()?.querySelector<HTMLImageElement>("img.territory-soldier-idle, img.territory-outlaw");
+        const img = marker.getElement()?.querySelector<HTMLElement>(TERRITORY_SPRITE_SELECTOR);
         if (img) {
           const next = mark.moving ? "1" : "0";
           if (img.dataset.walk !== next) {
@@ -8202,6 +8209,9 @@ interface OtherUnitMoveAnim {
         done: false,
         lastLon: target.fromLon,
         img: null,
+        lastPx: Number.NaN,
+        lastPy: Number.NaN,
+        pxMarker: null,
       });
     }
     for (const id of [...anims.keys()]) {
@@ -8238,6 +8248,22 @@ interface OtherUnitMoveAnim {
         raf = window.setTimeout(tick, 800);
         return;
       }
+      const map = mapInstanceRef.current;
+      let viewW = 0;
+      let viewH = 0;
+      if (map) {
+        try {
+          const size = map.getSize();
+          viewW = size.x;
+          viewH = size.y;
+        } catch {
+          viewW = 0;
+          viewH = 0;
+        }
+      }
+      // 화면 밖 판정 여유 (화면 크기의 절반).
+      const padX = viewW * 0.5;
+      const padY = viewH * 0.5;
       for (const [id, anim] of anims) {
         if (anim.done) {
           continue;
@@ -8261,11 +8287,49 @@ interface OtherUnitMoveAnim {
           // 무법자 다리 시각은 서버 시계 기준 (기기 시계 오차로 앞서 걷다 되돌아가는 현상 방지).
           id.startsWith("neutral-") ? serverNow() : Date.now(),
         );
-        marker.setLatLng([pos.lat, pos.lon]);
-        // 마커 엘리먼트는 재생성 전까지 동일하므로 img를 캐시해 매 프레임 querySelector를 피한다.
+        if (pos.arrived || !map || viewW <= 0 || viewH <= 0) {
+          marker.setLatLng([pos.lat, pos.lon]);
+          anim.lastPx = Number.NaN;
+          anim.lastPy = Number.NaN;
+        } else {
+          // Leaflet 마커는 반올림한 레이어 픽셀에 놓이므로, 반올림 좌표가 같으면
+          // setLatLng(=DOM transform 갱신)를 건너뛴다. 화면 밖(여유 포함) 마커도 건너뛰고
+          // moveend·zoomend에서 다시 맞춘다.
+          let skip = false;
+          try {
+            const layerPt = map.latLngToLayerPoint([pos.lat, pos.lon]).round();
+            if (anim.pxMarker === marker && layerPt.x === anim.lastPx && layerPt.y === anim.lastPy) {
+              skip = true;
+            } else {
+              const containerPt = map.layerPointToContainerPoint(layerPt);
+              if (
+                containerPt.x < -padX ||
+                containerPt.y < -padY ||
+                containerPt.x > viewW + padX ||
+                containerPt.y > viewH + padY
+              ) {
+                skip = true;
+                anim.lastPx = Number.NaN;
+                anim.lastPy = Number.NaN;
+              } else {
+                anim.lastPx = layerPt.x;
+                anim.lastPy = layerPt.y;
+                anim.pxMarker = marker;
+              }
+            }
+          } catch {
+            skip = false;
+            anim.lastPx = Number.NaN;
+            anim.lastPy = Number.NaN;
+          }
+          if (!skip) {
+            marker.setLatLng([pos.lat, pos.lon]);
+          }
+        }
+        // 마커 엘리먼트는 재생성 전까지 동일하므로 스프라이트를 캐시해 매 프레임 querySelector를 피한다.
         let img = anim.img;
         if (!img || !img.isConnected) {
-          img = marker.getElement()?.querySelector<HTMLImageElement>("img.territory-soldier-idle, img.territory-outlaw") ?? null;
+          img = marker.getElement()?.querySelector<HTMLElement>(TERRITORY_SPRITE_SELECTOR) ?? null;
           anim.img = img;
         }
         if (img) {
@@ -8276,13 +8340,16 @@ interface OtherUnitMoveAnim {
             // 무법자는 기본 방향이 오른쪽이라 플레이어와 동일하게 뒤집는다.
             const toLeft = pos.lon < anim.lastLon;
             const isOutlaw = img.classList.contains("territory-outlaw");
-            img.style.transform = toLeft
+            const nextTransform = toLeft
               ? isOutlaw
                 ? "scaleX(-1)"
                 : "scaleX(1)"
               : isOutlaw
                 ? "scaleX(1)"
                 : "scaleX(-1)";
+            if (img.style.transform !== nextTransform) {
+              img.style.transform = nextTransform;
+            }
             anim.lastLon = pos.lon;
           }
         }
@@ -8296,14 +8363,29 @@ interface OtherUnitMoveAnim {
       raf = window.requestAnimationFrame(tick);
     };
     raf = window.requestAnimationFrame(tick);
+    // 이동·줌이 끝나면 캐시한 픽셀 좌표를 무효화해 다음 프레임에 전 마커 위치를 다시 맞춘다
+    // (줌 변경 시 레이어 좌표계가 바뀌고, 화면 밖이던 마커가 들어올 수 있다).
+    const resyncMap = mapInstanceRef.current;
+    const resync = (): void => {
+      for (const anim of otherUnitMoveAnimRef.current.values()) {
+        anim.lastPx = Number.NaN;
+        anim.lastPy = Number.NaN;
+      }
+    };
+    try {
+      resyncMap?.on("moveend zoomend viewreset", resync);
+    } catch {}
     return () => {
       running = false;
       cancelTick();
+      try {
+        resyncMap?.off("moveend zoomend viewreset", resync);
+      } catch {}
     };
   }, [territoryEnabled, isMapReady]);
 
   // 줌·이동이 끝나면 경로 화살표 개수를 다시 판정한다 (리렌더 없이 레이어만 갱신).
-  // 드래그·줌 중에는 스프라이트 stepping을 멈춰 강제 리플로우를 막는다.
+  // (스프라이트 프레임은 CSS 애니메이션이라 드래그·줌 중 일시정지가 필요 없다.)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!territoryEnabled || !isMapReady || !map) {
@@ -8314,23 +8396,11 @@ interface OtherUnitMoveAnim {
         redrawPathsRef.current();
       } catch {}
     };
-    const onMoveStart = (): void => {
-      setTerritoryAnimPaused(true);
-    };
-    const onMoveEnd = (): void => {
-      setTerritoryAnimPaused(false);
-      redraw();
-    };
-    map.on("movestart", onMoveStart);
-    map.on("moveend", onMoveEnd);
-    map.on("zoomstart", onMoveStart);
-    map.on("zoomend", onMoveEnd);
+    map.on("moveend", redraw);
+    map.on("zoomend", redraw);
     return () => {
-      map.off("movestart", onMoveStart);
-      map.off("moveend", onMoveEnd);
-      map.off("zoomstart", onMoveStart);
-      map.off("zoomend", onMoveEnd);
-      setTerritoryAnimPaused(false);
+      map.off("moveend", redraw);
+      map.off("zoomend", redraw);
     };
   }, [territoryEnabled, isMapReady]);
 
@@ -8580,7 +8650,9 @@ const isMapPerfEnabled = (): boolean => {
 
     // 같은 입력으로 이펙트가 반복 실행돼도 마커 전체 재빌드는 1회로 제한한다.
     // (콜백 identity 변경 등으로 이펙트가 3연타되던 것을 스킵 — clearLayers+191개 재생성이 블로킹 주범)
-    const buildSig = `${zoomLevel}|${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|v:${visitedEventKeys.join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v}`).join(",")}|n:${neutralDamageExpiresAtRef.current.size}`;
+    // 줌을 제외한 입력 서명. 이것이 바뀌면 전체 재빌드, 줌만 바뀌면 마커 단위로 비교한다.
+    const baseSig = `${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|v:${visitedEventKeys.join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v}`).join(",")}|n:${neutralDamageExpiresAtRef.current.size}`;
+    const buildSig = `${zoomLevel}|${baseSig}`;
     if (
       markerBuildSigRef.current === buildSig &&
       (markerPoiPoints.length === 0 || (pointsLayerRef.current.getLayers().length > 0))
@@ -8605,12 +8677,23 @@ const isMapPerfEnabled = (): boolean => {
     markerBuildRunRef.current += 1;
     const buildRunId = markerBuildRunRef.current;
 
-    // console.log("[CurrentLocationMap] clearing existing markers");
-    pointsLayerRef.current.clearLayers();
-    poiMarkerElementsRef.current.clear();
-    poiMarkerByKeyRef.current.clear();
+    const poiLayerGroup = pointsLayerRef.current;
+    const poiEntries = poiMarkerEntriesRef.current;
+    const clearAllPoiMarkers = (): void => {
+      poiLayerGroup.clearLayers();
+      poiEntries.clear();
+      poiMarkerElementsRef.current.clear();
+      poiMarkerByKeyRef.current.clear();
+    };
+    // 줌 외 입력이 바뀌었거나 레이어 그룹이 새로 만들어졌으면 기존처럼 전부 지우고 다시 만든다.
+    if (poiMarkerBaseSigRef.current !== baseSig || poiMarkerEntriesLayerRef.current !== poiLayerGroup) {
+      clearAllPoiMarkers();
+      poiMarkerBaseSigRef.current = baseSig;
+      poiMarkerEntriesLayerRef.current = poiLayerGroup;
+    }
 
     if (!markerPoiPoints.length) {
+      clearAllPoiMarkers();
       setClusterUnits((previousUnits) => (previousUnits.length === 0 ? previousUnits : []));
       // console.warn("[CurrentLocationMap] no GPS points to render - points array is empty");
       return;
@@ -8832,10 +8915,74 @@ const isMapPerfEnabled = (): boolean => {
     //   clusteredMarkers: clusters.filter(c => c.points.length > 1).length,
     // });
 
+    // 단일 마커 아이콘 종류 판정 (마커 키와 생성에 공통 사용).
+    const describeSinglePoint = (point: MapPoint): {
+      pointVisited: boolean;
+      castleKind: string | null;
+      neutralDamageExpiresAt: number | null;
+    } => ({
+      pointVisited: isVisitedEventKey(point.eventKey),
+      castleKind: castleKindOf(point.eventKey),
+      neutralDamageExpiresAt: isNeutralEventKey(point.eventKey)
+        ? getNeutralDamageExpiry(point.eventKey)
+        : null,
+    });
+    // 마커 키: 마커의 모양·위치·툴팁·클릭 내용에 쓰이는 값을 모두 담는다.
+    const keyOfCluster = (cluster: { center: MapPoint; points: MapPoint[] }): string => {
+      if (cluster.points.length === 1) {
+        const point = cluster.center;
+        const desc = describeSinglePoint(point);
+        return JSON.stringify([
+          "s",
+          point.id,
+          point.lat,
+          point.lon,
+          point.label ?? null,
+          point.eventKey ?? null,
+          point.eventType ?? null,
+          desc.pointVisited,
+          desc.castleKind,
+          desc.neutralDamageExpiresAt,
+        ]);
+      }
+      return JSON.stringify([
+        "c",
+        cluster.center.id,
+        cluster.center.lat,
+        cluster.center.lon,
+        cluster.points
+          .map((p) => [p.id, p.label ?? null, p.eventKey ?? null, p.eventType ?? null, isVisitedEventKey(p.eventKey)])
+          .sort((a, b) => (a[0] as number) - (b[0] as number)),
+      ]);
+    };
+    const desiredClusters = clusters.map((cluster) => ({ cluster, key: keyOfCluster(cluster) }));
+    const desiredKeys = new Set(desiredClusters.map((item) => item.key));
+    // 더 이상 필요 없는 마커만 제거한다 (레지스트리 정합 유지).
+    for (const [key, entry] of [...poiEntries]) {
+      if (desiredKeys.has(key)) {
+        continue;
+      }
+      for (const layerToRemove of entry.layers) {
+        poiLayerGroup.removeLayer(layerToRemove);
+      }
+      if (entry.eventKey && poiMarkerByKeyRef.current.get(entry.eventKey) === entry.marker) {
+        poiMarkerByKeyRef.current.delete(entry.eventKey);
+      }
+      if (entry.visitedKey && poiMarkerElementsRef.current.get(entry.visitedKey) === entry.marker) {
+        poiMarkerElementsRef.current.delete(entry.visitedKey);
+      }
+      poiEntries.delete(key);
+    }
+
     // 마커 추가 (줌 변경 시 191개 동기 생성이 300ms 블로킹이 되므로 32개마다 yield)
     void (async () => {
-      for (const [index, cluster] of clusters.entries()) {
-        if (index % 32 === 0) {
+      let createdCount = 0;
+      for (const { cluster, key: entryKey } of desiredClusters) {
+        // 이미 같은 마커가 있으면 그대로 둔다.
+        if (poiEntries.has(entryKey)) {
+          continue;
+        }
+        if (createdCount % 32 === 0) {
           if (buildRunId !== markerBuildRunRef.current) {
             return;
           }
@@ -8843,16 +8990,17 @@ const isMapPerfEnabled = (): boolean => {
           if (buildRunId !== markerBuildRunRef.current) {
             return;
           }
+          // 대기 중 다른 경로로 같은 키가 생성됐으면 건너뛴다.
+          if (poiEntries.has(entryKey)) {
+            continue;
+          }
         }
+        createdCount += 1;
       if (cluster.points.length === 1) {
         // 단일 마커
         const point = cluster.center;
         //console.log(`[CurrentLocationMap] adding SINGLE marker ${index}: id=${point.id}, label=${point.label}, lat=${point.lat.toFixed(5)}, lon=${point.lon.toFixed(5)`);
-        const pointVisited = isVisitedEventKey(point.eventKey);
-        const castleKind = castleKindOf(point.eventKey);
-        const neutralDamageExpiresAt = isNeutralEventKey(point.eventKey)
-          ? getNeutralDamageExpiry(point.eventKey)
-          : null;
+        const { pointVisited, castleKind, neutralDamageExpiresAt } = describeSinglePoint(point);
         const territorySoldierIcon = territoryEnabled && !pointVisited && !isNeutralEventKey(point.eventKey) && castleKind === null
           ? L.divIcon({
               className: "three-poi-marker-shell",
@@ -8938,8 +9086,11 @@ const isMapPerfEnabled = (): boolean => {
         }
 
         pointsLayerRef.current?.addLayer(poiMarker);
+        const entry: PoiMarkerEntry = { marker: poiMarker, layers: [poiMarker], eventKey: null, visitedKey: null };
+        poiEntries.set(entryKey, entry);
         if (point.eventKey) {
           poiMarkerByKeyRef.current.set(point.eventKey, poiMarker);
+          entry.eventKey = point.eventKey;
         }
         registerTerritorySoldierAnimation(poiMarker.getElement() ?? null);
         if (neutralDamageExpiresAt !== null) {
@@ -8953,23 +9104,24 @@ const isMapPerfEnabled = (): boolean => {
           const visitedKey = point.eventKey?.trim() ?? "";
           if (visitedKey) {
             poiMarkerElementsRef.current.set(visitedKey, poiMarker);
+            entry.visitedKey = visitedKey;
             if (!readCelebratedTimes().has(visitedKey)) {
               poiMarker.getElement()?.classList.add("morph-pending");
             }
           }
         }
         if (isNeutralEventKey(point.eventKey)) {
-          pointsLayerRef.current?.addLayer(
-            L.circle([point.lat, point.lon], {
-              radius: NEUTRAL_RANGE_RADIUS_M,
-              color: "#fbbf24",
-              weight: 2,
-              opacity: 0.9,
-              fillColor: "#fbbf24",
-              fillOpacity: 0.12,
-              interactive: false,
-            })
-          );
+          const rangeCircle = L.circle([point.lat, point.lon], {
+            radius: NEUTRAL_RANGE_RADIUS_M,
+            color: "#fbbf24",
+            weight: 2,
+            opacity: 0.9,
+            fillColor: "#fbbf24",
+            fillOpacity: 0.12,
+            interactive: false,
+          });
+          pointsLayerRef.current?.addLayer(rangeCircle);
+          entry.layers.push(rangeCircle);
         }
         addedCount += 1;
       } else {
@@ -9022,6 +9174,7 @@ const isMapPerfEnabled = (): boolean => {
         });
 
         pointsLayerRef.current?.addLayer(clusterMarker);
+        poiEntries.set(entryKey, { marker: clusterMarker, layers: [clusterMarker], eventKey: null, visitedKey: null });
         addedCount += count;
       }
       }
@@ -9088,7 +9241,7 @@ const isMapPerfEnabled = (): boolean => {
             return;
           }
         }
-        const center = playerLocation;
+        const center = playerLocationRef.current;
         if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lon)) {
           return;
         }
@@ -9107,7 +9260,7 @@ const isMapPerfEnabled = (): boolean => {
         map.off("click", handleLordTapFallback);
       } catch {}
     };
-  }, [isMapReady, mapStyle, castlePlacement, playerLocation]);
+  }, [isMapReady, mapStyle, castlePlacement]);
 
   // 확정 단계에서 고른 위치에 성 표시를 남긴다.
   useEffect(() => {
@@ -9277,7 +9430,7 @@ const isMapPerfEnabled = (): boolean => {
       const s = getBoundaryStyle(adminLevel, isSel, false);
       // 영토전 동 수준에서는 소유자 색으로 채운다.
       if (territoryEnabled && adminLevel === "dong" && code) {
-        const own = ownedDongMap.get(code);
+        const own = ownedDongMapRef.current.get(code);
         if (own) {
           return {
             color: s.strokeColor,
@@ -9353,7 +9506,9 @@ const isMapPerfEnabled = (): boolean => {
       }
       adminLeafletLayerRef.current = null;
     };
-  }, [adminGeoJson, adminLevel, isMapReady, mapStyle, ownedDongMap, territoryEnabled]);
+    // 소유 현황(ownedDongMap) 변경은 아래 setStyle 이펙트가 같은 규칙으로 반영하므로
+    // 3,500여 개 피처 레이어를 다시 만들지 않는다.
+  }, [adminGeoJson, adminLevel, isMapReady, mapStyle, territoryEnabled]);
 
   useEffect(() => {
     const layer = adminLeafletLayerRef.current;

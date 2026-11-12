@@ -111,11 +111,19 @@ export async function GET(request: Request) {
 
   try {
     const files = await listFrameFiles(framesDir);
-    return NextResponse.json({
-      frames: files,
-      directory: framesDir,
-      character: source,
-    });
+    // 프레임 목록은 배포 시점에 고정된 정적 파일이므로 CDN 캐시를 허용한다 (실패 응답은 캐시하지 않음).
+    return NextResponse.json(
+      {
+        frames: files,
+        directory: framesDir,
+        character: source,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, s-maxage=86400",
+        },
+      },
+    );
   } catch {
     return NextResponse.json({
       frames: [],

@@ -192,6 +192,9 @@ const loadServerGraphDong = async (dongId: string): Promise<GraphData | null> =>
   return found.get(dongId) ?? null;
 };
 
+// 동시 라우팅(무법자 계획 병렬화)에서 같은 동 그래프를 중복 조회하지 않도록 진행 중 로드를 공유한다.
+const graphInflight = new Map<string, Promise<Map<string, GraphData | null>>>();
+
 /** DB 베이크 우선, 실패 시 HTTP 폴백 (일괄 조회 1회). */
 const loadServerGraphMany = async (dongIds: string[]): Promise<Map<string, GraphData | null>> => {
   const out = new Map<string, GraphData | null>();
@@ -203,58 +206,92 @@ const loadServerGraphMany = async (dongIds: string[]): Promise<Map<string, Graph
     }
     return true;
   });
-  if (missing.length > 0) {
-    let dbOk = false;
+  if (missing.length === 0) {
+    return out;
+  }
+  const waiting = missing.filter((id) => graphInflight.has(id));
+  const toLoad = missing.filter((id) => !graphInflight.has(id));
+  if (toLoad.length > 0) {
+    const job = fetchServerGraphBatch(toLoad);
+    for (const id of toLoad) {
+      graphInflight.set(id, job);
+    }
     try {
-      const rows = await prisma.$queryRaw<Array<{ dong: string; data: Uint8Array }>>`
-        SELECT dong, data FROM route_dong_graphs WHERE dong IN (${Prisma.join(missing)})`;
-      for (const row of rows) {
-        try {
-          const raw = gunzipSync(Buffer.from(row.data)).toString("utf8");
-          graphMemCache.set(row.dong, parseGraphData(JSON.parse(raw) as unknown));
-        } catch {
-          graphMemCache.set(row.dong, null);
+      const loaded = await job;
+      for (const [id, g] of loaded) {
+        out.set(id, g);
+      }
+    } finally {
+      for (const id of toLoad) {
+        if (graphInflight.get(id) === job) {
+          graphInflight.delete(id);
         }
       }
-      dbOk = true;
-    } catch {
-      dbOk = false;
     }
-    if (dbOk) {
-      for (const id of missing) {
-        if (!graphMemCache.has(id)) {
-          graphMemCache.set(id, null);
-        }
+  }
+  await Promise.all(
+    waiting.map(async (id) => {
+      const job = graphInflight.get(id);
+      const loaded = job ? await job : null;
+      out.set(id, loaded?.get(id) ?? graphMemCache.get(id) ?? null);
+    }),
+  );
+  return out;
+};
+
+/** 캐시에 없는 동 그래프를 실제로 조회한다 (DB 우선, 실패 시 HTTP). 실패는 null로 채운다. */
+const fetchServerGraphBatch = async (missing: string[]): Promise<Map<string, GraphData | null>> => {
+  const out = new Map<string, GraphData | null>();
+  let dbOk = false;
+  try {
+    const rows = await prisma.$queryRaw<Array<{ dong: string; data: Uint8Array }>>`
+      SELECT dong, data FROM route_dong_graphs WHERE dong IN (${Prisma.join(missing)})`;
+    for (const row of rows) {
+      try {
+        const raw = gunzipSync(Buffer.from(row.data)).toString("utf8");
+        graphMemCache.set(row.dong, parseGraphData(JSON.parse(raw) as unknown));
+      } catch {
+        graphMemCache.set(row.dong, null);
       }
-    } else {
-      // DB 실패 시 기존 HTTP 방식으로 개별 폴백.
-      await Promise.all(
-        missing.map(async (id) => {
-          let parsed: GraphData | null = null;
-          try {
-            const res = await fetch(`${graphBaseUrl}/walkable/graph/${encodeURIComponent(id)}.json`, {
-              cache: "force-cache",
-            });
-            if (res.ok) {
-              parsed = parseGraphData((await res.json()) as unknown);
-            }
-          } catch {
-            parsed = null;
-          }
-          graphMemCache.set(id, parsed);
-        }),
-      );
     }
-    while (graphMemCache.size > GRAPH_MEM_LIMIT) {
-      const oldest = graphMemCache.keys().next();
-      if (oldest.done) {
-        break;
-      }
-      graphMemCache.delete(oldest.value);
-    }
+    dbOk = true;
+  } catch {
+    dbOk = false;
+  }
+  if (dbOk) {
     for (const id of missing) {
-      out.set(id, graphMemCache.get(id) ?? null);
+      if (!graphMemCache.has(id)) {
+        graphMemCache.set(id, null);
+      }
     }
+  } else {
+    // DB 실패 시 기존 HTTP 방식으로 개별 폴백.
+    await Promise.all(
+      missing.map(async (id) => {
+        let parsed: GraphData | null = null;
+        try {
+          const res = await fetch(`${graphBaseUrl}/walkable/graph/${encodeURIComponent(id)}.json`, {
+            cache: "force-cache",
+          });
+          if (res.ok) {
+            parsed = parseGraphData((await res.json()) as unknown);
+          }
+        } catch {
+          parsed = null;
+        }
+        graphMemCache.set(id, parsed);
+      }),
+    );
+  }
+  while (graphMemCache.size > GRAPH_MEM_LIMIT) {
+    const oldest = graphMemCache.keys().next();
+    if (oldest.done) {
+      break;
+    }
+    graphMemCache.delete(oldest.value);
+  }
+  for (const id of missing) {
+    out.set(id, graphMemCache.get(id) ?? null);
   }
   return out;
 };
