@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { noteServerTime } from "@/lib/server-clock";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -761,19 +762,20 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       const seeds = (props.wildSeeds ?? []).filter(
         (s) => s && typeof s.dong === "string" && s.dong.length > 0 && Number.isFinite(s.lat) && Number.isFinite(s.lon),
       );
-      let data: { units?: unknown };
+      let data: { units?: unknown; serverNow?: unknown };
       if (seeds.length > 0) {
         // 화면 내 복수 동 일괄 조회 (보이는 모든 동의 방랑부대 표시).
-        data = await callApi<{ units?: unknown }>("/api/neutral-units", { seeds });
+        data = await callApi<{ units?: unknown; serverNow?: unknown }>("/api/neutral-units", { seeds });
       } else {
         const dong = props.playerDongCode ?? props.dongCode;
         if (!dong || !loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
           return;
         }
-        data = await callApi<{ units?: unknown }>(
+        data = await callApi<{ units?: unknown; serverNow?: unknown }>(
           `/api/neutral-units?dong=${encodeURIComponent(dong)}&lat=${loc.lat}&lon=${loc.lon}`,
         );
       }
+      noteServerTime(data.serverNow, Date.now());
       const rows = (Array.isArray(data.units) ? data.units : []).flatMap((u): NeutralUnitRow[] => {
         if (typeof u !== "object" || u === null) {
           return [];

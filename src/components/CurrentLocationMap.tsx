@@ -50,6 +50,7 @@ import Ranking, { type RankingItem } from "@/components/Ranking";
 import { clearAllGameSnapshots } from "@/lib/snapshots";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
+import { serverNow } from "@/lib/server-clock";
 import {
   ADMIN_LEVEL_LABEL,
   DONG_HD_MIN_ZOOM,
@@ -6566,7 +6567,8 @@ interface OtherUnitMoveAnim {
               via: null,
               path: sub,
             },
-            nowMs,
+            // 무법자 다리 시각은 서버 시계 기준이다.
+            serverNow(),
           );
           return { lat: pos.lat, lon: pos.lon };
         } catch {
@@ -8055,7 +8057,7 @@ interface OtherUnitMoveAnim {
           let liveLon = freshMark.lon;
           try {
             const t = freshMark.moveTarget;
-            if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && Date.now() < t.endsAt) {
+            if (t && Number.isFinite(t.lat) && Number.isFinite(t.lon) && serverNow() < t.endsAt) {
               const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
               const pos = positionAtMoveTarget(
                 {
@@ -8068,7 +8070,7 @@ interface OtherUnitMoveAnim {
                   via: null,
                   path: sub,
                 },
-                Date.now(),
+                serverNow(),
               );
               if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
                 liveLat = pos.lat;
@@ -8234,7 +8236,8 @@ interface OtherUnitMoveAnim {
             via: null,
             path: anim.path,
           },
-          Date.now(),
+          // 무법자 다리 시각은 서버 시계 기준 (기기 시계 오차로 앞서 걷다 되돌아가는 현상 방지).
+          id.startsWith("neutral-") ? serverNow() : Date.now(),
         );
         marker.setLatLng([pos.lat, pos.lon]);
         // 마커 엘리먼트는 재생성 전까지 동일하므로 img를 캐시해 매 프레임 querySelector를 피한다.
