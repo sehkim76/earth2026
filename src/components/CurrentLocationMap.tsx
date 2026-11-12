@@ -2389,6 +2389,7 @@ interface OtherUnitMoveAnim {
   // 화면에 보이는 동들의 중립 부대 시드 (동 코드 + 대표 좌표, 12개 상한).
   // 중립성과 동일 조건: 플레이어 20km 이내 동 또는 선택 동만.
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
+  const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
   useEffect(() => {
     if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocation) {
       return;
@@ -4136,7 +4137,9 @@ interface OtherUnitMoveAnim {
   }, []);
 
   // 무법자 다이얼로그가 열린 동안 해당 개체를 서버에서 멈춘다 (닫으면 재개).
-  // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL 만료 후 자동 재개된다.
+  // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL(서버 300초) 만료 후 자동 재개된다.
+  // 백그라운드 탭은 타이머가 1분 단위로 몰려 실행되므로 30초마다 연장하고,
+  // 탭이 다시 보이는 즉시 연장해 TTL이 중간에 풀리지 않게 한다.
   useEffect(() => {
     const wildId = markerPanel?.wildId;
     if (!territoryEnabled || wildId === undefined || !Number.isFinite(wildId)) {
@@ -4148,17 +4151,31 @@ interface OtherUnitMoveAnim {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: wildId, hold: on }),
-      }).catch(() => undefined);
+      })
+        .then(() => {
+          // 서버가 고정한 위치를 다음 폴링(최대 15초)까지 기다리지 않고 바로 반영한다.
+          if (on && !stopped) {
+            setNeutralRefreshNonce((n) => n + 1);
+          }
+        })
+        .catch(() => undefined);
     };
     hold(true);
     const timerId = window.setInterval(() => {
       if (!stopped) {
         hold(true);
       }
-    }, 60_000);
+    }, 30_000);
+    const onVisible = (): void => {
+      if (!stopped && document.visibilityState === "visible") {
+        hold(true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       stopped = true;
       window.clearInterval(timerId);
+      document.removeEventListener("visibilitychange", onVisible);
       hold(false);
     };
   }, [territoryEnabled, markerPanel?.wildId]);
@@ -10750,6 +10767,7 @@ const isMapPerfEnabled = (): boolean => {
           dongCode={selectedAdminCode}
           playerDongCode={playerDongCode}
           wildSeeds={wildSeeds}
+          neutralRefreshNonce={neutralRefreshNonce}
           onExit={() => void handleExit()}
           onResetScore={() => void handleResetScore()}
           lordMoveTarget={playerMoveTarget}

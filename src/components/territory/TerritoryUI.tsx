@@ -44,6 +44,8 @@ interface TerritoryUIProps {
   playerDongCode?: string | null;
   /** 화면에 보이는 동 시드 (동 코드 + 대표 좌표). */
   wildSeeds?: Array<{ dong: string; lat: number; lon: number }>;
+  /** 값이 바뀌면 무법자 목록을 즉시 다시 조회한다 (일시정지 직후 고정 위치 반영용). */
+  neutralRefreshNonce?: number;
   /** 축성 2단계: 위치 지정 모드 시작. */
   onStartPlacement: (draft: CastleBuildDraft) => void;
   /** 위치 지정 완료/실패 알림 (표시용). */
@@ -725,6 +727,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   }
   const [neutralUnits, setNeutralUnits] = useState<NeutralUnitRow[]>([]);
   const neutralUnitsRef = useRef<NeutralUnitRow[]>([]);
+  // 조회 순번: 여러 동을 순차 처리하는 조회는 수 초씩 걸려 응답이 뒤바뀔 수 있다.
+  // 이미 반영한 것보다 먼저 보낸 요청의 응답은 버린다 (옛 위치로 되돌아가는 순간이동 방지).
+  const neutralReqSeqRef = useRef(0);
+  const neutralAppliedSeqRef = useRef(0);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
     rows.map((row) => ({
       id: `neutral-${row.id}`,
@@ -748,6 +754,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       },
     }));
   const refreshNeutralUnits = useCallback(async () => {
+    neutralReqSeqRef.current += 1;
+    const seq = neutralReqSeqRef.current;
     try {
       const loc = props.getPlayerLocation();
       const seeds = (props.wildSeeds ?? []).filter(
@@ -816,6 +824,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           },
         ];
       });
+      if (seq < neutralAppliedSeqRef.current) {
+        return;
+      }
+      neutralAppliedSeqRef.current = seq;
       neutralUnitsRef.current = rows;
       setNeutralUnits(rows);
       try {
@@ -947,6 +959,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }, 15_000);
     return () => window.clearInterval(timerId);
   }, [refreshNeutralUnits]);
+
+  useEffect(() => {
+    if (!props.neutralRefreshNonce) {
+      return;
+    }
+    void refreshNeutralUnits();
+    // 논스 변화에만 반응한다 (refreshNeutralUnits 변경은 위 폴링 effect가 처리).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.neutralRefreshNonce]);
 
   useEffect(() => {
     if (movingUnitIds.length === 0) {
