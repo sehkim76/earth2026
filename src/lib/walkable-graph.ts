@@ -141,12 +141,517 @@ type StitchedGraph = {
   adj: Array<Array<{ to: number; w: number }>>;
 };
 
+/** 보라색 다리: 최대 길이(m). 도로 버퍼 15m×2=30m에서 래스터 양자화 여유를 뺐다. */
+const BRIDGE_M = 28;
+/** 다리 간선 가중치 배율 (실제 도로를 약간 우선). */
+const BRIDGE_PENALTY = 1.2;
+/** 같은 선분 위 분할점 병합 거리(m) — 평행 도로에서 다리가 촘촘해지는 것을 막는다. */
+const BRIDGE_MERGE_M = 8;
+/** 차수 2 출발 노드 표본 간격(m). */
+const BRIDGE_SAMPLE_M = 12;
+/** 래스터 확인 없이 놓는 다리 상한(m) — 기존 데드엔드 간극 연결(15m)과 같은 수준. */
+const BRIDGE_UNCHECKED_M = 15;
+/** 래스터 확인 표본 간격(m) (격자 셀 5m의 절반). */
+const BRIDGE_CHECK_STEP_M = 2.5;
+
+/** 이동가능(보라색) 셀 판정 — 로드된 래스터 기준. 모르면 false(다리 거부). */
+export type WalkableCheck = (lat: number, lon: number) => boolean;
+
+/**
+ * 그래프로는 끊겼지만 도로 버퍼(보라색)로는 이어진 곳에 다리 간선을 추가한다 (제자리 수정).
+ * 노드 v → 반경 BRIDGE_M 안의 비인접 선분 최근접점 p (거리 d).
+ * v에서 p까지 기존 그래프 거리(제한 다익스트라)가 2d+15m를 넘으면 v–p를 잇는다.
+ * d가 BRIDGE_UNCHECKED_M를 넘는 다리는 isWalkable로 다리 전 구간이 보라색 셀인지 확인한 뒤에만 놓는다
+ * (래스터 양자화 때문에 15~28m 간격은 실제로 끊겨 보일 수 있다). isWalkable이 없으면 15m까지만 잇는다.
+ */
+const addPurpleBridges = (
+  repCoords: number[],
+  adj: Array<Array<{ to: number; w: number }>>,
+  kx: number,
+  ky: number,
+  isWalkable?: WalkableCheck,
+): void => {
+  const n = repCoords.length / 2;
+  if (n < 2) {
+    return;
+  }
+  const px = new Float64Array(n);
+  const py = new Float64Array(n);
+  for (let v = 0; v < n; v += 1) {
+    px[v] = (repCoords[v * 2] as number) * kx;
+    py[v] = (repCoords[v * 2 + 1] as number) * ky;
+  }
+  // 선분 목록 (무방향 1회).
+  const segA: number[] = [];
+  const segB: number[] = [];
+  for (let v = 0; v < n; v += 1) {
+    for (const e of adj[v] ?? []) {
+      if (v < e.to) {
+        segA.push(v);
+        segB.push(e.to);
+      }
+    }
+  }
+  const segCount = segA.length;
+  // 선분 셀 인덱스 (셀 = 2×BRIDGE_M, 노드 주변 BRIDGE_M 사각형과 겹치는 1~2×1~2 셀만 조회).
+  // 셀 좌표는 bbox 기준 상대값으로 둬서 키가 소정수(SMI) 범위에 머물게 한다 (Map 해시 속도).
+  const CELL = BRIDGE_M * 2;
+  const HALF_DIAG = (CELL * Math.SQRT2) / 2;
+  let minPx = Number.POSITIVE_INFINITY;
+  let minPy = Number.POSITIVE_INFINITY;
+  let maxPx = Number.NEGATIVE_INFINITY;
+  for (let v = 0; v < n; v += 1) {
+    if ((px[v] as number) < minPx) minPx = px[v] as number;
+    if ((py[v] as number) < minPy) minPy = py[v] as number;
+    if ((px[v] as number) > maxPx) maxPx = px[v] as number;
+  }
+  const gridW = Math.floor((maxPx - minPx) / CELL) + 3;
+  for (let v = 0; v < n; v += 1) {
+    px[v] = (px[v] as number) - minPx + CELL;
+    py[v] = (py[v] as number) - minPy + CELL;
+  }
+  const cellKey = (cx: number, cy: number): number => cy * gridW + cx;
+  // 다리 전 구간(양끝 제외, 2.5m 간격)이 보라색 셀인지 확인한다.
+  const bridgeOnPurple = (ax: number, ay: number, bx: number, by: number, d: number): boolean => {
+    if (!isWalkable) {
+      return false;
+    }
+    const steps = Math.max(2, Math.ceil(d / BRIDGE_CHECK_STEP_M));
+    for (let k = 1; k < steps; k += 1) {
+      const x = ax + ((bx - ax) * k) / steps;
+      const y = ay + ((by - ay) * k) / steps;
+      const lon = (x - CELL + minPx) / kx;
+      const lat = (y - CELL + minPy) / ky;
+      if (!isWalkable(lat, lon)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  // 선분 셀 인덱스 (CSR: 셀 키 → 슬롯, 슬롯별 [start,end) 구간). 셀마다 배열을 만들면 GC가 커진다.
+  // 대각선 긴 선분이 bbox 전체 셀에 들어가지 않도록, 셀 중심에서 선분까지 거리가 반대각선 이하인 셀만 넣는다.
+  const segNearCell = (s: number, cx: number, cy: number): boolean => {
+    const a = segA[s] as number;
+    const b = segB[s] as number;
+    const ox = (cx + 0.5) * CELL;
+    const oy = (cy + 0.5) * CELL;
+    const ax = px[a] as number;
+    const ay = py[a] as number;
+    const bx = (px[b] as number) - ax;
+    const by = (py[b] as number) - ay;
+    const len2 = bx * bx + by * by;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, ((ox - ax) * bx + (oy - ay) * by) / len2)) : 0;
+    const dx = ax + bx * t - ox;
+    const dy = ay + by * t - oy;
+    return dx * dx + dy * dy <= HALF_DIAG * HALF_DIAG;
+  };
+  const slotOf = new Map<number, number>();
+  let slotCount = 0;
+  const slotCounts: number[] = [];
+  const segCx0 = new Int32Array(segCount);
+  const segCx1 = new Int32Array(segCount);
+  const segCy0 = new Int32Array(segCount);
+  const segCy1 = new Int32Array(segCount);
+  let pairTotal = 0;
+  for (let s = 0; s < segCount; s += 1) {
+    const a = segA[s] as number;
+    const b = segB[s] as number;
+    const cx0 = Math.floor(Math.min(px[a] as number, px[b] as number) / CELL);
+    const cx1 = Math.floor(Math.max(px[a] as number, px[b] as number) / CELL);
+    const cy0 = Math.floor(Math.min(py[a] as number, py[b] as number) / CELL);
+    const cy1 = Math.floor(Math.max(py[a] as number, py[b] as number) / CELL);
+    if ((cx1 - cx0 + 1) * (cy1 - cy0 + 1) > 400) {
+      segCx0[s] = 1;
+      segCx1[s] = 0; // 비정상적으로 긴 선분은 건너뛴다 (빈 범위).
+      continue;
+    }
+    segCx0[s] = cx0;
+    segCx1[s] = cx1;
+    segCy0[s] = cy0;
+    segCy1[s] = cy1;
+    for (let cx = cx0; cx <= cx1; cx += 1) {
+      for (let cy = cy0; cy <= cy1; cy += 1) {
+        if (!segNearCell(s, cx, cy)) {
+          continue;
+        }
+        const key = cellKey(cx, cy);
+        let slot = slotOf.get(key);
+        if (slot === undefined) {
+          slot = slotCount;
+          slotCount += 1;
+          slotOf.set(key, slot);
+          slotCounts.push(0);
+        }
+        slotCounts[slot] = (slotCounts[slot] as number) + 1;
+        pairTotal += 1;
+      }
+    }
+  }
+  const slotStart = new Int32Array(slotCount + 1);
+  for (let i = 0; i < slotCount; i += 1) {
+    slotStart[i + 1] = (slotStart[i] as number) + (slotCounts[i] as number);
+  }
+  const slotFill = slotStart.slice(0, slotCount);
+  const cellSegs = new Int32Array(pairTotal);
+  for (let s = 0; s < segCount; s += 1) {
+    for (let cx = segCx0[s] as number; cx <= (segCx1[s] as number); cx += 1) {
+      for (let cy = segCy0[s] as number; cy <= (segCy1[s] as number); cy += 1) {
+        if (!segNearCell(s, cx, cy)) {
+          continue;
+        }
+        const slot = slotOf.get(cellKey(cx, cy)) as number;
+        cellSegs[slotFill[slot] as number] = s;
+        slotFill[slot] = (slotFill[slot] as number) + 1;
+      }
+    }
+  }
+  // 제한 다익스트라 (스탬프 배열 재사용).
+  const LIMIT = 2 * BRIDGE_M + 15;
+  const dist = new Float64Array(n);
+  const stamp = new Int32Array(n);
+  let curStamp = 0;
+  const heapNode: number[] = [];
+  const heapDist: number[] = [];
+  const heapPush = (node: number, d: number): void => {
+    let i = heapNode.length;
+    heapNode.push(node);
+    heapDist.push(d);
+    while (i > 0) {
+      const par = (i - 1) >> 1;
+      if ((heapDist[par] as number) <= d) {
+        break;
+      }
+      heapNode[i] = heapNode[par] as number;
+      heapDist[i] = heapDist[par] as number;
+      i = par;
+    }
+    heapNode[i] = node;
+    heapDist[i] = d;
+  };
+  const heapPop = (): number => {
+    const top = heapNode[0] as number;
+    const lastNode = heapNode.pop() as number;
+    const lastDist = heapDist.pop() as number;
+    const size = heapNode.length;
+    if (size > 0) {
+      let i = 0;
+      for (;;) {
+        const l = i * 2 + 1;
+        if (l >= size) {
+          break;
+        }
+        const r = l + 1;
+        const c = r < size && (heapDist[r] as number) < (heapDist[l] as number) ? r : l;
+        if ((heapDist[c] as number) >= lastDist) {
+          break;
+        }
+        heapNode[i] = heapNode[c] as number;
+        heapDist[i] = heapDist[c] as number;
+        i = c;
+      }
+      heapNode[i] = lastNode;
+      heapDist[i] = lastDist;
+    }
+    return top;
+  };
+  // 목표 노드(후보 선분 끝점)가 모두 확정되거나 need를 넘으면 멈춘다.
+  const targetStamp = new Int32Array(n);
+  const reach = (src: number, targets: number[], need: number): void => {
+    curStamp += 1;
+    heapNode.length = 0;
+    heapDist.length = 0;
+    let pending = 0;
+    for (const t of targets) {
+      if (targetStamp[t] !== curStamp) {
+        targetStamp[t] = curStamp;
+        pending += 1;
+      }
+    }
+    stamp[src] = curStamp;
+    dist[src] = 0;
+    heapPush(src, 0);
+    const limit = Math.min(LIMIT, need);
+    while (heapNode.length > 0) {
+      const d0 = heapDist[0] as number;
+      const v = heapPop();
+      if (d0 > (dist[v] as number)) {
+        continue;
+      }
+      if (targetStamp[v] === curStamp) {
+        targetStamp[v] = 0;
+        pending -= 1;
+        if (pending === 0) {
+          return;
+        }
+      }
+      for (const e of adj[v] ?? []) {
+        const nd = d0 + e.w;
+        if (nd > limit) {
+          continue;
+        }
+        if (stamp[e.to] !== curStamp || nd < (dist[e.to] as number)) {
+          stamp[e.to] = curStamp;
+          dist[e.to] = nd;
+          heapPush(e.to, nd);
+        }
+      }
+    }
+  };
+  const graphDist = (v: number): number => (stamp[v] === curStamp ? (dist[v] as number) : Number.POSITIVE_INFINITY);
+  // 수집: 선분별 분할점(t), 다리(v → 선분 s의 t).
+  type Bridge = { v: number; s: number; t: number; d: number };
+  const bridges: Bridge[] = [];
+  const segSeen = new Int32Array(segCount).fill(-1);
+  type Cand = { s: number; t: number; d: number; qx: number; qy: number };
+  const cand: Cand[] = [];
+  const targets: number[] = [];
+  const R2 = BRIDGE_M * BRIDGE_M;
+  // 수락된 다리 공간 해시 (출발 노드 셀 기준) — 이웃 노드가 이미 놓은 다리로 갈 수 있으면 생략한다.
+  const bridgeQx: number[] = [];
+  const bridgeQy: number[] = [];
+  const bridgeCells = new Map<number, number[]>();
+  // 출발 노드 표본화: 데드엔드·교차로는 전부, 차수 2 노드는 도로를 따라 약 BRIDGE_SAMPLE_M마다 하나.
+  // (곡선 도로의 촘촘한 정점마다 주변 선분을 훑으면 느리다. 다리 위치 오차는 표본 간격 이내.)
+  const srcGap = new Float64Array(n).fill(Number.POSITIVE_INFINITY);
+  for (let v = 0; v < n; v += 1) {
+    const edges = adj[v] ?? [];
+    if (edges.length === 2) {
+      let near = Number.POSITIVE_INFINITY;
+      for (const e of edges) {
+        const g = (srcGap[e.to] as number) + e.w;
+        if (g < near) {
+          near = g;
+        }
+      }
+      if (near < BRIDGE_SAMPLE_M) {
+        srcGap[v] = near;
+        continue;
+      }
+    }
+    srcGap[v] = 0;
+    const vx = px[v] as number;
+    const vy = py[v] as number;
+    const ccx = Math.floor(vx / CELL);
+    const ccy = Math.floor(vy / CELL);
+    cand.length = 0;
+    targets.length = 0;
+    let maxD = 0;
+    const qx0 = Math.floor((vx - BRIDGE_M) / CELL);
+    const qx1 = Math.floor((vx + BRIDGE_M) / CELL);
+    const qy0 = Math.floor((vy - BRIDGE_M) / CELL);
+    const qy1 = Math.floor((vy + BRIDGE_M) / CELL);
+    for (let qcx = qx0; qcx <= qx1; qcx += 1) {
+      for (let qcy = qy0; qcy <= qy1; qcy += 1) {
+        const slot = slotOf.get(cellKey(qcx, qcy));
+        if (slot === undefined) {
+          continue;
+        }
+        const end = slotStart[slot + 1] as number;
+        for (let k = slotStart[slot] as number; k < end; k += 1) {
+          const s = cellSegs[k] as number;
+          if (segSeen[s] === v) {
+            continue;
+          }
+          segSeen[s] = v;
+          const a = segA[s] as number;
+          const b = segB[s] as number;
+          if (a === v || b === v) {
+            continue;
+          }
+          const ax = px[a] as number;
+          const ay = py[a] as number;
+          const bx = (px[b] as number) - ax;
+          const by = (py[b] as number) - ay;
+          const len2 = bx * bx + by * by;
+          const t = len2 > 0 ? Math.max(0, Math.min(1, ((vx - ax) * bx + (vy - ay) * by) / len2)) : 0;
+          const qx = ax + bx * t;
+          const qy = ay + by * t;
+          const d2 = (qx - vx) * (qx - vx) + (qy - vy) * (qy - vy);
+          if (d2 <= R2) {
+            const d = Math.sqrt(d2);
+            cand.push({ s, t, d, qx, qy });
+            targets.push(a, b);
+            if (d > maxD) {
+              maxD = d;
+            }
+          }
+        }
+      }
+    }
+    if (cand.length === 0) {
+      continue;
+    }
+    // 2홉 상한으로 모든 후보가 이미 가깝게 이어져 있으면 다익스트라를 생략한다.
+    curStamp += 1;
+    stamp[v] = curStamp;
+    dist[v] = 0;
+    for (const e1 of adj[v] ?? []) {
+      if (stamp[e1.to] !== curStamp || e1.w < (dist[e1.to] as number)) {
+        stamp[e1.to] = curStamp;
+        dist[e1.to] = e1.w;
+      }
+      for (const e2 of adj[e1.to] ?? []) {
+        const d2w = e1.w + e2.w;
+        if (stamp[e2.to] !== curStamp || d2w < (dist[e2.to] as number)) {
+          stamp[e2.to] = curStamp;
+          dist[e2.to] = d2w;
+        }
+      }
+    }
+    let allNear = true;
+    for (const c of cand) {
+      const a = segA[c.s] as number;
+      const b = segB[c.s] as number;
+      const len = Math.hypot((px[b] as number) - (px[a] as number), (py[b] as number) - (py[a] as number));
+      if (Math.min(graphDist(a) + len * c.t, graphDist(b) + len * (1 - c.t)) > 2 * c.d + 15) {
+        allNear = false;
+        break;
+      }
+    }
+    if (allNear) {
+      continue;
+    }
+    reach(v, targets, 2 * maxD + 15);
+    cand.sort((x, y) => x.d - y.d);
+    const accepted: Array<{ qx: number; qy: number }> = [];
+    for (const c of cand) {
+      const a = segA[c.s] as number;
+      const b = segB[c.s] as number;
+      const len = Math.hypot((px[b] as number) - (px[a] as number), (py[b] as number) - (py[a] as number));
+      const via = Math.min(graphDist(a) + len * c.t, graphDist(b) + len * (1 - c.t));
+      if (via <= 2 * c.d + 15) {
+        continue; // 이미 그래프로 가깝게 이어져 있다.
+      }
+      if (accepted.some((q) => Math.hypot(q.qx - c.qx, q.qy - c.qy) < BRIDGE_MERGE_M)) {
+        continue; // 같은 곳으로 가는 다리는 하나만.
+      }
+      // 근처에 이미 놓인 다리(출발점까지 그래프 거리 + 다리 + 착지점 간 거리)로 충분하면 생략.
+      let covered = false;
+      for (let dx = -1; dx <= 1 && !covered; dx += 1) {
+        for (let dy = -1; dy <= 1 && !covered; dy += 1) {
+          const bucket = bridgeCells.get(cellKey(ccx + dx, ccy + dy));
+          if (!bucket) {
+            continue;
+          }
+          for (const bi of bucket) {
+            const br = bridges[bi] as Bridge;
+            const gap = Math.hypot((bridgeQx[bi] as number) - c.qx, (bridgeQy[bi] as number) - c.qy);
+            if (gap > BRIDGE_M) {
+              continue;
+            }
+            if (graphDist(br.v) + br.d * BRIDGE_PENALTY + gap <= 2 * c.d + 15) {
+              covered = true;
+              break;
+            }
+          }
+        }
+      }
+      if (covered) {
+        continue;
+      }
+      if (c.d > BRIDGE_UNCHECKED_M && !bridgeOnPurple(vx, vy, c.qx, c.qy, c.d)) {
+        continue;
+      }
+      accepted.push({ qx: c.qx, qy: c.qy });
+      const bi = bridges.length;
+      bridges.push({ v, s: c.s, t: c.t, d: c.d });
+      bridgeQx.push(c.qx);
+      bridgeQy.push(c.qy);
+      const bkey = cellKey(ccx, ccy);
+      const bbucket = bridgeCells.get(bkey);
+      if (bbucket) {
+        bbucket.push(bi);
+      } else {
+        bridgeCells.set(bkey, [bi]);
+      }
+    }
+  }
+  if (bridges.length === 0) {
+    return;
+  }
+  // 선분별 분할점 노드 생성 (가까운 분할점은 병합, 끝점 근처는 끝점 사용).
+  const bySeg = new Map<number, Bridge[]>();
+  for (const br of bridges) {
+    const list = bySeg.get(br.s);
+    if (list) {
+      list.push(br);
+    } else {
+      bySeg.set(br.s, [br]);
+    }
+  }
+  const addEdge = (a: number, b: number, w: number): void => {
+    if (a === b) {
+      return;
+    }
+    const list = adj[a] as Array<{ to: number; w: number }>;
+    const existing = list.find((e) => e.to === b);
+    if (existing) {
+      if (w < existing.w) {
+        existing.w = w;
+        const back = (adj[b] as Array<{ to: number; w: number }>).find((e) => e.to === a);
+        if (back) {
+          back.w = w;
+        }
+      }
+      return;
+    }
+    list.push({ to: b, w });
+    (adj[b] as Array<{ to: number; w: number }>).push({ to: a, w });
+  };
+  const removeEdge = (a: number, b: number): void => {
+    adj[a] = (adj[a] as Array<{ to: number; w: number }>).filter((e) => e.to !== b);
+    adj[b] = (adj[b] as Array<{ to: number; w: number }>).filter((e) => e.to !== a);
+  };
+  for (const [s, list] of bySeg) {
+    const a = segA[s] as number;
+    const b = segB[s] as number;
+    const ax = px[a] as number;
+    const ay = py[a] as number;
+    const len = Math.hypot((px[b] as number) - ax, (py[b] as number) - ay);
+    list.sort((x, y) => x.t - y.t);
+    // 분할점 노드 결정.
+    const stops: Array<{ t: number; node: number }> = [{ t: 0, node: a }];
+    const targetOf = new Map<Bridge, number>();
+    for (const br of list) {
+      const last = stops[stops.length - 1] as { t: number; node: number };
+      if ((br.t - last.t) * len < BRIDGE_MERGE_M) {
+        targetOf.set(br, last.node);
+        continue;
+      }
+      if ((1 - br.t) * len < BRIDGE_MERGE_M) {
+        targetOf.set(br, b);
+        continue;
+      }
+      const lon = (repCoords[a * 2] as number) + ((repCoords[b * 2] as number) - (repCoords[a * 2] as number)) * br.t;
+      const lat = (repCoords[a * 2 + 1] as number) + ((repCoords[b * 2 + 1] as number) - (repCoords[a * 2 + 1] as number)) * br.t;
+      const node = repCoords.length / 2;
+      repCoords.push(lon, lat);
+      adj.push([]);
+      stops.push({ t: br.t, node });
+      targetOf.set(br, node);
+    }
+    if (stops.length > 1) {
+      // 원 선분 a–b를 a–p1–…–b로 교체한다.
+      removeEdge(a, b);
+      stops.push({ t: 1, node: b });
+      for (let k = 1; k < stops.length; k += 1) {
+        const p = stops[k - 1] as { t: number; node: number };
+        const q = stops[k] as { t: number; node: number };
+        addEdge(p.node, q.node, (q.t - p.t) * len);
+      }
+    }
+    for (const br of list) {
+      addEdge(br.v, targetOf.get(br) as number, br.d * BRIDGE_PENALTY);
+    }
+  }
+};
+
 /**
  * 로드된 그래프들을 합쳐 A* 탐색한다. 실패 시 null (호출자가 격자 A*로 폴백).
  * snapMaxM: 출발/도착 스냅 허용 거리.
  */
 /** 로드된 그래프들을 스티칭해 탐색 구조로 만든다 (무거움, 캐시 대상). */
-const buildStitchedGraph = (loaded: GraphData[]): StitchedGraph | null => {
+const buildStitchedGraph = (loaded: GraphData[], isWalkable?: WalkableCheck): StitchedGraph | null => {
   // 전역 노드 수집.
     const coords: number[] = []; // [lon,lat,...]
     for (const g of loaded) {
@@ -297,71 +802,12 @@ const buildStitchedGraph = (loaded: GraphData[]): StitchedGraph | null => {
         }
       }
     }
-    // 간극 연결: 데드엔드(대표 차수 1) 노드는 15m 이내 최근접 노드와 잇는다.
-    // 격자(도로 15m 버퍼)와 동등한 연결성 확보가 목적이다. 수치화 오차로 끊긴
-    // 교차로(T자 미접합 등)가 전형적이며, 격자도 같은 수준으로 연결하므로
-    // 정합성이 깨지지 않는다. 가중치 페널티로 실제 도로를 우선한다.
-    const GAP_M = 15;
-    const GAP_PENALTY = 1.5;
-    {
-      const degree = new Int32Array(repCount);
-      for (let v = 0; v < repCount; v += 1) {
-        degree[v] = (adj[v] as Array<unknown>).length;
-      }
-      // 대표 노드 셀 해시 (최근접 탐색용).
-      const repCell = new Map<number, number[]>();
-      for (let v = 0; v < repCount; v += 1) {
-        const key = cellNumOf(repCoords[v * 2] as number, repCoords[v * 2 + 1] as number);
-        const bucket = repCell.get(key);
-        if (bucket) {
-          bucket.push(v);
-        } else {
-          repCell.set(key, [v]);
-        }
-      }
-      const GAP2 = GAP_M * GAP_M;
-      for (let v = 0; v < repCount; v += 1) {
-        if ((degree[v] as number) > 1) {
-          continue;
-        }
-        const vlon = repCoords[v * 2] as number;
-        const vlat = repCoords[v * 2 + 1] as number;
-        const ccx = Math.floor((vlon * kx) / CELL_M);
-        const ccy = Math.floor((vlat * KY) / CELL_M);
-        const span = Math.ceil(GAP_M / CELL_M);
-        let bestU = -1;
-        let bestD2 = GAP2;
-        for (let dx = -span; dx <= span; dx += 1) {
-          for (let dy = -span; dy <= span; dy += 1) {
-            const bucket = repCell.get(cellNum(ccx + dx, ccy + dy));
-            if (!bucket) {
-              continue;
-            }
-            for (const u of bucket) {
-              if (u === v) {
-                continue;
-              }
-              const d2 = dist2(vlon, vlat, repCoords[u * 2] as number, repCoords[u * 2 + 1] as number);
-              if (d2 < bestD2) {
-                const key = v < u ? `${v}:${u}` : `${u}:${v}`;
-                if (seenEdge.has(key)) {
-                  continue;
-                }
-                bestD2 = d2;
-                bestU = u;
-              }
-            }
-          }
-        }
-        if (bestU >= 0) {
-          const key = v < bestU ? `${v}:${bestU}` : `${bestU}:${v}`;
-          seenEdge.add(key);
-          const w = Math.sqrt(bestD2) * GAP_PENALTY;
-          adj[v]?.push({ to: bestU, w });
-          adj[bestU]?.push({ to: v, w });
-        }
-      }
-    }
+    // 보라색(도로 15m 버퍼) 연결 반영: 화면에서 이어져 보이는 곳을 그래프도 잇는다.
+    // 노드 v에서 BRIDGE_M 이내의 다른 도로 구간(선분 위 최근접점 p)이 있는데
+    // 그래프로는 가까이 닿지 않으면(우회 > 2d+15m) v–p 다리 간선을 추가한다.
+    // d ≤ 28m 다리는 모든 점이 양끝 중 하나에서 14m 이내 → 15m 버퍼(보라색) 안에 있다.
+    // p가 선분 중간이면 그 선분을 분할해 새 노드를 만든다.
+    addPurpleBridges(repCoords, adj, kx, KY, isWalkable);
   if (repCoords.length === 0) {
     return null;
   }
@@ -468,6 +914,7 @@ export const searchGraphs = (
   toLon: number,
   snapMaxM = 500,
   cacheKey?: string,
+  isWalkable?: WalkableCheck,
 ): GraphPoint[] | null => {
   const loaded = graphs.filter((g): g is GraphData => g !== null);
   if (loaded.length === 0) {
@@ -494,7 +941,7 @@ export const searchGraphs = (
         return hit;
       }
     }
-    const built = buildStitchedGraph(loaded);
+    const built = buildStitchedGraph(loaded, isWalkable);
     if (cacheKey) {
       stitchedCache.set(cacheKey, built);
       if (stitchedCache.size > STITCHED_CACHE_LIMIT) {

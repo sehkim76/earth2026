@@ -1199,11 +1199,18 @@ export const findWalkablePath = async (
   const round2Ids = [...midIds, ...adjacentOf([...corridorIds, ...midIds])].slice(0, 48);
   const tryGraph = async (ids: string[]): Promise<Array<{ lat: number; lon: number }> | null> => {
     const uniqueGraphIds = [...new Set(ids)];
-    const graphs = await Promise.all(uniqueGraphIds.map((id) => loadGraphDong(id)));
+    // 래스터는 보라색 다리(15m 초과) 확인용이다. 보통 오버레이용으로 이미 캐시돼 있다.
+    const [graphs, rasters] = await Promise.all([
+      Promise.all(uniqueGraphIds.map((id) => loadGraphDong(id))),
+      Promise.all(uniqueGraphIds.map((id) => loadRouteDong(id).catch(() => null))),
+    ]);
     // 로드 성공한 동만 서명에 넣어 캐시 적중률을 높인다.
     const loadedIds = uniqueGraphIds.filter((_, i) => graphs[i] !== null);
-    const stitchKey = `g:${loadedIds.sort().join(",")}`;
-    const graphFound = searchGraphs(graphs, fromLat, fromLon, toLat, toLon, 500, stitchKey);
+    // 래스터 로드 상태가 다르면 다리 결과가 달라지므로 서명에 포함한다.
+    const rasterIds = uniqueGraphIds.filter((_, i) => (rasters[i]?.length ?? 0) > 0);
+    const stitchKey = `g:${loadedIds.sort().join(",")}|r:${rasterIds.sort().join(",")}`;
+    const isWalkable = createGridWalkableCheck(rasters.flatMap((list) => list ?? []));
+    const graphFound = searchGraphs(graphs, fromLat, fromLon, toLat, toLon, 500, stitchKey, isWalkable);
     return graphFound && graphFound.length > 0 ? smoothPathLatLon(graphFound) : null;
   };
   const graphFirst = await tryGraph(graphFirstIds);
@@ -1241,6 +1248,39 @@ export const findWalkablePath = async (
   }
   const round2Found = await searchLoadedGrids(round2, fromLat, fromLon, toLat, toLon, deadlineMs);
   return round2Found ? smoothPathLatLon(round2Found) : null;
+};
+
+/** 로드된 격자들로 좌표의 보라색 셀 여부를 판정하는 함수를 만든다 (타일 해시, 동기). */
+const createGridWalkableCheck = (grids: GridFull[]): ((lat: number, lon: number) => boolean) => {
+  const kx = 111320 * Math.cos((GRID_REFERENCE_LAT * Math.PI) / 180);
+  const cellLon = GRID_CELL_M / kx;
+  const cellLat = GRID_CELL_M / 110540;
+  const byTile = new Map<string, GridFull[]>();
+  for (const grid of grids) {
+    const key = `${grid.tileColumn}:${grid.tileRow}`;
+    const list = byTile.get(key);
+    if (list) {
+      list.push(grid);
+    } else {
+      byTile.set(key, [grid]);
+    }
+  }
+  return (lat: number, lon: number): boolean => {
+    const gx = Math.floor(lon / cellLon);
+    const gy = Math.floor(lat / cellLat);
+    const list = byTile.get(`${Math.floor(gx / GRID_TILE_CELLS)}:${Math.floor(gy / GRID_TILE_CELLS)}`);
+    if (!list) {
+      return false;
+    }
+    for (const grid of list) {
+      const x = gx - grid.tileColumn * GRID_TILE_CELLS;
+      const y = gy - grid.tileRow * GRID_TILE_CELLS;
+      if (x >= 0 && y >= 0 && x < grid.nx && y < grid.ny && grid.filled[y * grid.nx + x] === 1) {
+        return true;
+      }
+    }
+    return false;
+  };
 };
 
 /** 재귀 우회 탐색 상한 (무한 방지). */
