@@ -71,6 +71,9 @@ export const POST = async (request: Request): Promise<NextResponse> => {
       pos.lon = onPath.lon;
       pathIdx = onPath.pathIdx;
     }
+    console.log(
+      `[neutral] hold id=${id} on=${hold} elapsed=${((now - Number(row.legStartedAt)) / 1000).toFixed(1)}s legSec=${((Number(row.legEndsAt) - Number(row.legStartedAt)) / 1000).toFixed(0)} moving=${!pos.arrived} from=(${Number(row.lat).toFixed(6)},${Number(row.lon).toFixed(6)}) pos=(${pos.lat.toFixed(6)},${pos.lon.toFixed(6)}) idx=${row.pathIdx}->${pathIdx} snap=${onPath ? onPath.distM.toFixed(1) : "-"}`,
+    );
     await prisma.territoryNeutralUnit.update({
       where: { id },
       data: {
