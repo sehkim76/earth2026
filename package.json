@@ -6,20 +6,15 @@
     "dev": "next dev -p 8798",
     "build": "next build",
     "start": "next start -p 8798",
-    "lint": "eslint",
-    "generate:arqr-targets": "node scripts/generate-arqr-targets.mjs"
+    "lint": "eslint"
   },
   "dependencies": {
     "@prisma/client": "^6.14.0",
     "@radix-ui/react-slot": "^1.2.4",
-    "@zxing/browser": "^0.2.1",
-    "axios": "^1.13.4",
     "cesium": "^1.146.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.2.3",
-    "gsap": "^3.14.2",
-    "html5-qrcode": "^2.3.8",
     "leaflet": "^1.9.4",
     "leaflet-rotate": "^0.2.8",
     "lucide-react": "^0.563.0",

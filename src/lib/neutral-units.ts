@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import prisma from "@/lib/prismadb";
 import type { TerritoryNeutralUnit } from "@/generated/prisma/client";
 import { withNamedLock } from "@/lib/territory";
@@ -97,65 +95,11 @@ export interface NeutralUnitView {
   startedAt: number;
   endsAt: number;
   moving: boolean;
-  quizKey: string;
-  quizTitle: string;
   /** 저장 경로 (없으면 직선 다리). */
   path?: Array<{ lat: number; lon: number }> | null;
   /** 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (구간 = path[pathIdx-1] → path[pathIdx]). */
   pathIdx: number;
 }
-
-// quiz_titles.json: { "Quiz/xxx.json": "제목" } — 검증된 풀(quiz_pool.json) 우선, 없으면 전체에서.
-// quiz_pool.json은 scripts/audit-quiz-pool.mjs로 재생성 (출제 불가 135개 제외됨).
-let quizPool: Array<{ key: string; title: string }> | null = null;
-const loadQuizPool = (): Array<{ key: string; title: string }> => {
-  if (quizPool) {
-    return quizPool;
-  }
-  try {
-    const rawPool = readFileSync(join(process.cwd(), "public/boundaries/quiz_pool.json"), "utf-8");
-    const parsed = JSON.parse(rawPool) as unknown;
-    if (Array.isArray(parsed)) {
-      const next = parsed.flatMap((entry) => {
-        if (typeof entry !== "object" || entry === null) {
-          return [];
-        }
-        const row = entry as Record<string, unknown>;
-        return typeof row.key === "string" && typeof row.title === "string" && row.key.length > 0
-          ? [{ key: row.key, title: row.title }]
-          : [];
-      });
-      if (next.length > 0) {
-        quizPool = next;
-        return quizPool;
-      }
-    }
-  } catch {
-    // 폴백: 전체 타이틀
-  }
-  try {
-    const raw = readFileSync(join(process.cwd(), "public/boundaries/quiz_titles.json"), "utf-8");
-    const record = JSON.parse(raw) as Record<string, unknown>;
-    // 출제 가능한 CSV + 단일 문항 JSON (퀴즈 페이지와 동일 조건).
-    const next = Object.entries(record).flatMap(([key, title]) =>
-      typeof title === "string" && title.length > 0 && /^Quiz\/[^/]+\.(csv|json)$/i.test(key)
-        ? [{ key, title }]
-        : [],
-    );
-    quizPool = next.length > 0 ? next : [];
-  } catch {
-    quizPool = [];
-  }
-  return quizPool;
-};
-
-const pickQuiz = (): { key: string; title: string } => {
-  const pool = loadQuizPool();
-  if (pool.length === 0) {
-    return { key: "", title: "" };
-  }
-  return pool[Math.floor(Math.random() * pool.length)];
-};
 
 const offsetLatLon = (lat: number, lon: number, maxM: number): { lat: number; lon: number } => {
   const angle = Math.random() * Math.PI * 2;
@@ -533,7 +477,7 @@ const rowPositionAt = (
 
 /**
  * 해당 동의 중립 부대를 조회한다. 부 side-effect:
- * - 5기 미만 + 마지막 생성 후 5분 경과 시 1기 스폰 (요청자 근처 200m, 랜덤 퀴즈 부착)
+ * - 5기 미만 + 마지막 생성 후 5분 경과 시 1기 스폰 (요청자 근처 200m)
  * - 도착한 다리는 다음 배회 다리로 연결한다 (서버 권위, 쓰기 없음이 원칙이나 다리 연결만 갱신)
  * 전국 동시 처리가 아니라 "폴링하는 플레이어가 있는 동"만 처리하므로 비용이 한정된다.
  *
@@ -558,8 +502,6 @@ interface NeutralSpawnPlan {
   pathJson: string | null;
   /** 첫 다리 목적지가 놓인 구간의 끝 정점 인덱스. */
   pathIdx: number;
-  quizKey: string;
-  quizTitle: string;
 }
 
 /** 계획 단계 공유 컨텍스트 (스냅샷 기준, 읽기 전용). */
@@ -864,7 +806,6 @@ const planNeutralSpawn = async (
   if (!at) {
     return null;
   }
-  const quiz = pickQuiz();
   // 목적지: 동 내부에서 모든 무법자와 가장 먼 이동가능영역 (규칙 4).
   // 경로: 부대 이동 알고리즘 그대로 (규칙 3). 후보 순서대로 경로 성공할 때까지 시도한다.
   // 스폰 시에도 기존 부대 경로와 겹치지 않게 + 후보를 분산·셔플한다 (일렬종대 방지).
@@ -892,13 +833,8 @@ const planNeutralSpawn = async (
     dest: { lat: dest.lat, lon: dest.lon },
     pathJson: path ? JSON.stringify(path) : null,
     pathIdx: firstLeg ? firstLeg.idx : 0,
-    quizKey: quiz.key,
-    quizTitle: quiz.title.slice(0, 255),
   };
 };
-/** 출제 가능한 퀴즈 키 형식 (아니면 락 안에서 치유 대상). */
-const PLAYABLE_QUIZ_KEY_RE = /^Quiz\/[^/]+\.(csv|json)$/i;
-
 /** 동 하나에서 동시에 세우는 다리 계획 수 상한. */
 const LEG_PLAN_CONCURRENCY = 3;
 
@@ -919,8 +855,6 @@ const toNeutralView = (
   startedAt: Number(r.legStartedAt),
   endsAt: Number(r.legEndsAt),
   moving: !pos.arrived,
-  quizKey: r.quizKey,
-  quizTitle: r.quizTitle,
   path: parsePath(r.path),
   pathIdx: r.path ? r.pathIdx : 0,
 });
@@ -962,13 +896,12 @@ export const listNeutralUnits = async (
       legPlans.set(r.id, plan);
     }
   });
-  // 빠른 경로: 락 안에서 쓸 일이 전혀 없으면(스폰·다리 연결·상한 정리·퀴즈 키 치유 모두 해당 없음)
+  // 빠른 경로: 락 안에서 쓸 일이 전혀 없으면(스폰·다리 연결·상한 정리 모두 해당 없음)
   // 트랜잭션·advisory lock 없이 스냅샷으로 응답한다. 락 안 경로도 이 경우 쓰기 없이 같은 뷰를 만든다.
   const canSkipLock =
     spawnPlan === null &&
     legPlans.size === 0 &&
-    snapshot.length <= capForDong(code) &&
-    snapshot.every((r) => PLAYABLE_QUIZ_KEY_RE.test(r.quizKey));
+    snapshot.length <= capForDong(code);
   if (canSkipLock) {
     const views = snapshot.map((r) => toNeutralView(r, ctx.positionOf(r), ctx.parsePath));
     logIfSlow();
@@ -980,22 +913,6 @@ export const listNeutralUnits = async (
       where: { dong: code },
       orderBy: { createdAt: "asc" },
     });
-    // 기존 행 중 출제 불가 키(JSON 등)는 playable CSV로 교체한다 (치유 1회성).
-    for (const r of rows) {
-      if (PLAYABLE_QUIZ_KEY_RE.test(r.quizKey)) {
-        continue;
-      }
-      const quiz = pickQuiz();
-      if (!quiz.key) {
-        continue;
-      }
-      await tx.territoryNeutralUnit.update({
-        where: { id: r.id },
-        data: { quizKey: quiz.key, quizTitle: quiz.title.slice(0, 255), updatedAt: BigInt(now) },
-      });
-      r.quizKey = quiz.key;
-      r.quizTitle = quiz.title.slice(0, 255);
-    }
     // 상한 초과분 정리: 상한이 낮아지면 초과 개체를 임의로 삭제한다.
     // 다이얼로그로 일시정지된 개체(보고 있는 개체)는 가능한 한 남긴다.
     const cap = capForDong(code);
@@ -1039,8 +956,9 @@ export const listNeutralUnits = async (
             destLon: spawnPlan.dest.lon,
             legStartedAt: BigInt(now),
             legEndsAt: BigInt(now + Math.round(legMs)),
-            quizKey: spawnPlan.quizKey,
-            quizTitle: spawnPlan.quizTitle.slice(0, 255),
+            // 퀴즈 컬럼은 스키마상 필수라 빈 값으로 채운다 (퀴즈 기능 제거됨).
+            quizKey: "",
+            quizTitle: "",
             createdAt: BigInt(now),
             updatedAt: BigInt(now),
             path: spawnPlan.pathJson,

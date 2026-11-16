@@ -7,6 +7,7 @@ import prisma from "@/lib/prismadb";
 import {
   UNIT_GARRISON_COOLDOWN_BONUS_SEC,
   loadUnits,
+  withUnits,
 } from "@/lib/units";
 import {
   SIEGE_COOLDOWN_SEC,
@@ -37,7 +38,6 @@ export const LORD_CASTLE_COST = 500;
 export const NOBLE_HP_UNIT_COST = 200;
 export const TRANSFER_COST = 100;
 export const UNIT_TRAINING_COST = 50;
-export const GATE_REPAIR_COST = 100; // 성문(난이도) 변경 비용 — Phase 5
 
 export const LORD_CASTLE_HP = 5;
 export const NOBLE_CASTLE_MIN_HP = 2;
@@ -86,7 +86,7 @@ export function currentSeasonId(now = Date.now()): number {
 
 export type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
-/** updatescore와 동일한 pg_advisory_xact_lock 패턴. fn 내부는 전부 tx로 수행한다. */
+/** pg_advisory_xact_lock 기반 이름 락. fn 내부는 전부 tx로 수행한다. */
 export async function withNamedLock<T>(name: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
   return prisma.$transaction(
     async (tx) => {
@@ -250,7 +250,6 @@ interface UserStats {
   visits: number;
   contribution: number;
   lastActiveAt: number | null;
-  duelWins: number;
 }
 
 export async function getUserStats(
@@ -259,23 +258,16 @@ export async function getUserStats(
   missionKey: string,
 ): Promise<UserStats> {
   const client = db as typeof prisma;
-  const [aggRows, duelRows] = await Promise.all([
-    client.$queryRaw<Array<{ visits: bigint | number | null; contribution: bigint | number | null; lastActive: Date | null }>>`
-      SELECT COUNT(DISTINCT CASE WHEN COALESCE(s.score, 0) >= 1 THEN TRIM(s."EventKey") END) AS "visits",
-             COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS "contribution",
-             MAX(s.scoredate) AS "lastActive"
-      FROM "ARMissionUserScore" s
-      WHERE s."UserId" = ${userId}
-        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
-    `,
-    client.$queryRaw<Array<{ wins: bigint | number | null }>>`
-      SELECT COUNT(*) AS "wins"
-      FROM "ARMissionUserScore" s
-      WHERE s."UserId" = ${userId}
-        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
-        AND s.answer LIKE ${"duel:win:%"}
-    `,
-  ]);
+  const aggRows = await client.$queryRaw<
+    Array<{ visits: bigint | number | null; contribution: bigint | number | null; lastActive: Date | null }>
+  >`
+    SELECT COUNT(DISTINCT CASE WHEN COALESCE(s.score, 0) >= 1 THEN TRIM(s."EventKey") END) AS "visits",
+           COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS "contribution",
+           MAX(s.scoredate) AS "lastActive"
+    FROM "ARMissionUserScore" s
+    WHERE s."UserId" = ${userId}
+      AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
+  `;
   const toNum = (v: bigint | number | null): number => {
     const n = typeof v === "bigint" ? Number(v) : Number(v ?? 0);
     return Number.isFinite(n) ? n : 0;
@@ -284,7 +276,6 @@ export async function getUserStats(
     visits: Math.trunc(toNum(aggRows[0]?.visits ?? 0)),
     contribution: Math.trunc(toNum(aggRows[0]?.contribution ?? 0)),
     lastActiveAt: aggRows[0]?.lastActive instanceof Date ? aggRows[0].lastActive.getTime() : null,
-    duelWins: Math.trunc(toNum(duelRows[0]?.wins ?? 0)),
   };
 }
 
@@ -308,7 +299,7 @@ export async function countOwnedCastles(
 
 /**
  * Lazy 승급/강등. 액션 시점에 호출한다.
- * - commoner: 방문 3 + 공헌 300 / knight: 점령 1 + 공헌 1000 (결투 3승은 Phase 6 조임 예정)
+ * - commoner: 방문 3 + 공헌 300 / knight: 점령 1 + 공헌 1000
  * - noble: 공헌 5000 + (점령 3 or 상위 10%)
  * - lord는 정복 경로로만付与, 여기서는 유지조건(보유 1+) 미달 시 noble로
  * - 7일 무활동 시 1단계 강등 (slave 제외)
@@ -403,12 +394,9 @@ export interface CastleMeta {
   createdAt: string;
 }
 
+/** 성 설정 (string_param2 JSON). 옛 퀴즈 필드(pool/game/difficulty/cutline)는 읽을 때 무시한다. */
 export interface CastleSettings {
   joinMode: "auto" | "manual";
-  pool: string | null;
-  game: string | null;
-  difficulty: [number, number];
-  cutline: number;
 }
 
 export function parseCastleMeta(raw: string | null | undefined): CastleMeta | null {
@@ -449,29 +437,14 @@ export function serializeCastleMeta(meta: CastleMeta): string {
 export function parseCastleSettings(raw: string | null | undefined): CastleSettings {
   const fallback: CastleSettings = {
     joinMode: "auto",
-    pool: null,
-    game: null,
-    difficulty: [1, 3],
-    cutline: 30,
   };
   if (!raw) {
     return fallback;
   }
   try {
-    const v = JSON.parse(raw) as Partial<CastleSettings>;
-    const diff = Array.isArray(v.difficulty) ? v.difficulty.map(Number) : [];
+    const v = JSON.parse(raw) as Partial<CastleSettings> | null;
     return {
-      joinMode: v.joinMode === "manual" ? "manual" : "auto",
-      pool: typeof v.pool === "string" && v.pool.trim() ? v.pool.trim() : null,
-      game: typeof v.game === "string" && v.game.trim() ? v.game.trim() : null,
-      difficulty:
-        diff.length >= 2 && diff.every((n) => Number.isFinite(n))
-          ? [Math.max(1, Math.min(5, Math.trunc(diff[0]))), Math.max(1, Math.min(5, Math.trunc(diff[1])))]
-          : fallback.difficulty,
-      cutline:
-        Number.isFinite(Number(v.cutline)) && Number(v.cutline) > 0
-          ? Math.trunc(Number(v.cutline))
-          : fallback.cutline,
+      joinMode: v?.joinMode === "manual" ? "manual" : "auto",
     };
   } catch {
     return fallback;
@@ -730,7 +703,7 @@ export async function performJoin(
 }
 
 // ---------------------------------------------------------------------------
-// 성 데미지 공통 (quiz resolve + 부대 touch 공용)
+// 성 데미지 공통 (부대 공성 touch 공용)
 // ---------------------------------------------------------------------------
 
 export interface CastleDamageResult {
@@ -740,7 +713,37 @@ export interface CastleDamageResult {
   prevOwner: string | null;
 }
 
-/** HP 1 차감. 0 도달 시 정복 처리까지 수행한다. 락 보유 상태에서 호출. */
+/** 정복 시 이전 주인의 해당 성 주둔 부대를 본거지로 자동 귀환시킨다. */
+async function returnGarrisonedUnitsHome(tx: Tx, ownerId: string, castleKey: string): Promise<void> {
+  const prev = await tx.missionUser.findUnique({
+    where: { userId: ownerId },
+    select: { data: true },
+  });
+  const units = loadUnits(prev?.data);
+  let changed = false;
+  const next = units.map((s) => {
+    if (s.state === "garrisoned" && s.castleKey === castleKey) {
+      changed = true;
+      return {
+        ...s,
+        state: "field" as const,
+        castleKey: null,
+        lat: s.hq.lat,
+        lon: s.hq.lon,
+        lastMoveAt: Date.now(),
+      };
+    }
+    return s;
+  });
+  if (changed) {
+    await tx.missionUser.update({
+      where: { userId: ownerId },
+      data: { data: withUnits(prev?.data, next) },
+    });
+  }
+}
+
+/** HP 1 차감. 0 도달 시 정복 처리(주둔 부대 귀환 포함)까지 수행한다. 락 보유 상태에서 호출. */
 export async function applyCastleDamage(
   tx: Tx,
   missionKey: string,
@@ -781,6 +784,7 @@ export async function applyCastleDamage(
   });
 
   if (prevOwner && prevOwner !== attackerId) {
+    await returnGarrisonedUnitsHome(tx, prevOwner, castle.castleKey);
     const prevOwned = await countOwnedCastles(tx, prevOwner, missionKey);
     const prevRow = await tx.missionTeam.findFirst({
       where: { userId: prevOwner },
@@ -889,68 +893,6 @@ export async function applyUnitTouch(
   }
   return { ...result, touches };
 }
-
-// ---------------------------------------------------------------------------
-// 결투 전력 (유령 방어)
-// ---------------------------------------------------------------------------
-
-export interface DuelBest {
-  eventKey: string;
-  score: number;
-}
-
-/** 미니게임 순수 기록 (answer IS NULL 행) 의 기간별 이벤트 최고점. */
-export async function readBestScores(
-  db: Tx | typeof prisma,
-  userId: string,
-  missionKey: string,
-  sinceMs: number,
-): Promise<DuelBest[]> {
-  const since = new Date(sinceMs);
-  const rows = await (db as typeof prisma).$queryRaw<
-    Array<{ ek: string | null; m: bigint | number | null }>
-  >`
-    SELECT TRIM(s."EventKey") AS ek, MAX(s.score) AS m
-    FROM "ARMissionUserScore" s
-    WHERE s."UserId" = ${userId}
-      AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
-      AND s.scoredate >= ${since}
-      AND TRIM(COALESCE(s."EventKey", '')) NOT LIKE 'castle-%'
-      AND s.answer IS NULL
-    GROUP BY ek
-  `;
-  return rows.flatMap((r) => {
-    const score = typeof r.m === "bigint" ? Number(r.m) : Number(r.m ?? 0);
-    if (!r.ek || !Number.isFinite(score) || score <= 0) {
-      return [];
-    }
-    return [{ eventKey: r.ek, score: Math.trunc(score) }];
-  });
-}
-
-export function castleAgeDays(castle: LoadedCastle, now = Date.now()): number {
-  const created = Date.parse(castle.meta.createdAt);
-  if (!Number.isFinite(created)) {
-    return 0;
-  }
-  return Math.max(0, (now - created) / (24 * 3600 * 1000));
-}
-
-// 결투 (약탈전) 수치
-export const DUEL_DAILY_CAP = 3;
-export const DUEL_BATTLE_WINDOW_MS = 24 * 3600 * 1000;
-export const DUEL_PRESENCE_BONUS = 10;
-export const DUEL_CLASS_BONUS = 10;
-export const DUEL_DEFENSE_MULT = 1.1;
-export const DUEL_TENURE_BONUS = 10;
-export const DUEL_LOSS_COST = 100;
-export const DUEL_DEFENSE_REWARD = 50;
-export const DUEL_LOOT_SHARE = 0.3;
-/**
- * 공격 주사위 그레이스 (5분). 앱 시계와 DB 시계가 어긋나도
- * 신청 직후 기록이 탈락하지 않게 한다. 신청 5분 전 기록까지 인정.
- */
-export const DUEL_ROLL_GRACE_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // 수확 (일일 정산 lazy)

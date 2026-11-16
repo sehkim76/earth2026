@@ -141,47 +141,6 @@
   }
 }
 
-.qr-scan-line {
-  animation: ios-scan 2s ease-in-out infinite;
-}
-
-@keyframes ios-scan {
-  0% {
-    top: 8px;
-    opacity: 0;
-  }
-  15% {
-    opacity: 1;
-  }
-  85% {
-    opacity: 1;
-  }
-  100% {
-    top: calc(var(--qr-overlay-size) - 8px);
-    opacity: 0;
-  }
-}
-
-@keyframes ranking-ticker {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-50%);
-  }
-}
-
-.ranking-ticker {
-  animation-name: ranking-ticker;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  will-change: transform;
-}
-
-.ranking-ticker-static {
-  transform: translateX(0);
-}
-
 .three-player-marker {
   background: transparent !important;
   border: none !important;

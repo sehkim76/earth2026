@@ -1,12 +1,10 @@
 import { NextResponse } from "next/server";
 
 import {
-  GATE_REPAIR_COST,
   ensureCastleSeason,
   parseCastleSettings,
   requireSessionUserId,
   resolveTerritoryContext,
-  spendInfluence,
   territoryDisabledResponse,
   withCastleLock,
   type Tx,
@@ -14,13 +12,11 @@ import {
 
 type ManageBody = {
   castleKey?: unknown;
-  difficulty?: unknown;
   joinMode?: unknown;
 };
 
 /**
  * 성 관리 (W6용). 성 주인만 가능.
- * - difficulty: 성문 난이도 범위 변경 (100 소모)
  * - joinMode: auto/manual 전환 (무료)
  */
 export async function POST(request: Request) {
@@ -42,20 +38,8 @@ export async function POST(request: Request) {
 
   const castleKey = typeof body.castleKey === "string" ? body.castleKey.trim() : "";
   const joinMode = body.joinMode === "auto" || body.joinMode === "manual" ? body.joinMode : null;
-  const difficulty = Array.isArray(body.difficulty)
-    ? body.difficulty.map(Number)
-    : null;
-  if (!castleKey || (joinMode === null && difficulty === null)) {
+  if (!castleKey || joinMode === null) {
     return NextResponse.json({ ok: false, code: "invalid" }, { status: 400 });
-  }
-  if (
-    difficulty !== null &&
-    !(
-      difficulty.length >= 2 &&
-      difficulty.every((n) => Number.isFinite(n) && n >= 1 && n <= 5)
-    )
-  ) {
-    return NextResponse.json({ ok: false, code: "invalid_difficulty" }, { status: 400 });
   }
 
   try {
@@ -75,20 +59,7 @@ export async function POST(request: Request) {
       const settings = parseCastleSettings(row?.string_param2);
       let changed = false;
 
-      if (difficulty !== null) {
-        const lo = Math.max(1, Math.min(5, Math.trunc(difficulty[0])));
-        const hi = Math.max(1, Math.min(5, Math.trunc(difficulty[1])));
-        const next: [number, number] = [Math.min(lo, hi), Math.max(lo, hi)];
-        if (next[0] !== settings.difficulty[0] || next[1] !== settings.difficulty[1]) {
-          const paid = await spendInfluence(tx, userId, GATE_REPAIR_COST);
-          if (!paid) {
-            throw new Error("funds");
-          }
-          settings.difficulty = next;
-          changed = true;
-        }
-      }
-      if (joinMode !== null && joinMode !== settings.joinMode) {
+      if (joinMode !== settings.joinMode) {
         settings.joinMode = joinMode;
         changed = true;
       }
@@ -99,16 +70,16 @@ export async function POST(request: Request) {
           data: { string_param2: JSON.stringify(settings).slice(0, 1200) },
         });
       }
-      return { difficulty: settings.difficulty, joinMode: settings.joinMode, changed };
+      return { joinMode: settings.joinMode, changed };
     });
     return NextResponse.json({ ok: true, castleKey, ...result });
   } catch (error) {
     const code =
-      error instanceof Error && ["castle_not_found", "not_owner", "funds"].includes(error.message)
+      error instanceof Error && ["castle_not_found", "not_owner"].includes(error.message)
         ? error.message
         : "manage_failed";
     const status =
-      code === "castle_not_found" ? 404 : code === "not_owner" ? 403 : code === "funds" ? 402 : 500;
+      code === "castle_not_found" ? 404 : code === "not_owner" ? 403 : 500;
     if (code === "manage_failed") {
       console.error("[castles/manage] failed", error);
     }

@@ -47,91 +47,6 @@ const parseNumber = (value: unknown): number | null => {
   return null;
 };
 
-/** 운영 CSV 풀 최소 검증 (S3 URL). */
-async function validatePool(url: string): Promise<{ ok: boolean; error?: string }> {
-  if (!/^https:\/\//i.test(url) || url.length > 500) {
-    return { ok: false, error: "pool_url" };
-  }
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (!res.ok) {
-      return { ok: false, error: "pool_fetch" };
-    }
-    const length = Number(res.headers.get("content-length") ?? 0);
-    if (Number.isFinite(length) && length > 512 * 1024) {
-      return { ok: false, error: "pool_too_large" };
-    }
-    const text = (await res.text()).slice(0, 512 * 1024);
-    const rows = parseCsvLite(text);
-    if (rows.length < 21) {
-      return { ok: false, error: "pool_too_small" };
-    }
-    const header = rows[0].map((c) => c.trim().toLowerCase());
-    const answerIdx = header.indexOf("answer");
-    const difficultyIdx = header.indexOf("difficulty");
-    if (answerIdx < 0 || difficultyIdx < 0) {
-      return { ok: false, error: "pool_columns" };
-    }
-    let valid = 0;
-    for (const row of rows.slice(1)) {
-      const answer = (row[answerIdx] ?? "").trim();
-      const difficulty = Number((row[difficultyIdx] ?? "").trim());
-      if (answer && Number.isFinite(difficulty) && difficulty >= 1 && difficulty <= 5) {
-        valid += 1;
-      }
-    }
-    if (valid < 20) {
-      return { ok: false, error: "pool_too_small" };
-    }
-    return { ok: true };
-  } catch {
-    return { ok: false, error: "pool_fetch" };
-  }
-}
-
-function parseCsvLite(text: string): string[][] {
-  const rows: string[][] = [];
-  let field = "";
-  let row: string[] = [];
-  let inQuotes = false;
-  const clean = text.replace(/^﻿/, "");
-  for (let i = 0; i < clean.length; i += 1) {
-    const ch = clean[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (clean[i + 1] === '"') {
-          field += '"';
-          i += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += ch;
-      }
-    } else if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ",") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\n") {
-      row.push(field);
-      field = "";
-      rows.push(row);
-      row = [];
-    } else if (ch === "\r") {
-      continue;
-    } else {
-      field += ch;
-    }
-  }
-  row.push(field);
-  rows.push(row);
-  return rows.filter((r) => r.some((cell) => cell.trim() !== ""));
-}
-
 type BuildBody = {
   dongCode?: unknown;
   kind?: unknown;
@@ -139,9 +54,6 @@ type BuildBody = {
   lat?: unknown;
   lon?: unknown;
   accuracy?: unknown;
-  poolUrl?: unknown;
-  poolId?: unknown;
-  gamePath?: unknown;
   hp?: unknown;
 };
 
@@ -167,15 +79,6 @@ export async function POST(request: Request) {
   const dongCode = typeof body.dongCode === "string" ? body.dongCode.trim().slice(0, 64) : "";
   const lat = parseNumber(body.lat);
   const lon = parseNumber(body.lon);
-  const poolUrl = typeof body.poolUrl === "string" ? body.poolUrl.trim() : "";
-  const poolIdRaw = body.poolId;
-  const poolId =
-    typeof poolIdRaw === "string" && poolIdRaw.trim().length > 0
-      ? poolIdRaw.trim()
-      : typeof poolIdRaw === "number" && Number.isInteger(poolIdRaw) && poolIdRaw > 0
-        ? `pool:${poolIdRaw}`
-        : null;
-  const gamePath = typeof body.gamePath === "string" ? body.gamePath.trim() : "";
   const hpParam = parseNumber(body.hp);
 
   if (!kind || !name || !dongCode || lat === null || lon === null) {
@@ -185,50 +88,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, code: "invalid_coordinates" }, { status: 400 });
   }
   // 축성 위치는 지도에서 직접 지정하므로 GPS 정확도를 검증하지 않는다.
-  if (gamePath) {
-    // 게임성(城)은 시즌2. MVP는 퀴즈성만.
-    return NextResponse.json({ ok: false, code: "game_castle_season2" }, { status: 400 });
-  }
-
-  // 이벤트 선택(poolId 우선, 없으면 직접 URL 폴백).
-  // pool:<id> = 풀 테이블 행. (S3 직접 지정 제거됨)
-  // QuizType 풀은 문제풀 CSV 검증, URLType 풀은 웹이벤트(URL) 그대로 사용한다.
-  let resolvedPoolUrl = poolUrl;
-  let castleEventType = "quiztype";
-  if (poolId !== null) {
-    if (poolId.startsWith("s3:")) {
-      return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
-    } {
-      const tableId = poolId.startsWith("pool:")
-        ? Number(poolId.slice(5))
-        : Number(poolId);
-      if (!Number.isInteger(tableId) || tableId <= 0) {
-        return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
-      }
-      const poolRow = await prisma.aRMissionEventPoolTable.findUnique({
-        where: { id: tableId },
-        select: { EventType: true, EventURI: true },
-      });
-      const poolType = (poolRow?.EventType ?? "").trim();
-      const poolUri = (poolRow?.EventURI ?? "").trim();
-      if (!poolRow || !/^https:\/\//i.test(poolUri) || poolUri.length > 500) {
-        return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
-      }
-      if (poolType === "URLType") {
-        castleEventType = "URLType";
-        resolvedPoolUrl = poolUri;
-      } else if (poolType === "QuizType") {
-        castleEventType = "quiztype";
-        resolvedPoolUrl = poolUri;
-      } else {
-        return NextResponse.json({ ok: false, code: "pool_invalid" }, { status: 400 });
-      }
-    }
-  }
-  if (!resolvedPoolUrl) {
-    return NextResponse.json({ ok: false, code: "pool_required" }, { status: 400 });
-  }
-
   const hp =
     kind === "lord"
       ? LORD_CASTLE_HP
@@ -254,12 +113,6 @@ export async function POST(request: Request) {
     if (ownedTotal >= OWN_CASTLE_CAP[klass]) {
       return NextResponse.json({ ok: false, code: "limit" }, { status: 403 });
     }
-  }
-
-  const poolCheck =
-    castleEventType === "quiztype" ? await validatePool(resolvedPoolUrl) : { ok: true };
-  if (!poolCheck.ok) {
-    return NextResponse.json({ ok: false, code: poolCheck.error ?? "pool_invalid" }, { status: 400 });
   }
 
   // 동 폴리곤 포함 검증은 폴리곤 소스(B-1) 확정 후 추가. 현 MVP는 거리 검증만 수행한다.
@@ -389,17 +242,13 @@ export async function POST(request: Request) {
           data: {
             EventKey: castleKey,
             ARMissionKey: ctx.missionKey,
-            EventType: castleEventType,
-            EventURI: resolvedPoolUrl,
-            QuizCount: 1,
+            // 성은 EventKey의 castle- prefix로 식별한다 (EventType은 표시용 "castle").
+            EventType: "castle",
+            EventURI: "",
+            QuizCount: 0,
             int_param1: hp,
             string_param1: serializeCastleMeta(meta),
-            string_param2: JSON.stringify({
-              joinMode: "auto",
-              pool: resolvedPoolUrl,
-              difficulty: [1, 3],
-              pick: 1,
-            }).slice(0, 1200),
+            string_param2: JSON.stringify({ joinMode: "auto" }).slice(0, 1200),
             string_param3: dongCode,
             string_param4: "",
             string_param5: "",
@@ -515,7 +364,6 @@ export async function GET(request: Request) {
         status: castle.meta.status,
         garrison: castle.meta.garrison,
         joinMode: castle.settings.joinMode,
-        difficulty: castle.settings.difficulty,
         members: activeMembers.map((m) => ({
           userId: m.userId,
           nickname: nicknameById.get(m.userId ?? "") ?? (m.userId ?? ""),

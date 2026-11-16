@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
@@ -31,7 +30,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
-  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; quizTitle?: string; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
+  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
   onUnitMarkerSelectionHandled: () => void;
   targetMarkerUrl: string | null;
@@ -53,8 +52,6 @@ interface TerritoryUIProps {
   placementNotice: { id: number; message: string } | null;
   /** 나가기(로그아웃). */
   onExit: () => void;
-  /** 점수 리셋. */
-  onResetScore: () => void;
   /** 영주(플레이어) 이동 주문 상태 (부대와 동일한 이동 지시 방식). */
   lordMoveTarget?: UnitMoveTarget | null;
   /** 영주 이동 주문 등록. */
@@ -109,113 +106,15 @@ interface CastleMember {
   isOwner: boolean;
 }
 
-interface PoolItem {
-  id: string;
-  description: string;
-  uri: string;
-}
-
 export interface CastleBuildDraft {
   name: string;
   kind: "lord" | "noble";
-  poolId: string;
   hp: number;
   dong: string;
 }
 
-function SearchableDropdown(props: {
-  label: string;
-  items: PoolItem[];
-  value: string | null;
-  onChange: (id: string) => void;
-  placeholder: string;
-  loading: boolean;
-  emptyText: string;
-}) {
-  const { label, items, value, onChange, placeholder, loading, emptyText } = props;
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const selected = items.find((item) => item.id === value) ?? null;
-  const filtered = query.trim()
-    ? items.filter((item) =>
-        item.description.toLowerCase().includes(query.trim().toLowerCase())
-      )
-    : items;
-  return (
-    <div>
-      <p className="mb-1.5 text-xs font-black tracking-widest text-slate-500">{label}</p>
-      <button
-        type="button"
-        onClick={() => {
-          setQuery("");
-          setOpen(!open);
-        }}
-        className={`flex w-full items-center justify-between gap-2 rounded-[14px] border px-3 py-1 text-left ${
-          selected ? "border-[#a77b35] bg-[#e7ddc6]" : "border-[#8e7954]/50 bg-[#fffaf0]"
-        }`}
-      >
-        <span className={`truncate text-sm font-black ${selected ? "text-slate-900" : "text-slate-400"}`}>
-          {selected ? selected.description : loading ? "불러오는 중…" : placeholder}
-        </span>
-        <span className="shrink-0 text-xs text-slate-400">{open ? "▲" : "▼"}</span>
-      </button>
-      {open ? (
-        <>
-          <button
-            type="button"
-            aria-label="닫기"
-            onClick={() => setOpen(false)}
-            className="fixed inset-0 z-[1250] cursor-default bg-transparent"
-          />
-          <div className="relative z-[1260]">
-            <div className="absolute inset-x-0 top-1 max-h-56 overflow-hidden rounded-xl border border-[#8e7954]/50 bg-[#fffaf0]">
-              <div className="bg-[#e7ddc6] p-2">
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="검색…"
-                  className={inputStyle}
-                />
-              </div>
-              <ul className="max-h-40 overflow-y-auto overflow-x-hidden p-1.5">
-                {filtered.length === 0 ? (
-                  <li className="px-3 py-2 text-xs text-slate-500">{emptyText}</li>
-                ) : (
-                  filtered.slice(0, 100).map((item) => (
-                    <li key={item.id} className="min-w-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onChange(item.id);
-                          setOpen(false);
-                        }}
-                        className={`block w-full truncate rounded-lg px-3 py-1.5 text-left text-sm font-bold active:bg-slate-100 ${
-                          item.id === value
-                             ? "bg-[#e7ddc6] text-[#263b31]"
-                            : "text-slate-700"
-                        }`}
-                      >
-                        {item.id === value ? "선택 · " : ""}
-                        {item.description}
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
-              {filtered.length > 100 ? (
-                <p className="bg-[#e7ddc6] px-3 py-1.5 text-[11px] text-slate-600">
-                  상위 100개만 표시됩니다. 검색어를 입력하세요.
-                </p>
-              ) : null}
-            </div>
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-interface CastleDetail {  castleKey: string;
+interface CastleDetail {
+  castleKey: string;
   name: string;
   lat: number;
   lon: number;
@@ -226,7 +125,6 @@ interface CastleDetail {  castleKey: string;
   status: string;
   garrison: number;
   joinMode: "auto" | "manual";
-  difficulty: [number, number];
   members: CastleMember[];
   capacity: number;
   isOwner: boolean;
@@ -442,7 +340,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   );
   const [sheet, setSheet] = useState<Sheet>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const router = useRouter();
   const [actionDialog, setActionDialog] = useState<{ title: string; message: string } | null>(null);
   const [scoutResult, setScoutResult] = useState<{
     unitName: string;
@@ -537,19 +434,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const [busy, setBusy] = useState(false);
   const [buildName, setBuildName] = useState("");
   const [buildKind, setBuildKind] = useState<"lord" | "noble">("noble");
-  const [buildPoolId, setBuildPoolId] = useState<string | null>(null);
-  const [quizPools, setQuizPools] = useState<PoolItem[]>([]);
-  const [webEvents, setWebEvents] = useState<PoolItem[]>([]);
-  const [poolsLoading, setPoolsLoading] = useState(false);
   const [buildHp, setBuildHp] = useState(2);
   const [myClass, setMyClass] = useState<string | null>(null);
-  const [manageDiff, setManageDiff] = useState<[number, number]>([1, 3]);
   const [manageJoinMode, setManageJoinMode] = useState<"auto" | "manual">("auto");
   const [pendingList, setPendingList] = useState<
     { userId: string; nickname: string; requestedAt: number }[]
   >([]);
   const [appointTarget, setAppointTarget] = useState("");
-  const [duelBattle, setDuelBattle] = useState<{ id: string; preview: string } | null>(null);
   const lastMoveRef = useRef(0);
   const hasUnitTraining = units.some((unit) => unit.state === "training");
   const trainingUnit = units.find((unit) => unit.state === "training") ?? null;
@@ -720,8 +611,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     startedAt: number;
     endsAt: number;
     moving: boolean;
-    quizKey: string;
-    quizTitle: string;
     path?: Array<{ lat: number; lon: number }> | null;
     /** 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (서버 진행 인덱스). */
     pathIdx?: number | null;
@@ -741,7 +630,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       mine: false as const,
       moving: row.moving,
       selected: false as const,
-      quizTitle: row.quizTitle || undefined,
       moveTarget: {
         fromLat: row.fromLat,
         fromLon: row.fromLon,
@@ -834,8 +722,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             startedAt: r.startedAt,
             endsAt: r.endsAt,
             moving: r.moving === true,
-            quizKey: typeof r.quizKey === "string" ? r.quizKey : "",
-            quizTitle: typeof r.quizTitle === "string" ? r.quizTitle : "",
             path,
             pathIdx:
               typeof r.pathIdx === "number" && Number.isInteger(r.pathIdx) && r.pathIdx >= 0 ? r.pathIdx : null,
@@ -894,46 +780,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   useEffect(() => {
     void refreshUnits();
     void refreshTrainingCastles();
-    setPoolsLoading(true);
     let cancelled = false;
-    void fetch("/api/territory/pools")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: unknown) => {
-        if (cancelled || !data || typeof data !== "object") {
-          return;
-        }
-        const payload = data as {
-          quizPools?: unknown;
-          webEvents?: unknown;
-        };
-        const toItems = (value: unknown): PoolItem[] => {
-          if (!Array.isArray(value)) {
-            return [];
-          }
-          return (value as Record<string, unknown>[])
-            .filter(
-              (row) =>
-                typeof row.id === "string" &&
-                typeof row.description === "string" &&
-                typeof row.uri === "string"
-            )
-            .map((row) => ({
-              id: row.id as string,
-              description: row.description as string,
-              uri: row.uri as string,
-            }));
-        };
-        if (!cancelled) {
-          setQuizPools(toItems(payload.quizPools));
-          setWebEvents(toItems(payload.webEvents));
-          setPoolsLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPoolsLoading(false);
-        }
-      });
     void fetch("/api/territory/me")
       .then((res) => (res.ok ? res.json() : null))
       .then((data: unknown) => {
@@ -1182,7 +1029,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           `/api/castles?castleKey=${encodeURIComponent(key)}`,
         );
         setDetail(data);
-        setManageDiff(data.difficulty);
         setManageJoinMode(data.joinMode);
       } catch (error) {
         flash(messageOf(error));
@@ -1241,7 +1087,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   );
 
   const playerLoc = props.getPlayerLocation();
-  // 성 다이얼로그 거리 게이트 (서버 규칙과 동일: 입성 100m·결투 500m).
+  // 성 다이얼로그 거리 게이트 (서버 규칙과 동일: 입성 100m).
   // 수확/관리는 주인 원격 허용이라 제한 없음.
   const castleDistM =
     playerLoc && detail && Number.isFinite(detail.lat) && Number.isFinite(detail.lon)
@@ -1259,7 +1105,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         })()
       : null;
   const canJoinHere = castleDistM !== null && castleDistM <= 100;
-  const canDuelHere = castleDistM !== null && castleDistM <= 500;
 
   const doJoin = (transfer: boolean): Promise<void> =>
     runAction(async () => {
@@ -3134,13 +2979,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         ) : null}
         <button
           type="button"
-          onClick={() => void props.onResetScore()}
-          className={`${buttonGhost} w-full px-1 text-xs`}
-        >
-          초기화
-        </button>
-        <button
-          type="button"
           onClick={() => void props.onExit()}
           className="min-h-[33px] w-full rounded-xl bg-[#7a342b] px-1 py-1 text-xs font-black tracking-wide text-[#fff4d8] active:translate-y-0.5 active:bg-[#8c4034]"
         >
@@ -3281,33 +3119,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                     </button>
                     {s.state === "field" ? (
                       <>
-                        {(() => {
-                          // 15m 이내 무법자가 있으면 공격(퀴즈) 버튼을 보인다.
-                          const prey = neutralUnits.find((n) => {
-                            const rad = Math.PI / 180;
-                            const dLat = (n.lat - s.lat) * rad;
-                            const dLon = (n.lon - s.lon) * rad;
-                            const a =
-                              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                              Math.cos(s.lat * rad) *
-                                Math.cos(n.lat * rad) *
-                                Math.sin(dLon / 2) *
-                                Math.sin(dLon / 2);
-                            return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a))) <= 15;
-                          });
-                          return prey ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                router.push("/map");
-                              }}
-                              disabled={busy || movingUnitIds.includes(s.id)}
-                              className={buttonPrimary}
-                            >
-                              무법자 공격
-                            </button>
-                          ) : null;
-                        })()}
                         <button
                           type="button"
                           onClick={() => {
@@ -3477,24 +3288,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             {!canBuildLord && buildKind === "lord" ? (
               <p className="text-xs text-amber-600">평민 이상만 영주성을 창시할 수 있습니다.</p>
             ) : null}
-            <SearchableDropdown
-              label="퀴즈 문제풀"
-              items={quizPools}
-              value={buildPoolId}
-              onChange={setBuildPoolId}
-              placeholder="문제풀 선택"
-              loading={poolsLoading}
-              emptyText="일치하는 문제풀이 없습니다."
-            />
-            <SearchableDropdown
-              label="웹이벤트 (게임)"
-              items={webEvents}
-              value={buildPoolId}
-              onChange={setBuildPoolId}
-              placeholder="웹이벤트 선택"
-              loading={poolsLoading}
-              emptyText="일치하는 웹이벤트가 없습니다."
-            />
             {buildKind === "noble" ? (
               <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
                 HP
@@ -3511,9 +3304,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <p className="text-xs text-slate-500">
               지도에서 위치를 정해 세웁니다. 동(위치에서 자동 판별)·거리·잔액을 서버가 검증합니다.
             </p>
-            {!buildName.trim() || buildPoolId === null ? (
+            {!buildName.trim() ? (
               <p className="text-xs text-slate-500">
-                성 이름과 이벤트(문제풀/웹이벤트)를 선택하면 위치를 정할 수 있습니다.
+                성 이름을 입력하면 위치를 정할 수 있습니다.
               </p>
             ) : null}
             <button
@@ -3521,18 +3314,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               disabled={
                 busy ||
                 !buildName.trim() ||
-                buildPoolId === null ||
                 (buildKind === "noble" ? !canBuildNoble : !canBuildLord)
               }
               onClick={() => {
-                const poolId = buildPoolId;
-                if (poolId === null || !buildName.trim()) {
+                if (!buildName.trim()) {
                   return;
                 }
                 props.onStartPlacement({
                   name: buildName.trim(),
                   kind: buildKind,
-                  poolId,
                   hp: buildHp,
                   dong: (props.dongCode ?? "").trim(),
                 });
@@ -3570,30 +3360,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   공성 쿨다운 {Math.ceil(detail.cooldownSec / 60)}분 남음
                 </p>
               ) : null}
-              <div className="grid grid-cols-2 gap-1.5">
+              {!detail.myMemberCastle ? (
                 <button
                   type="button"
-                  disabled={busy || detail.isOwner}
-                  onClick={() => {
-                    window.location.href = `/event?eventkey=${encodeURIComponent(castleKey)}`;
-                  }}
-                  className={buttonPrimary}
+                  disabled={busy || !canJoinHere}
+                  onClick={() => void doJoin(false)}
+                  className={buttonGhost}
                 >
-                  공성
+                  입성
                 </button>
-                {!detail.myMemberCastle ? (
-                  <button
-                    type="button"
-                    disabled={busy || !canJoinHere}
-                    onClick={() => void doJoin(false)}
-                    className={buttonGhost}
-                  >
-                    입성
-                  </button>
-                ) : null}
-              </div>
-              {detail.isOwner ? (
-                <p className="text-xs text-slate-500">자신의 성은 공성할 수 없습니다.</p>
               ) : null}
               {detail && !detail.myMemberCastle && castleDistM !== null && !canJoinHere ? (
                 <p className="text-xs text-slate-500">
@@ -3613,88 +3388,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 >
                   이적하기 (100, 월 1회)
                 </button>
-              ) : null}
-              {!detail.isOwner ? (
-                <div className="rounded-xl border border-[#8e7954]/35 bg-[#e7ddc6] p-2">
-                  <p className="mb-1.5 text-xs font-black tracking-widest text-slate-500">
-                    결투 (약탈전, 기사 이상·1일 3회)
-                  </p>
-                  {duelBattle ? (
-                    <div className="flex flex-col gap-1.5">
-                      <p className="text-xs text-slate-600">
-                        {duelBattle.preview} 미니게임을 플레이한 뒤 결산하세요.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          runAction(async () => {
-                            const gps = props.getPlayerLocation();
-                            const data = (await callApi<Record<string, unknown>>(
-                              "/api/territory/duel-resolve",
-                              {
-                                battleId: duelBattle.id,
-                                lat: gps?.lat,
-                                lon: gps?.lon,
-                              },
-                            )) as {
-                              won?: unknown;
-                              attack?: unknown;
-                              defense?: unknown;
-                              loot?: unknown;
-                            };
-                            setDuelBattle(null);
-                            await refreshDetail(castleKey);
-                            return data.won === true
-                              ? `승리! 약탈 +${String(data.loot ?? 0)} (공격 ${String(data.attack ?? 0)} vs 수비 ${String(data.defense ?? 0)})`
-                              : `패배 (공격 ${String(data.attack ?? 0)} vs 수비 ${String(data.defense ?? 0)})`;
-                          })
-                        }
-                        className={buttonPrimary}
-                      >
-                        결산하기
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={busy || !playerLoc || !canDuelHere}
-                      onClick={() =>
-                        runAction(async () => {
-                          if (!playerLoc) {
-                            throw new Error("stale_location");
-                          }
-                          const data = (await callApi<Record<string, unknown>>(
-                            "/api/territory/challenge",
-                            { castleKey, lat: playerLoc.lat, lon: playerLoc.lon },
-                          )) as { battleId?: unknown; defensePreview?: unknown };
-                          if (typeof data.battleId !== "string") {
-                            throw new Error("challenge_failed");
-                          }
-                          const preview = data.defensePreview as {
-                            power?: unknown;
-                          } | null;
-                          setDuelBattle({
-                            id: data.battleId,
-                            preview:
-                              preview && typeof preview.power === "number"
-                                ? `예상 수비 ${preview.power.toFixed(1)}. `
-                                : "수비 정보 없음. ",
-                          });
-                          return "결투 신청됨. 미니게임 플레이 후 결산하세요.";
-                        })
-                      }
-                      className={buttonGhost}
-                    >
-                        결투 신청
-                      </button>
-                  )}
-                  {castleDistM !== null && !canDuelHere ? (
-                    <p className="text-xs text-slate-500">
-                      결투는 성 500m 이내에서 신청할 수 있습니다.
-                    </p>
-                  ) : null}
-                </div>
               ) : null}
               {detail.myPending ? (
                 <p className="text-xs text-slate-500">승인 대기 중입니다.</p>
@@ -3816,30 +3509,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           </div>
           <div className="flex flex-col gap-2">
             <div className="grid grid-cols-2 gap-2">
-              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                성문 하한
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={manageDiff[0]}
-                  onChange={(e) => setManageDiff([Number(e.target.value), manageDiff[1]])}
-                  className={inputStyle}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                성문 상한
-                <input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={manageDiff[1]}
-                  onChange={(e) => setManageDiff([manageDiff[0], Number(e.target.value)])}
-                  className={inputStyle}
-                />
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => setManageJoinMode("auto")}
@@ -3865,11 +3534,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   }
                   await callApi("/api/castles/manage", {
                     castleKey,
-                    difficulty: manageDiff,
                     joinMode: manageJoinMode,
                   });
                   await refreshDetail(castleKey);
-                  return "저장했습니다. (성문 변경 100)";
+                  return "저장했습니다.";
                 })
               }
               className={buttonPrimary}

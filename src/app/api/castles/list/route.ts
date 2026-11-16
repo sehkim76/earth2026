@@ -9,7 +9,7 @@ import {
   territoryDisabledResponse,
 } from "@/lib/territory";
 
-/** 미션의 이번 시즌 성 목록 (지도 마커 종류 구분용). */
+/** 미션의 이번 시즌 성 목록 (지도 마커 종류·손상 표시 구분용). */
 export async function GET() {
   const userId = await requireSessionUserId();
   if (!userId) {
@@ -68,6 +68,8 @@ export async function GET() {
         owner: meta.owner,
         ownerNickname: meta.owner ? (nickById.get(meta.owner) ?? "") : "",
         dong: meta.dong,
+        hp: meta.hp,
+        maxHp: meta.maxHp,
         mine: meta.owner === userId,
         availableForTraining: meta.owner === userId && meta.status === "active",
       });

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 
 interface TerritoryMe {
   class: string;
@@ -57,19 +56,12 @@ function RollingNumber({ value }: { value: number }) {
   );
 }
 
-/** 영토전 모드 좌상단 플레이어 대시 (점수/미방문/랭킹 대체). */
+/** 영토전 모드 좌상단 플레이어 대시. */
 export default function TerritoryDash() {
   const [me, setMe] = useState<TerritoryMe | null>(null);
-  const [displayContribution, setDisplayContribution] = useState<number | null>(null);
-  const searchParams = useSearchParams();
 
   useEffect(() => {
     let cancelled = false;
-    let rafId = 0;
-    // 퀴즈 복귀(scoreUpdated)시에만 상승 애니메이션 (리마운트돼도 addedScore로 복원).
-    const returned = searchParams.get("scoreUpdated") === "true";
-    const addedRaw = parseInt(searchParams.get("addedScore") ?? "", 10);
-    const addedScore = Number.isFinite(addedRaw) && addedRaw > 0 ? addedRaw : 0;
     void fetch("/api/territory/me")
       .then((res) => (res.ok ? res.json() : null))
       .then((data: unknown) => {
@@ -91,36 +83,12 @@ export default function TerritoryDash() {
             typeof payload.contribution === "number" ? payload.contribution : 0,
         };
         setMe(next);
-        if (returned && addedScore > 0) {
-          // 공헌 상승 카운트업 애니메이션 (ease-out, 3초).
-          const from = Math.max(0, next.contribution - addedScore);
-          const to = next.contribution;
-          const duration = 3000;
-          const startedAt = performance.now();
-          const tick = (now: number): void => {
-            if (cancelled) {
-              return;
-            }
-            const progress = Math.min(1, (now - startedAt) / duration);
-            const eased = 1 - Math.pow(1 - progress, 3);
-            setDisplayContribution(Math.round(from + (to - from) * eased));
-            if (progress < 1) {
-              rafId = requestAnimationFrame(tick);
-            }
-          };
-          rafId = requestAnimationFrame(tick);
-        } else {
-          setDisplayContribution(next.contribution);
-        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
-      if (rafId !== 0) {
-        cancelAnimationFrame(rafId);
-      }
     };
-  }, [searchParams]);
+  }, []);
 
   if (!me) {
     return (
@@ -157,7 +125,7 @@ export default function TerritoryDash() {
         </div>
         <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="공헌">
           <span className="text-[10px] font-bold text-[#c8bea8]">공헌</span>
-          <span className="mt-1 text-sm font-black leading-none tabular-nums"><RollingNumber value={displayContribution ?? me.contribution} /></span>
+          <span className="mt-1 text-sm font-black leading-none tabular-nums"><RollingNumber value={me.contribution} /></span>
         </div>
       </div>
     </section>

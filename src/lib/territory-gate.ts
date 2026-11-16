@@ -63,45 +63,14 @@ export function territoryDisabledResponse(): NextResponse {
   return NextResponse.json({ ok: false, code: "territory_disabled" }, { status: 403 });
 }
 
-/** 성 이벤트 prefix. 공성전용 분기(재방문 가드 제외·쿨다운 통제)에 사용한다. */
+/** 성 이벤트 prefix. 성 식별(EventKey가 castle-로 시작)에 사용한다. */
 export const CASTLE_EVENT_PREFIX = "castle-";
 
 /** 성 공성 쿨다운 (초). 1인 1성 기준. */
 export const SIEGE_COOLDOWN_SEC = 3600;
 
-/** 공성 시도 기록 prefix (ARMissionUserScore.answer에 `siege:{hit|miss|giveup}:{qhash}`로 적재). */
-export const SIEGE_ANSWER_PREFIX = "siege:";
-
 export function isCastleEventKey(eventKey: string): boolean {
   return eventKey.trim().startsWith(CASTLE_EVENT_PREFIX);
-}
-
-/** 마지막 공성 시도로부터 남은 쿨다운(초). 기록 없으면 0. */
-export async function getSiegeCooldownRemainingSec(
-  userId: string,
-  castleKey: string,
-): Promise<number> {
-  if (!userId || !castleKey.trim()) {
-    return 0;
-  }
-  try {
-    const last = await prisma.aRMissionUserScore.findFirst({
-      where: {
-        UserId: userId,
-        EventKey: castleKey.trim(),
-        answer: { startsWith: SIEGE_ANSWER_PREFIX },
-      },
-      orderBy: { scoredate: "desc" },
-      select: { scoredate: true },
-    });
-    if (!last?.scoredate) {
-      return 0;
-    }
-    const elapsed = Math.floor((Date.now() - last.scoredate.getTime()) / 1000);
-    return Math.max(0, SIEGE_COOLDOWN_SEC - elapsed);
-  } catch {
-    return 0;
-  }
 }
 
 /**

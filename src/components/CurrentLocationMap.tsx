@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import type { Circle, LayerGroup, Map as LeafletMap, MapOptions, Marker } from "leaflet";
 import type * as ThreeTypes from "three";
@@ -58,8 +58,6 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
   return loaded;
 };
 
-import Ranking, { type RankingItem } from "@/components/Ranking";
-import { clearAllGameSnapshots } from "@/lib/snapshots";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { serverNow } from "@/lib/server-clock";
@@ -118,7 +116,6 @@ type GlobePoiFeatureProperties = {
   label: string;
   eventKey: string;
   eventType: string;
-  visited: boolean;
 };
 
 type GlobePoiFeature = {
@@ -298,16 +295,7 @@ type CurrentLocationMapProps = {
   className?: string;
   points?: MapPoint[];
   playerNickname?: string;
-  playerScore?: number;
-  rankingItems?: RankingItem[];
-  rankingNickname?: string;
-  initialShowRanking?: boolean;
-  debugEventTypes?: Record<string, string | null>;
   initialSettings?: MapUserSettings;
-  visitedEventKeys?: string[];
-  visitedScores?: Record<string, number>;
-  showEventRevisitedDialog?: boolean;
-  attackDeniedReason?: string | null;
   territoryEnabled?: boolean;
   missionKey?: string;
 };
@@ -317,9 +305,6 @@ type MarkerPanel = {
   lines: string[];
   wildId?: number;
   eventKey?: string;
-  confirmTarget?: string;
-  confirmLabel?: string;
-  exitUrl?: string;
   isProximity?: boolean;
   lat?: number;
   lon?: number;
@@ -424,12 +409,6 @@ const getAdminFeatureBbox = (feature: object): AdminFeatureBbox | null => {
   return bbox;
 };
 
-const MARKER_CELEBRATED_STORAGE_KEY = "marker-celebrated";
-const CELEBRATE_REPLAY_GRACE_MS = 1000;
-const NEUTRAL_DAMAGE_ANIMATION_MS = 60_000;
-const NEUTRAL_DAMAGE_FRAME_URLS = [1, 2, 3, 4].map(
-  (frame) => `/markers/neutral-castle-v2-damaged-${frame}.png`,
-);
 // 병사(대기·걷기)·무법자 8프레임 스프라이트 시트 (프레임당 156px, 표시 52px).
 // 프레임 전환은 globals.css의 CSS 애니메이션(steps(8), 120ms/프레임)이 담당한다.
 const TERRITORY_SPRITE_SHEET_URLS = [
@@ -486,73 +465,6 @@ const territorySoldierAnimationMarkup = (): string => {
 const territoryOutlawAnimationMarkup = (): string => {
   ensureTerritorySpriteSheetsPreloaded();
   return `<span class="territory-outlaw" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
-};
-
-const neutralDamageAnimationMarkup = (): string =>
-  `<div class="neutral-castle-damage-animation">${NEUTRAL_DAMAGE_FRAME_URLS.map(
-    (src, index) => `<img src="${src}" alt="" class="neutral-castle-damage-frame neutral-castle-damage-frame-${index + 1}" />`,
-  ).join("")}</div>`;
-
-const appendNeutralDamageAnimation = (element: HTMLElement, expiresAt: number): void => {
-  const wrapper = document.createElement("div");
-  wrapper.className = "neutral-castle-damage-animation";
-  NEUTRAL_DAMAGE_FRAME_URLS.forEach((src, index) => {
-    const image = document.createElement("img");
-    image.src = src;
-    image.alt = "";
-    image.className = `neutral-castle-damage-frame neutral-castle-damage-frame-${index + 1}`;
-    wrapper.appendChild(image);
-  });
-  element.appendChild(wrapper);
-  window.setTimeout(() => {
-    if (!wrapper.isConnected) return;
-    const baseImage = document.createElement("img");
-    baseImage.src = "/markers/neutral-castle-v2-short.png";
-    baseImage.alt = "";
-    baseImage.className = "neutral-castle-marker-image";
-    wrapper.replaceWith(baseImage);
-  }, Math.max(0, expiresAt - Date.now()));
-};
-
-const readCelebratedTimes = (): Map<string, number> => {
-  try {
-    const raw = window.sessionStorage.getItem(MARKER_CELEBRATED_STORAGE_KEY);
-    if (!raw) {
-      return new Map();
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return new Map(
-        parsed
-          .filter((value): value is string => typeof value === "string")
-          .map((key) => [key, 0])
-      );
-    }
-    if (typeof parsed !== "object" || parsed === null) {
-      return new Map();
-    }
-    const times = new Map<string, number>();
-    Object.entries(parsed as Record<string, unknown>).forEach(([key, value]) => {
-      if (typeof value === "number" && Number.isFinite(value)) {
-        times.set(key, value);
-      }
-    });
-    return times;
-  } catch {
-    return new Map();
-  }
-};
-
-const writeCelebratedTimes = (times: Map<string, number>): void => {
-  try {
-    const record: Record<string, number> = {};
-    times.forEach((value, key) => {
-      record[key] = value;
-    });
-    window.sessionStorage.setItem(MARKER_CELEBRATED_STORAGE_KEY, JSON.stringify(record));
-  } catch {
-    return;
-  }
 };
 
 type PlayerMarkerVisual = {
@@ -683,7 +595,6 @@ const getSavedZoomForStyle = (cacheKey: string, style: MapStyle): number | null 
     return null;
   }
 };
-const DEBUG_PSEUDO_MARKER_ENABLED = true;
 
 /** 소유자별 영토 색 (userId 해시 → hue). */
 const territoryOwnerColor = (ownerId: string): string => {
@@ -693,10 +604,6 @@ const territoryOwnerColor = (ownerId: string): string => {
   }
   return `hsl(${h % 360}, 70%, 45%)`;
 };
-const DEBUG_PSEUDO_MARKER_EVENT_KEY = "ac8f767a-efa1-445e-a3c2-7c12a53c18da";
-const DEBUG_PSEUDO_MARKER2_EVENT_KEY = "BUSANCITIZEN_BUTTERFLY";
-const DEBUG_PSEUDO_MARKER3_EVENT_KEY = "BUSANCITIZEN_STACK";
-const DEBUG_PSEUDO_MARKER_OFFSET_METERS = 30;
 const CLUSTER_DISTANCE_PX = 80;
 
 const clusterByPixelDistance = (
@@ -775,7 +682,6 @@ const SPRITE_DIRECTION_LON_THRESHOLD = 0.000001;
 const EDGE_INDICATOR_BOTTOM_SAFE_GAP = 8;
 const EDGE_INDICATOR_FALLBACK_TOOLBAR_HEIGHT = 104;
 const EMPTY_POINTS: MapPoint[] = [];
-const EMPTY_VISITED_SCORES: Record<string, number> = {};
 const LOCATION_CACHE_KEY_PREFIX = "armission-map-location:";
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> => {
@@ -829,16 +735,6 @@ const parseCachedLocation = (serializedLocation: string | null): GeoResult | nul
   };
 };
 
-const metersToLongitudeDelta = (latitude: number, meters: number): number => {
-  const latitudeRadian = (latitude * Math.PI) / 180;
-  const meterPerDegree = 111320 * Math.max(Math.cos(latitudeRadian), 0.00001);
-  return meters / meterPerDegree;
-};
-
-const metersToLatitudeDelta = (meters: number): number => {
-  return meters / 110574;
-};
-
 const normalizeHeadingDeg = (headingDeg: number): number => {
   let normalized = headingDeg % 360;
   if (normalized > 180) {
@@ -868,32 +764,6 @@ const GPS_ACCURACY_TIER_TEXT_CLASS: Record<GpsAccuracyTier, string> = {
   나쁨: "text-rose-300",
 };
 
-const isRenderablePoiEventType = (eventType?: string): boolean => {
-  if (typeof eventType !== "string") {
-    return false;
-  }
-
-  const normalized = eventType.trim().toLowerCase();
-  return normalized === "urltype" || normalized === "quiztype" || normalized === "neutraltype";
-};
-
-const getEventTypeLabel = (eventType?: string): string => {
-  if (typeof eventType !== "string") {
-    return "-";
-  }
-  const normalized = eventType.trim().toLowerCase();
-  if (normalized === "urltype") {
-    return "이벤트";
-  }
-  if (normalized === "quiztype") {
-    return "퀴즈";
-  }
-  if (normalized === "neutraltype") {
-    return "중립성";
-  }
-  return eventType;
-};
-
 /** 코드 생성 중립성 마커 prefix (DB Row 없이 사용). */
 const NEUTRAL_EVENT_PREFIX = "neutral-";
 
@@ -917,9 +787,6 @@ const WILD_ATTACK_RANGE_M = 15;
 
 /** 중립성 인식 범위 반경 (m). */
 const NEUTRAL_RANGE_RADIUS_M = 15;
-
-/** 중립성 퀴즈 풀이 허용 반경 (m). 본체 또는 자기 부대가 이 안에 있어야 한다. */
-const NEUTRAL_QUIZ_RANGE_M = 15;
 
 const metersPerPixel = (lat: number, zoom: number): number =>
   (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
@@ -1132,19 +999,6 @@ const formatEdgeIndicatorDistance = (distanceMeters: number): string => {
   return `${roundedKm}km`;
 };
 
-const buildEventPageTarget = (eventKey?: string): string | undefined => {
-  const trimmedEventKey = eventKey?.trim();
-  if (!trimmedEventKey) {
-    return undefined;
-  }
-
-  const params = new URLSearchParams({
-    eventkey: trimmedEventKey,
-  });
-
-  return `/event?${params.toString()}`;
-};
-
 const projectToEdge = (
   width: number,
   height: number,
@@ -1200,23 +1054,6 @@ const projectToEdge = (
   return { left, top, angle };
 };
 
-const getScoreAnimatedStorageKey = (sig: string): string => `score-animated:${sig}`;
-
-const hasAnimatedScoreSig = (sig: string): boolean => {
-  try {
-    return window.sessionStorage.getItem(getScoreAnimatedStorageKey(sig)) !== null;
-  } catch {
-    return false;
-  }
-};
-
-const markScoreAnimatedSig = (sig: string): void => {
-  try {
-    window.sessionStorage.setItem(getScoreAnimatedStorageKey(sig), "1");
-  } catch {
-  }
-};
-
 
 /** 영토전 시작 위치 스토어 (시-도/군-구/동-읍 선택). 타입은 피커 참고. */
 
@@ -1268,157 +1105,16 @@ export const writeTerritoryStart = (cacheKey: string, start: TerritoryStart): vo
   }
 };
 
-type AnimatedScoreCounterProps = {
-  value: number;
-  startFrom: number;
-  shouldAnimate: boolean;
-  onAnimationComplete: () => void;
-  duration?: number;
-};
-
-function AnimatedScoreCounter({
-  value,
-  startFrom,
-  shouldAnimate,
-  onAnimationComplete,
-  duration = 3000,
-}: AnimatedScoreCounterProps) {
-  const [displayValue, setDisplayValue] = useState(shouldAnimate ? startFrom : value);
-  const animatingRef = useRef(false);
-  const prevShouldAnimateRef = useRef(false);
-  const rafIdRef = useRef(0);
-
-  useEffect(() => {
-    if (!shouldAnimate) {
-      setDisplayValue(value);
-      prevShouldAnimateRef.current = false;
-      return;
-    }
-
-    if (prevShouldAnimateRef.current) {
-      return;
-    }
-
-    const startValue = startFrom;
-    const endValue = value;
-    const delta = Math.max(0, endValue - startValue);
-    const effectiveDuration = delta <= 0 ? 0 : Math.min(Math.max(900, delta * 450), duration);
-
-    const timeoutId = setTimeout(() => {
-      if (animatingRef.current) {
-        return;
-      }
-
-      prevShouldAnimateRef.current = true;
-      animatingRef.current = true;
-      console.log("[ScoreAnim] counter start", { startFrom, value, duration, delta, effectiveDuration });
-
-      if (effectiveDuration <= 0) {
-        setDisplayValue(endValue);
-        animatingRef.current = false;
-        onAnimationComplete();
-        return;
-      }
-
-      const startTime = Date.now();
-
-      const animate = () => {
-        const now = Date.now();
-        const elapsed = now - startTime;
-        const progress = Math.min(elapsed / effectiveDuration, 1);
-
-        const current = startValue + Math.floor(delta * progress);
-
-        setDisplayValue(current);
-
-        if (progress < 1) {
-          rafIdRef.current = requestAnimationFrame(animate);
-        } else {
-          setDisplayValue(endValue);
-          animatingRef.current = false;
-          onAnimationComplete();
-        }
-      };
-
-      rafIdRef.current = requestAnimationFrame(animate);
-    }, 100);
-
-    const fallbackTimeoutId = setTimeout(() => {
-      if (!animatingRef.current) {
-        return;
-      }
-      console.log("[ScoreAnim] counter fallback finish", { startFrom, value });
-      cancelAnimationFrame(rafIdRef.current);
-      setDisplayValue(value);
-      animatingRef.current = false;
-      onAnimationComplete();
-    }, 100 + effectiveDuration + 4000);
-
-    return () => {
-      clearTimeout(timeoutId);
-      clearTimeout(fallbackTimeoutId);
-      cancelAnimationFrame(rafIdRef.current);
-      prevShouldAnimateRef.current = false;
-    };
-  }, [value, startFrom, shouldAnimate, duration, onAnimationComplete]);
-
-  useEffect(() => {
-    return () => {
-      cancelAnimationFrame(rafIdRef.current);
-    };
-  }, []);
-
-  const digits = Math.max(0, displayValue).toString().split("");
-
-  return (
-    <div className="flex items-center gap-0.5 h-5">
-      {digits.map((digit, idx) => (
-        <div
-          key={idx}
-          className="relative h-5 w-3 overflow-hidden"
-        >
-          <div
-            className="flex flex-col"
-            style={{
-              transform: `translateY(-${parseInt(digit) * 20}px)`,
-              transition: "transform 150ms ease-out",
-            }}
-          >
-            {[0,1,2,3,4,5,6,7,8,9].map((n) => (
-              <span
-                key={n}
-                className="h-5 flex items-center justify-center text-sm font-extrabold leading-none tabular-nums text-amber-100"
-              >
-                {n}
-              </span>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function CurrentLocationMap({
   locationCacheKey,
   className,
   points = EMPTY_POINTS,
   playerNickname,
-  playerScore: initialPlayerScore,
-  rankingItems = [],
-  rankingNickname,
-  initialShowRanking = false,
-  debugEventTypes,
   initialSettings = DEFAULT_MAP_USER_SETTINGS,
-  visitedEventKeys = [],
-  visitedScores = EMPTY_VISITED_SCORES,
-  showEventRevisitedDialog = false,
-  attackDeniedReason = null,
   territoryEnabled = false,
   missionKey,
 }: CurrentLocationMapProps) {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const locationStorageKey = `${LOCATION_CACHE_KEY_PREFIX}${locationCacheKey}`;
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1433,27 +1129,6 @@ export default function CurrentLocationMap({
     if (initialSettings.mapStyle === "cesium") return 15;
     return DEFAULT_ZOOM_LEVEL;
   });
-  const pendingScoreAnimation: { addedScore: number } | null = (() => {
-    if (searchParams.get("scoreUpdated") !== "true") {
-      return null;
-    }
-    const parsed = parseInt(searchParams.get("addedScore") ?? "", 10);
-    if (!Number.isFinite(parsed)) {
-      return null;
-    }
-    const sig = `true:${searchParams.get("addedScore") ?? ""}:${searchParams.get("scoreNonce") ?? ""}`;
-    if (hasAnimatedScoreSig(sig)) {
-      return null;
-    }
-    return { addedScore: parsed };
-  })();
-  const [playerScore, setPlayerScore] = useState<number>(initialPlayerScore ?? 0);
-  const [animateScore, setAnimateScore] = useState(pendingScoreAnimation !== null);
-  const [previousScore, setPreviousScore] = useState<number>(() =>
-    pendingScoreAnimation
-      ? Math.max(0, (initialPlayerScore ?? 0) - pendingScoreAnimation.addedScore)
-      : 0
-  );
   const [isHeadingUpMode, setIsHeadingUpMode] = useState(false);
   const [mapRotationDeg, setMapRotationDeg] = useState(0);
   const [compassIconDataUrl, setCompassIconDataUrl] = useState<string | null>(null);
@@ -1673,6 +1348,9 @@ export default function CurrentLocationMap({
   const [territoryCastles, setTerritoryCastles] = useState<TerritoryOwnedCastle[]>([]);
   // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성). 같은 /api/castles/list 폴링에서 파생한다.
   const [castleKindMap, setCastleKindMap] = useState<Map<string, string>>(new Map());
+  // 내구도가 깎인 성 키 (hp < maxHp). 영주성 손상 이미지 표시용. 같은 폴링에서 파생한다.
+  const [castleDamagedKeys, setCastleDamagedKeys] = useState<Set<string>>(() => new Set());
+  const castleDamagedSigRef = useRef<string | null>(null);
   // 폴링 결과가 같으면 setState를 생략해 영토 색칠 레이어 재스타일을 막는다.
   const territoryCastlesSigRef = useRef<string | null>(null);
   const castleKindSigRef = useRef<string | null>(null);
@@ -1695,9 +1373,18 @@ export default function CurrentLocationMap({
         }
         const next: TerritoryOwnedCastle[] = [];
         const nextKinds = new Map<string, string>();
+        const nextDamaged = new Set<string>();
         for (const row of data.castles as Record<string, unknown>[]) {
           if (typeof row.castleKey === "string" && typeof row.kind === "string") {
             nextKinds.set(row.castleKey.trim(), row.kind);
+          }
+          if (
+            typeof row.castleKey === "string" &&
+            typeof row.hp === "number" &&
+            typeof row.maxHp === "number" &&
+            row.hp < row.maxHp
+          ) {
+            nextDamaged.add(row.castleKey.trim());
           }
           if (
             typeof row.castleKey !== "string" ||
@@ -1730,6 +1417,11 @@ export default function CurrentLocationMap({
         if (kindSig !== castleKindSigRef.current) {
           castleKindSigRef.current = kindSig;
           setCastleKindMap(nextKinds);
+        }
+        const damagedSig = JSON.stringify([...nextDamaged].sort());
+        if (damagedSig !== castleDamagedSigRef.current) {
+          castleDamagedSigRef.current = damagedSig;
+          setCastleDamagedKeys(nextDamaged);
         }
       } catch {
         // 조회 실패 시 기존 색 유지
@@ -2060,14 +1752,6 @@ export default function CurrentLocationMap({
       no_lord: "영주성이 없어 귀족성을 지을 수 없습니다.",
       accuracy: "GPS 정확도가 낮습니다. 실외로 이동하세요.",
       stale_location: "최근 GPS 기록이 없습니다. 위치를 켜고 잠시 걸어주세요.",
-      pool_invalid: "선택한 이벤트를 확인할 수 없습니다.",
-      pool_required: "이벤트를 선택하세요.",
-      pool_url: "문제풀 주소가 올바르지 않습니다.",
-      pool_fetch: "문제풀을 내려받지 못했습니다. 다시 시도하세요.",
-      pool_too_large: "문제풀 용량이 너무 큽니다.",
-      pool_too_small: "문제풀 문항이 부족합니다 (유효 20문항 이상 필요).",
-      pool_columns: "문제풀 형식이 올바르지 않습니다 (answer/difficulty 열 필요).",
-      game_castle_season2: "게임성은 다음 시즌에 지원됩니다.",
       invalid: "입력값이 올바르지 않습니다.",
       invalid_coordinates: "좌표가 올바르지 않습니다.",
       login: "로그인이 필요합니다.",
@@ -2085,7 +1769,6 @@ export default function CurrentLocationMap({
         lat: snappedLocation.lat,
         lon: snappedLocation.lon,
         accuracy: location?.accuracy ?? 100,
-        poolId: current.poolId,
         hp: current.hp,
       }),
     })
@@ -2113,7 +1796,7 @@ export default function CurrentLocationMap({
   }, [location?.lat, location?.lon, location?.accuracy, playerLocation?.lat, playerLocation?.lon, placementBusy]);
   const [lordSelected, setLordSelected] = useState(false);
   const [unitMarks, setUnitMarks] = useState<
-    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; quizTitle?: string; moveTarget: UnitMoveTargetMark | null }[]
+    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; moveTarget: UnitMoveTargetMark | null }[]
   >([]);
   const unitMarksRef = useRef<typeof unitMarks>([]);
   useEffect(() => {
@@ -2149,8 +1832,6 @@ interface PoiMarkerEntry {
   layers: import("leaflet").Layer[];
   /** poiMarkerByKeyRef 키 (단일 마커 eventKey). */
   eventKey: string | null;
-  /** poiMarkerElementsRef 키 (방문 완료 단일 마커). */
-  visitedKey: string | null;
 }
 
 interface OtherUnitMoveAnim {
@@ -2373,15 +2054,6 @@ interface OtherUnitMoveAnim {
 
   const [edgeIndicators, setEdgeIndicators] = useState<EdgeIndicator[]>([]);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [showEventRevisited, setShowEventRevisited] = useState(showEventRevisitedDialog);
-  const [attackDenied, setAttackDenied] = useState<string | null>(attackDeniedReason);
-  const [showRankingPanel, setShowRankingPanel] = useState(initialShowRanking);
-
-  useEffect(() => {
-    if (territoryEnabled) {
-      setShowRankingPanel(false);
-    }
-  }, [territoryEnabled]);
   const [selectedCharacter, setSelectedCharacter] = useState<PlayerCharacter>(initialSettings.selectedCharacter);
   const [mapStyle, setMapStyle] = useState<MapStyle>(initialSettings.mapStyle);
   const [showAdminBoundaries, setShowAdminBoundaries] = useState(false);
@@ -2817,7 +2489,6 @@ interface OtherUnitMoveAnim {
   const [fallenAngelFramesFailed, setFallenAngelFramesFailed] = useState(false);
   const [isWalkingFramesLoading, setIsWalkingFramesLoading] = useState(true);
   const [isFallenAngelFramesLoading, setIsFallenAngelFramesLoading] = useState(true);
-  const hasAnimatedRef = useRef(false);
   const hasSyncedSettingsRef = useRef(false);
   const hasRestoredZoomRef = useRef(false);
   const mapRotationDegRef = useRef(0);
@@ -2919,6 +2590,9 @@ interface OtherUnitMoveAnim {
     }
     return castleKindMap.get(key) ?? null;
   };
+  /** 내구도가 깎인 성인지 (castle list의 hp/maxHp 기준). */
+  const isCastleDamaged = (eventKey?: string | null): boolean =>
+    castleDamagedKeys.has((eventKey ?? "").trim());
 
   useEffect(() => {
     if (!territoryEnabled || castleKindMap.size === 0) return;
@@ -3069,7 +2743,8 @@ interface OtherUnitMoveAnim {
   }, [territoryEnabled, selectedAdminCode, adminGeoJson]);
 
   const renderablePoiPoints = useMemo(() => {
-    const base = points.filter((point) => isRenderablePoiEventType(point.eventType));
+    // 서버 지점은 성(castle- 키)만 그린다. EventType(옛 quiztype/URLType, 새 castle)과 무관.
+    const base = points.filter((point) => (point.eventKey ?? "").trim().startsWith("castle-"));
     if (!territoryEnabled) {
       return base;
     }
@@ -3095,221 +2770,6 @@ interface OtherUnitMoveAnim {
         : renderablePoiPoints,
     [renderablePoiPoints, zoomLevel],
   );
-
-  const visitedEventKeySet = useMemo(() => {
-    return new Set(
-      visitedEventKeys.map((eventKey) => eventKey.trim()).filter((eventKey) => eventKey.length > 0)
-    );
-  }, [visitedEventKeys]);
-
-  const neutralDamageExpiresAtRef = useRef(new Map<string, number>());
-  const neutralDamageScoreSignatureRef = useRef<string | null>(null);
-  const pendingNeutralDamageCompletionRef = useRef<{ eventKey: string; signature: string } | null>(null);
-  const completedEventKey = searchParams.get("completedEventKey")?.trim() ?? "";
-  const neutralDamageScoreSignature = searchParams.get("scoreNonce") ??
-    `${searchParams.get("addedScore") ?? ""}:${completedEventKey}`;
-  useEffect(() => {
-    if (searchParams.get("scoreUpdated") === "true" && completedEventKey.startsWith(NEUTRAL_EVENT_PREFIX)) {
-      pendingNeutralDamageCompletionRef.current = {
-        eventKey: completedEventKey,
-        signature: neutralDamageScoreSignature,
-      };
-    }
-    const pending = pendingNeutralDamageCompletionRef.current;
-    if (!pending) return;
-    if (neutralDamageScoreSignatureRef.current === pending.signature) return;
-    neutralDamageExpiresAtRef.current.set(
-      pending.eventKey,
-      Date.now() + NEUTRAL_DAMAGE_ANIMATION_MS,
-    );
-    neutralDamageScoreSignatureRef.current = pending.signature;
-    pendingNeutralDamageCompletionRef.current = null;
-  }, [searchParams, completedEventKey, neutralDamageScoreSignature, visitedEventKeySet]);
-
-  const getNeutralDamageExpiry = useCallback((eventKey?: string | null): number | null => {
-    const key = eventKey?.trim() ?? "";
-    const expiresAt = neutralDamageExpiresAtRef.current.get(key);
-    if (!expiresAt || expiresAt <= Date.now()) {
-      return null;
-    }
-    return expiresAt;
-  }, []);
-
-  const isVisitedEventKey = useCallback((eventKey?: string): boolean => {
-    const trimmed = eventKey?.trim() ?? "";
-    return trimmed.length > 0 && visitedEventKeySet.has(trimmed);
-  }, [visitedEventKeySet]);
-
-  const getVisitedScore = useCallback((eventKey?: string): number | null => {
-    const trimmed = eventKey?.trim() ?? "";
-    if (!trimmed) {
-      return null;
-    }
-    const score = visitedScores[trimmed];
-    return typeof score === "number" && Number.isFinite(score) ? score : null;
-  }, [visitedScores]);
-
-  const totalMarkerCount = renderablePoiPoints.filter(
-    (point) => !isNeutralEventKey(point.eventKey)
-  ).length;
-  const unvisitedMarkerCount = useMemo(() => {
-    return renderablePoiPoints.filter(
-      (point) => !isNeutralEventKey(point.eventKey) && !isVisitedEventKey(point.eventKey)
-    ).length;
-  }, [renderablePoiPoints, isVisitedEventKey]);
-
-  const myRank = useMemo(() => {
-    const nickname = rankingNickname ?? playerNickname ?? "";
-    if (!nickname) {
-      return null;
-    }
-    const sorted = [...rankingItems].sort((a, b) => b.score - a.score);
-    const index = sorted.findIndex((item) => item.nickname === nickname);
-    return index >= 0 ? index + 1 : null;
-  }, [rankingItems, rankingNickname, playerNickname]);
-
-  const celebrateVisitedMarkers = useCallback(() => {
-    // 500ms 스로틀 + 마커 레지스트리가 전부 비었으면 DOM 스캔 생략
-    // (리로드 직후 마커 생성 폭주 중 매번 querySelector를 돌지 않게).
-    const nowThrottle = Date.now();
-    if (nowThrottle - celebrateLastAttemptRef.current < 500) {
-      return;
-    }
-    celebrateLastAttemptRef.current = nowThrottle;
-    if (
-      poiMarkerElementsRef.current.size === 0 &&
-      globePoiElementsRef.current.size === 0 &&
-      cesiumPoiElementsRef.current.size === 0 &&
-      !pseudoMarkerRef.current &&
-      !pseudoMarker2Ref.current &&
-      !pseudoMarker3Ref.current
-    ) {
-      return;
-    }
-    const celebrated = readCelebratedTimes();
-    let dirty = false;
-    celebrated.forEach((_, key) => {
-      if (!visitedEventKeySet.has(key)) {
-        celebrated.delete(key);
-        dirty = true;
-      }
-    });
-    const animateElement = (root: HTMLElement | null): boolean => {
-      if (!root) {
-        return false;
-      }
-      root.classList.remove("morph-pending");
-      const target = root.querySelector(".three-poi-marker-visited-wrap");
-      console.log("[Celebrate] animate try (element)", {
-        hasRoot: Boolean(root),
-        hasTarget: Boolean(target),
-      });
-      if (!target) {
-        return false;
-      }
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-        return true;
-      }
-
-      const redMarker = target.querySelector(".three-poi-marker-visited-red");
-      const greenMarker = target.querySelector(".three-poi-marker-visited");
-      const ripple = target.querySelector(".three-poi-marker-visited-ripple");
-      const glow = target.querySelector(".three-poi-marker-visited-glow");
-      const delay = 0;
-      const duration = 1800;
-      target.animate(
-        [
-          { transform: "scale(0) rotateY(-90deg)", filter: "brightness(2)" },
-          { transform: "scale(1.5) rotateY(0deg)", filter: "brightness(1.6)", offset: 0.3 },
-          { transform: "scale(0.9) rotateY(0deg)", filter: "brightness(1)", offset: 0.55 },
-          { transform: "scale(1.12) rotateY(0deg)", offset: 0.75 },
-          { transform: "scale(1) rotateY(0deg)" },
-        ],
-        { delay, duration, easing: "cubic-bezier(0.2, 1.4, 0.3, 1)", iterations: 2 }
-      );
-      redMarker?.animate(
-        [{ opacity: 1 }, { opacity: 0 }],
-        { delay, duration: 1200, easing: "ease-out", fill: "both" }
-      );
-      greenMarker?.animate(
-        [{ opacity: 0 }, { opacity: 1 }],
-        { delay, duration: 1200, easing: "ease-out", fill: "both" }
-      );
-      ripple?.animate(
-        [
-          { opacity: 0, transform: "scale(0.7)" },
-          { opacity: 0.8, offset: 0.18 },
-          { opacity: 0, transform: "scale(5)" },
-        ],
-        { delay, duration, easing: "ease-out", iterations: 2 }
-      );
-      glow?.animate(
-        [
-          { opacity: 0, transform: "scale(0.75)" },
-          { opacity: 0.9, transform: "scale(1.35)", offset: 0.3 },
-          { opacity: 0.45, transform: "scale(1)", offset: 0.65 },
-          { opacity: 0.75, transform: "scale(1.2)" },
-        ],
-        { delay, duration, easing: "ease-in-out", iterations: 2 }
-      );
-      return true;
-    };
-    const animateMarkerElement = (marker: Marker | null | undefined): boolean => {
-      const root = marker?.getElement();
-      return animateElement(root as unknown as HTMLElement | null);
-    };
-    const animatedKeys: string[] = [];
-    const now = Date.now();
-    console.log("[Celebrate] attempt", {
-      uncelebrated: [...visitedEventKeySet].filter((key) => {
-        const recordedAt = celebrated.get(key);
-        return recordedAt === undefined || now - recordedAt <= CELEBRATE_REPLAY_GRACE_MS;
-      }),
-      registry: [...poiMarkerElementsRef.current.keys()],
-      globeRegistry: [...globePoiElementsRef.current.keys()],
-      cesiumRegistry: [...cesiumPoiElementsRef.current.keys()],
-    });
-    visitedEventKeySet.forEach((key) => {
-      const recordedAt = celebrated.get(key);
-      if (recordedAt !== undefined && now - recordedAt > CELEBRATE_REPLAY_GRACE_MS) {
-        return;
-      }
-      const singleMarker = poiMarkerElementsRef.current.get(key);
-      if (singleMarker && animateMarkerElement(singleMarker)) {
-        animatedKeys.push(key);
-        return;
-      }
-      const debugMarker =
-        key === DEBUG_PSEUDO_MARKER_EVENT_KEY
-          ? pseudoMarkerRef.current
-          : key === DEBUG_PSEUDO_MARKER2_EVENT_KEY
-            ? pseudoMarker2Ref.current
-            : key === DEBUG_PSEUDO_MARKER3_EVENT_KEY
-              ? pseudoMarker3Ref.current
-              : null;
-      if (animateMarkerElement(debugMarker)) {
-        animatedKeys.push(key);
-        return;
-      }
-      const globeElement = globePoiElementsRef.current.get(key);
-      if (globeElement && animateElement(globeElement)) {
-        animatedKeys.push(key);
-        return;
-      }
-      const cesiumElement = cesiumPoiElementsRef.current.get(key);
-      if (cesiumElement && animateElement(cesiumElement)) {
-        animatedKeys.push(key);
-        return;
-      }
-    });
-    if (animatedKeys.length > 0) {
-      animatedKeys.forEach((key) => celebrated.set(key, Date.now()));
-      dirty = true;
-    }
-    if (dirty) {
-      writeCelebratedTimes(celebrated);
-    }
-  }, [visitedEventKeySet]);
 
   useEffect(() => {
     if (!hasSyncedSettingsRef.current) {
@@ -3348,108 +2808,6 @@ interface OtherUnitMoveAnim {
       controller.abort();
     };
   }, [selectedCharacter, mapStyle]);
-
-  const animationCompleteRef = useRef(false);
-  const hasRefreshedForScoreRef = useRef(false);
-  const scoreAnimSigRef = useRef<string | null>(null);
-  const scoreAnimRef = useRef<{ addedScore: number } | null>(null);
-  const scoreCelebrationPendingRef = useRef(false);
-  // Celebrate DOM 스캔 폭주 방지 (마커 생성 중 매 렌더마다 호출됨).
-  const celebrateLastAttemptRef = useRef(0);
-
-  {
-    const scoreUpdatedParam = searchParams.get("scoreUpdated");
-    const sig = scoreUpdatedParam === "true"
-      ? `true:${searchParams.get("addedScore") ?? ""}:${searchParams.get("scoreNonce") ?? ""}`
-      : null;
-    if (sig !== scoreAnimSigRef.current) {
-      console.log("[ScoreAnim] sig changed", {
-        previous: scoreAnimSigRef.current,
-        next: sig,
-        alreadyAnimated: sig ? hasAnimatedScoreSig(sig) : false,
-      });
-      scoreAnimSigRef.current = sig;
-      const parsed = parseInt(searchParams.get("addedScore") ?? "", 10);
-      scoreAnimRef.current = sig && !hasAnimatedScoreSig(sig)
-        ? { addedScore: Number.isFinite(parsed) ? parsed : 0 }
-        : null;
-      hasAnimatedRef.current = false;
-      hasRefreshedForScoreRef.current = false;
-    }
-  }
-
-  useEffect(() => {
-    if (searchParams.get("scoreUpdated") === "true") {
-      router.replace("/map");
-    }
-
-    const captured = scoreAnimRef.current;
-    console.log("[ScoreAnim] effect", {
-      hasParams: searchParams.get("scoreUpdated") === "true",
-      hasCaptured: Boolean(captured),
-      alreadyAnimated: hasAnimatedRef.current,
-      addedScore: captured?.addedScore ?? null,
-      currentScore: initialPlayerScore ?? 0,
-      playerScore,
-      animateScore,
-    });
-    if (!captured || hasAnimatedRef.current) {
-      return;
-    }
-
-    const currentScore = initialPlayerScore ?? 0;
-    const addedScore = captured.addedScore;
-
-    if (currentScore < addedScore) {
-      if (!hasRefreshedForScoreRef.current) {
-        hasRefreshedForScoreRef.current = true;
-        console.log("[ScoreAnim] refreshing for fresh total", { currentScore, addedScore });
-        router.refresh();
-        return;
-      }
-      hasAnimatedRef.current = true;
-      if (scoreAnimSigRef.current) {
-        markScoreAnimatedSig(scoreAnimSigRef.current);
-      }
-      animationCompleteRef.current = true;
-      setPlayerScore(currentScore);
-      celebrateVisitedMarkers();
-      return;
-    }
-
-    hasAnimatedRef.current = true;
-    if (scoreAnimSigRef.current) {
-      markScoreAnimatedSig(scoreAnimSigRef.current);
-    }
-    animationCompleteRef.current = false;
-
-    const prevScore = Math.max(0, currentScore - addedScore);
-    setPreviousScore(prevScore);
-    setPlayerScore(currentScore);
-    setAnimateScore(true);
-    scoreCelebrationPendingRef.current = true;
-    console.log("[ScoreAnim] starting animation", {
-      previousScore: prevScore,
-      currentScore,
-      addedScore,
-      visited: [...visitedEventKeySet],
-    });
-  }, [searchParams, initialPlayerScore, router, celebrateVisitedMarkers, visitedEventKeySet]);
-  
-  useEffect(() => {
-    if (scoreAnimRef.current) {
-      return;
-    }
-
-    const propScore = initialPlayerScore ?? 0;
-    if (playerScore !== propScore) {
-      console.log("[ScoreSync] syncing score from prop", {
-        playerScore,
-        propScore,
-      });
-      setPlayerScore(propScore);
-    }
-  }, [initialPlayerScore, playerScore]);
 
   const viewHeadingDegRef = useRef(0);
   const commitMapRotation = useCallback((nextRotationDeg: number, timestamp: number) => {
@@ -3528,10 +2886,6 @@ interface OtherUnitMoveAnim {
   const walkableTilesRef = useRef<GridFull[]>([]);
   const walkableGlobeIdsRef = useRef<string[]>([]);
   const cesiumWalkableEntitiesRef = useRef<CesiumTypes.Entity[]>([]);
-  const pseudoMarkerRef = useRef<Marker | null>(null);
-  const pseudoMarker2Ref = useRef<Marker | null>(null);
-  const pseudoMarker3Ref = useRef<Marker | null>(null);
-  const debugMarkerPositionsRef = useRef<[[number, number], [number, number], [number, number]] | null>(null);
   const pointsLayerRef = useRef<LayerGroup | null>(null);
   const nearbyPlayersLayerRef = useRef<LayerGroup | null>(null);
   const nearbyPlayerMarkerMapRef = useRef<Map<string, NearbyPlayerMarkerEntry>>(new Map());
@@ -3548,12 +2902,10 @@ interface OtherUnitMoveAnim {
   const playerMarkerLastLonRef = useRef<number | null>(null);
   const playerMarkerFacingLeftRef = useRef(false);
   const poiIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const poiVisitedIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const damagedLordCastleIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const poiNeutralIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const poiLordIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const poiNobleIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const poiMarkerElementsRef = useRef<Map<string, Marker>>(new Map());
   // 패널 선택 개체 적색 테두리용: eventKey → 단일 마커.
   const poiMarkerByKeyRef = useRef<Map<string, Marker>>(new Map());
   const hostileSelectedElsRef = useRef<Set<Element>>(new Set());
@@ -3582,9 +2934,6 @@ interface OtherUnitMoveAnim {
     el.classList.add("hostile-selected");
     hostileSelectedElsRef.current.add(el);
   }, []);
-  const pseudoMarkerIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const pseudoMarkerVisitedIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const pseudoMarkerSoldierIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const watchIdRef = useRef<number | null>(null);
   const locationRef = useRef<GeoResult | null>(null);
   const hasCachedLocationRef = useRef(false);
@@ -3621,8 +2970,6 @@ interface OtherUnitMoveAnim {
   const cesiumHtmlOverlayRef = useRef<HTMLDivElement | null>(null);
   const cesiumAdminDataSourceRef = useRef<CesiumTypes.DataSource | null>(null);
   const cesiumHtmlMarkersRef = useRef<Array<{ element: HTMLDivElement; lon: number; lat: number; anchor: "bottom" | "center" }>>([]);
-  const globePoiElementsRef = useRef<Map<string, HTMLElement>>(new Map());
-  const cesiumPoiElementsRef = useRef<Map<string, HTMLElement>>(new Map());
   const [isCesiumReady, setIsCesiumReady] = useState(false);
 
   const createThreePoiMarkerDataUrl = useCallback((scheme: "unvisited" | "visited" = "unvisited"): string | null => {
@@ -4425,18 +3772,6 @@ interface OtherUnitMoveAnim {
       playerMarkerApplyFacingRef.current = null;
       playerMarkerLastLonRef.current = null;
       playerMarkerFacingLeftRef.current = false;
-      if (pseudoMarkerRef.current) {
-        pseudoMarkerRef.current.remove();
-        pseudoMarkerRef.current = null;
-      }
-      if (pseudoMarker2Ref.current) {
-         pseudoMarker2Ref.current.remove();
-         pseudoMarker2Ref.current = null;
-       }
-       if (pseudoMarker3Ref.current) {
-         pseudoMarker3Ref.current.remove();
-         pseudoMarker3Ref.current = null;
-       }
       if (circleRef.current) {
         circleRef.current.remove();
         circleRef.current = null;
@@ -4453,9 +3788,6 @@ interface OtherUnitMoveAnim {
       lastLocationWriteRef.current = null;
       pointsLayerRef.current = null;
       markerRef.current = null;
-      pseudoMarkerIconRef.current = undefined;
-      pseudoMarkerVisitedIconRef.current = undefined;
-      pseudoMarkerSoldierIconRef.current = undefined;
       setIsMapReady(false);
     };
   }, []);
@@ -4667,222 +3999,6 @@ interface OtherUnitMoveAnim {
         markerRef.current.off("click");
       }
 
-    if (DEBUG_PSEUDO_MARKER_ENABLED && !territoryEnabled) {
-        const debugBase = playerLocation ?? location;
-        if (!debugBase) {
-          return;
-        }
-        let playerLat = debugBase.lat;
-        let playerLon = debugBase.lon;
-
-        if (!debugMarkerPositionsRef.current) {
-          const debugMarkerTargets: [[number, number], [number, number], [number, number]] = [
-            [debugBase.lat, debugBase.lon + metersToLongitudeDelta(debugBase.lat, DEBUG_PSEUDO_MARKER_OFFSET_METERS)],
-            [debugBase.lat - metersToLatitudeDelta(DEBUG_PSEUDO_MARKER_OFFSET_METERS), debugBase.lon],
-            [debugBase.lat, debugBase.lon - metersToLongitudeDelta(debugBase.lat, DEBUG_PSEUDO_MARKER_OFFSET_METERS)],
-          ];
-          const positions = territoryEnabled
-            ? await Promise.all(debugMarkerTargets.map(async ([lat, lon]) => {
-                const snapped = await snapToNearestWalkableLocation(lat, lon);
-                return snapped ? [snapped.lat, snapped.lon] as [number, number] : [lat, lon] as [number, number];
-              })) as [[number, number], [number, number], [number, number]]
-            : debugMarkerTargets;
-          if (isCancelled) return;
-          debugMarkerPositionsRef.current = positions;
-        }
-        const [pseudoPosition, pseudo2Position, pseudo3Position] = debugMarkerPositionsRef.current;
-
-        // console.log("[CurrentLocationMap] pseudo marker check", {
-        //   hasPoiIconRef: Boolean(poiIconRef.current),
-        //   hasPseudoIconRef: Boolean(pseudoMarkerIconRef.current),
-        //   locationLat: location.lat,
-        //   locationLon: location.lon,
-        // });
-
-        if (!pseudoMarkerIconRef.current) {
-          // console.log("[CurrentLocationMap] creating pseudo marker icon on-demand");
-          const pseudoIconDataUrl = createThreePoiMarkerDataUrl();
-          if (pseudoIconDataUrl && leafletRef.current) {
-            pseudoMarkerIconRef.current = leafletRef.current.divIcon({
-              className: "three-poi-marker-shell",
-              html: `<div class="map-rotation-upright"><div class="three-poi-marker-spin"><img src="${pseudoIconDataUrl}" alt="" class="three-poi-marker" /></div></div>`,
-              iconSize: [30, 30],
-              iconAnchor: [15, 29],
-            });
-            // console.log("[CurrentLocationMap] pseudo marker icon created");
-          }
-        }
-
-        if (!pseudoMarkerVisitedIconRef.current) {
-          const pseudoVisitedIconDataUrl = createThreePoiMarkerDataUrl("visited");
-          const pseudoUnvisitedIconDataUrl = createThreePoiMarkerDataUrl("unvisited");
-          if (pseudoVisitedIconDataUrl && leafletRef.current) {
-            pseudoMarkerVisitedIconRef.current = leafletRef.current.divIcon({
-              className: "three-poi-marker-visited-shell",
-              html: `<div class="map-rotation-upright"><div class="three-poi-marker-visited-wrap"><span class="three-poi-marker-visited-glow" aria-hidden="true"></span><span class="three-poi-marker-visited-ripple" aria-hidden="true"></span>${pseudoUnvisitedIconDataUrl ? `<img src="${pseudoUnvisitedIconDataUrl}" alt="" class="three-poi-marker-visited-red" />` : ""}<img src="${pseudoVisitedIconDataUrl}" alt="" class="three-poi-marker-visited" /></div></div>`,
-              iconSize: [30, 30],
-              iconAnchor: [15, 29],
-            });
-          }
-        }
-
-        if (territoryEnabled && !pseudoMarkerSoldierIconRef.current && leafletRef.current) {
-          pseudoMarkerSoldierIconRef.current = leafletRef.current.divIcon({
-              className: "three-poi-marker-shell",
-              html: `<div class="map-rotation-upright">${territorySoldierAnimationMarkup()}</div>`,
-              iconSize: [52, 52],
-              iconAnchor: [26, 51],
-          });
-        }
-        const pseudoTerritorySoldierIcon = territoryEnabled
-          ? pseudoMarkerSoldierIconRef.current
-          : null;
-
-        const resolvePseudoMarkerIcon = (eventKey: string) => {
-          const normalIcon = pseudoMarkerIconRef.current;
-          const visitedIcon = pseudoMarkerVisitedIconRef.current;
-          if (isVisitedEventKey(eventKey) && visitedIcon) {
-            return visitedIcon;
-          }
-          if (pseudoTerritorySoldierIcon) {
-            return pseudoTerritorySoldierIcon;
-          }
-          return normalIcon;
-        };
-        
-        if (!pseudoMarkerIconRef.current) {
-          // console.warn("[CurrentLocationMap] skip pseudo marker: icon not ready");
-        } else {
-          if (!pseudoMarkerRef.current) {
-            pseudoMarkerRef.current = L.marker(pseudoPosition, {
-              icon: pseudoMarkerIconRef.current,
-            }).addTo(map);
-          }
-
-          const pseudoMarkerIcon = resolvePseudoMarkerIcon(DEBUG_PSEUDO_MARKER_EVENT_KEY);
-          if (pseudoMarkerIcon && pseudoMarkerRef.current?.getIcon() !== pseudoMarkerIcon) {
-            pseudoMarkerRef.current.setIcon(pseudoMarkerIcon);
-          }
-
-          const pseudoAnchor = pseudoMarkerRef.current.getLatLng();
-          const pseudo1Distance = calculateDistance(playerLat, playerLon, pseudoAnchor.lat, pseudoAnchor.lng);
-          
-          if (!pseudoMarkerRef.current.getTooltip()) {
-            pseudoMarkerRef.current.bindTooltip(`디버그 마커 (${pseudo1Distance.toFixed(1)}m)`, {
-              permanent: true,
-              direction: "top",
-              offset: [0, POI_LABEL_OFFSET_Y],
-              className: "map-poi-label",
-            });
-          } else {
-            pseudoMarkerRef.current.setTooltipContent(`디버그 마커 (${pseudo1Distance.toFixed(1)}m)`);
-          }
-
-        pseudoMarkerRef.current.off("click");
-        pseudoMarkerRef.current.on("click", () => {
-          showMarkerPanel({
-            title: "디버그 이벤트 마커",
-            lines: [
-              `이벤트 종류: ${getEventTypeLabel(debugEventTypes?.[DEBUG_PSEUDO_MARKER_EVENT_KEY] ?? undefined)}`,
-            ],
-            eventKey: DEBUG_PSEUDO_MARKER_EVENT_KEY,
-          });
-        });
-        }
-
-        if (!pseudoMarker3Ref.current) {
-          pseudoMarker3Ref.current = L.marker(pseudo3Position, {
-            icon: pseudoMarkerIconRef.current,
-          }).addTo(map);
-        }
-
-        const pseudoMarker3Icon = resolvePseudoMarkerIcon(DEBUG_PSEUDO_MARKER3_EVENT_KEY);
-        if (pseudoMarker3Icon && pseudoMarker3Ref.current?.getIcon() !== pseudoMarker3Icon) {
-          pseudoMarker3Ref.current.setIcon(pseudoMarker3Icon);
-        }
-
-        if (!pseudoMarker2Ref.current) {
-          pseudoMarker2Ref.current = L.marker(pseudo2Position, {
-            icon: pseudoMarkerIconRef.current,
-          }).addTo(map);
-        }
-
-        const pseudoMarker2Icon = resolvePseudoMarkerIcon(DEBUG_PSEUDO_MARKER2_EVENT_KEY);
-        if (pseudoMarker2Icon && pseudoMarker2Ref.current?.getIcon() !== pseudoMarker2Icon) {
-          pseudoMarker2Ref.current.setIcon(pseudoMarker2Icon);
-        }
-
-        const pseudo2Anchor = pseudoMarker2Ref.current.getLatLng();
-        const pseudo2Distance = calculateDistance(playerLat, playerLon, pseudo2Anchor.lat, pseudo2Anchor.lng);
-
-        if (!pseudoMarker2Ref.current.getTooltip()) {
-          pseudoMarker2Ref.current.bindTooltip(`디버그 마커2 (${pseudo2Distance.toFixed(1)}m)`, {
-            permanent: true,
-            direction: "top",
-            offset: [0, POI_LABEL_OFFSET_Y],
-            className: "map-poi-label",
-          });
-        } else {
-          pseudoMarker2Ref.current.setTooltipContent(`디버그 마커2 (${pseudo2Distance.toFixed(1)}m)`);
-        }
-
-        pseudoMarker2Ref.current.off("click");
-        pseudoMarker2Ref.current.on("click", () => {
-          showMarkerPanel({
-            title: "디버그 이벤트 마커2",
-            lines: [
-              `이벤트 종류: ${getEventTypeLabel(debugEventTypes?.[DEBUG_PSEUDO_MARKER2_EVENT_KEY] ?? undefined)}`,
-            ],
-            eventKey: DEBUG_PSEUDO_MARKER2_EVENT_KEY,
-          });
-        });
-
-        const pseudo3Anchor = pseudoMarker3Ref.current.getLatLng();
-        const pseudo3Distance = calculateDistance(playerLat, playerLon, pseudo3Anchor.lat, pseudo3Anchor.lng);
-
-        if (!pseudoMarker3Ref.current.getTooltip()) {
-          pseudoMarker3Ref.current.bindTooltip(`디버그 마커3 (${pseudo3Distance.toFixed(1)}m)`, {
-            permanent: true,
-            direction: "top",
-            offset: [0, POI_LABEL_OFFSET_Y],
-            className: "map-poi-label",
-          });
-        } else {
-          pseudoMarker3Ref.current.setTooltipContent(`디버그 마커3 (${pseudo3Distance.toFixed(1)}m)`);
-        }
-
-        pseudoMarker3Ref.current.off("click");
-        pseudoMarker3Ref.current.on("click", () => {
-          showMarkerPanel({
-            title: "디버그 이벤트 마커3",
-            lines: [
-              `이벤트 종류: ${getEventTypeLabel(debugEventTypes?.[DEBUG_PSEUDO_MARKER3_EVENT_KEY] ?? undefined)}`,
-            ],
-            eventKey: DEBUG_PSEUDO_MARKER3_EVENT_KEY,
-          });
-        });
-
-        registerTerritorySoldierAnimation(pseudoMarkerRef.current?.getElement() ?? null);
-        registerTerritorySoldierAnimation(pseudoMarker2Ref.current?.getElement() ?? null);
-        registerTerritorySoldierAnimation(pseudoMarker3Ref.current?.getElement() ?? null);
-
-        if (!scoreCelebrationPendingRef.current) {
-          celebrateVisitedMarkers();
-        }
-      } else {
-        if (pseudoMarkerRef.current) {
-          pseudoMarkerRef.current.remove();
-          pseudoMarkerRef.current = null;
-        }
-        if (pseudoMarker2Ref.current) {
-          pseudoMarker2Ref.current.remove();
-          pseudoMarker2Ref.current = null;
-        }
-        if (pseudoMarker3Ref.current) {
-          pseudoMarker3Ref.current.remove();
-          pseudoMarker3Ref.current = null;
-        }
-      }
     })();
 
     return () => {
@@ -4892,11 +4008,7 @@ interface OtherUnitMoveAnim {
     activePlayerCharacter,
     selectedCharacter,
     createPlayerMarkerElement,
-    createThreePoiMarkerDataUrl,
-    celebrateVisitedMarkers,
-    debugEventTypes,
     isMapReady,
-    isVisitedEventKey,
     location,
     mapRotationDeg,
     isHeadingUpMode,
@@ -4917,8 +4029,6 @@ interface OtherUnitMoveAnim {
         marker.remove();
       }
       globeMarkersRef.current = [];
-      globePoiElementsRef.current.clear();
-      globePoiElementsRef.current.clear();
       globePlayerMarkerRef.current?.remove();
       globePlayerMarkerRef.current = null;
       globePlayerDisposeRef.current?.();
@@ -5036,10 +4146,9 @@ interface OtherUnitMoveAnim {
     globeMarkersRef.current = [];
 
     const unvisitedDataUrl = createThreePoiMarkerDataUrl("unvisited");
-    const visitedDataUrl = createThreePoiMarkerDataUrl("visited");
 
     // Supercluster + HTML markers: globe parity with satellite's 80px pixel
-    // clustering but reusing 3D pin / visited / label visuals and bottom-anchored II.
+    // clustering but reusing 3D pin / label visuals and bottom-anchored II.
     const pointById = new Map<number, MapPoint>(
       markerPoiPoints.map((point) => [point.id, point])
     );
@@ -5055,7 +4164,6 @@ interface OtherUnitMoveAnim {
         label: point.label ?? "",
         eventKey: point.eventKey ?? "",
         eventType: point.eventType ?? "",
-        visited: isVisitedEventKey(point.eventKey),
       },
     }));
 
@@ -5073,43 +4181,27 @@ interface OtherUnitMoveAnim {
         marker.remove();
       }
       globeMarkersRef.current = [];
-      globePoiElementsRef.current.clear();
     };
 
     const openSinglePoiPanel = (point: MapPoint): void => {
       if (placeCastleAt(point.lat, point.lon)) {
         return;
       }
-      const visited = isVisitedEventKey(point.eventKey);
-      const score = getVisitedScore(point.eventKey);
       if (isNeutralEventKey(point.eventKey)) {
         showMarkerPanel(buildNeutralPanel(point.label, point.eventKey, point.lat, point.lon));
         return;
       }
-      if (point.eventKey) {
-        const isQuizType = point.eventType?.toLowerCase() === "quiztype";
-        const confirmTarget = visited ? undefined : buildEventPageTarget(point.eventKey);
-        showMarkerPanel({
-          title: isQuizType ? "퀴즈 마커" : "이벤트 마커",
-          lines: [
-            `이름: ${point.label ?? "-"}`,
-            `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-            ...(visited ? ["상태: 방문 완료"] : []),
-            ...(score !== null ? [`획득 점수: ${score}점`] : []),
-          ],
-          eventKey: point.eventKey,
-          confirmTarget,
-          confirmLabel: confirmTarget ? "실행" : undefined,
-        });
-      } else {
-        showMarkerPanel({
-          title: "GPS 마커",
-          lines: [
-            `이름: ${point.label ?? "-"}`,
-            `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-          ],
-        });
+      const eventKey = point.eventKey?.trim() ?? "";
+      // 영토 미션의 성 마커는 영토 시트(W2)로 연결한다.
+      if (territoryEnabled && eventKey.startsWith("castle-")) {
+        setTerritoryCastleKey(eventKey);
+        return;
       }
+      showMarkerPanel({
+        title: "성",
+        lines: [`이름: ${point.label ?? "-"}`],
+        eventKey: eventKey || undefined,
+      });
     };
 
     let MarkerCtor: GlobeMarkerConstructor | null = null;
@@ -5142,27 +4234,21 @@ interface OtherUnitMoveAnim {
         const lat = center.lat;
         if (count > 1) {
           const pointsInCluster = cluster.points;
-          const allVisited = pointsInCluster.every((point) => isVisitedEventKey(point.eventKey));
 
           const element = document.createElement("div");
           element.style.width = "56px";
           element.style.height = "56px";
           element.style.cursor = "pointer";
-          element.innerHTML = `<div class="cluster-marker${allVisited ? " cluster-marker-visited" : ""}"><span>${count}</span></div>`;
+          element.innerHTML = `<div class="cluster-marker"><span>${count}</span></div>`;
           element.addEventListener("click", () => {
             if (placeCastleAt(center.lat, center.lon)) {
               return;
             }
             if (pointsInCluster.length > 0) {
-              const lines = pointsInCluster.flatMap((point) => {
-                const memberScore = getVisitedScore(point.eventKey);
-                return [
-                  `이름: ${point.label ?? "-"}`,
-                  `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-                  ...(memberScore !== null ? [`획득 점수: ${memberScore}점`] : []),
-                  "---",
-                ];
-              });
+              const lines = pointsInCluster.flatMap((point) => [
+                `이름: ${point.label ?? "-"}`,
+                "---",
+              ]);
               const clusterEventKeys = pointsInCluster
                 .map((point) => point.eventKey?.trim() ?? "")
                 .filter((key) => key.length > 0);
@@ -5181,11 +4267,7 @@ interface OtherUnitMoveAnim {
           globeMarkersRef.current.push(marker);
         } else {
           const point = cluster.points[0];
-          const visited = isVisitedEventKey(point.eventKey);
           const isNeutralPoi = isNeutralEventKey(point.eventKey);
-          const neutralDamageExpiresAt = isNeutralPoi
-            ? getNeutralDamageExpiry(point.eventKey)
-            : null;
           const isCastlePoi = castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble";
           const isCenterPoi = isNeutralPoi || isCastlePoi;
           const element = document.createElement("div");
@@ -5193,52 +4275,9 @@ interface OtherUnitMoveAnim {
           element.style.height = isCenterPoi ? "54px" : "30px";
           element.style.overflow = "visible";
           element.style.cursor = "pointer";
-          if (neutralDamageExpiresAt !== null) {
-            appendNeutralDamageAnimation(element, neutralDamageExpiresAt);
-          } else if (visited && territoryEnabled && castleKindOf(point.eventKey) === "lord") {
+          if (territoryEnabled && castleKindOf(point.eventKey) === "lord" && isCastleDamaged(point.eventKey)) {
+            // 내구도가 깎인 영주성은 손상 이미지로 표시한다.
             appendDamagedLordCastleAnimation(element);
-          } else if (visited) {
-            const visitedDataUrl = createThreePoiMarkerDataUrl("visited");
-            const unvisitedDataUrl = createThreePoiMarkerDataUrl("unvisited");
-            const wrap = document.createElement("div");
-            wrap.className = "three-poi-marker-visited-wrap";
-            const glow = document.createElement("span");
-            glow.className = "three-poi-marker-visited-glow";
-            glow.setAttribute("aria-hidden", "true");
-            wrap.appendChild(glow);
-            const ripple = document.createElement("span");
-            ripple.className = "three-poi-marker-visited-ripple";
-            ripple.setAttribute("aria-hidden", "true");
-            wrap.appendChild(ripple);
-            if (visitedDataUrl && unvisitedDataUrl) {
-              const redImg = document.createElement("img");
-              redImg.src = unvisitedDataUrl;
-              redImg.alt = "";
-              redImg.className = "three-poi-marker-visited-red";
-              wrap.appendChild(redImg);
-              const visitedImg = document.createElement("img");
-              visitedImg.src = visitedDataUrl;
-              visitedImg.alt = "";
-              visitedImg.className = "three-poi-marker-visited";
-              wrap.appendChild(visitedImg);
-            } else if (visitedDataUrl) {
-              const visitedImg = document.createElement("img");
-              visitedImg.src = visitedDataUrl;
-              visitedImg.alt = "";
-              visitedImg.className = "three-poi-marker-visited";
-              wrap.appendChild(visitedImg);
-            } else {
-              const redFallback = document.createElement("div");
-              redFallback.className = "three-poi-marker-fallback three-poi-marker-visited-red";
-              redFallback.setAttribute("aria-hidden", "true");
-              wrap.appendChild(redFallback);
-              const visitedFallback = document.createElement("div");
-              visitedFallback.className =
-                "three-poi-marker-fallback three-poi-marker-visited-fallback three-poi-marker-visited";
-              visitedFallback.setAttribute("aria-hidden", "true");
-              wrap.appendChild(visitedFallback);
-            }
-            element.appendChild(wrap);
           } else {
             const unvisitedDataUrl = createThreePoiMarkerDataUrl("unvisited");
             if (isNeutralEventKey(point.eventKey)) {
@@ -5297,18 +4336,6 @@ interface OtherUnitMoveAnim {
             label.style.transform = "translateX(-50%)";
             element.appendChild(label);
           }
-          if (visited && territoryEnabled && castleKindOf(point.eventKey) === "lord") {
-            appendDamagedLordCastleAnimation(element);
-          } else if (visited) {
-            const visitedKey = point.eventKey?.trim() ?? "";
-            if (visitedKey) {
-              globePoiElementsRef.current.set(visitedKey, element);
-              cesiumPoiElementsRef.current.set(visitedKey, element);
-              if (!readCelebratedTimes().has(visitedKey)) {
-                element.classList.add("morph-pending");
-              }
-            }
-          }
           element.addEventListener("click", () => openSinglePoiPanel(point));
           if (isNeutralEventKey(point.eventKey)) {
             try {
@@ -5340,9 +4367,6 @@ interface OtherUnitMoveAnim {
         MarkerCtor = lib.Marker;
         globeMarkerCtorRef.current = lib.Marker;
         renderGlobeClusters();
-        if (!scoreCelebrationPendingRef.current) {
-          celebrateVisitedMarkers();
-        }
         scheduleRender = () => renderGlobeClusters();
         const globeMapWithEvents = map as unknown as {
           on: (event: string, handler: () => void) => void;
@@ -5371,7 +4395,7 @@ interface OtherUnitMoveAnim {
       }
       clearGlobeMarkers();
     };
-  }, [mapStyle, isGlobeReady, markerPoiPoints, isVisitedEventKey, getVisitedScore, getNeutralDamageExpiry, showMarkerPanel, createThreePoiMarkerDataUrl, castleKindMap, placeCastleAt]);
+  }, [mapStyle, isGlobeReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt]);
 
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady || !globeMapRef.current) {
@@ -5489,7 +4513,6 @@ interface OtherUnitMoveAnim {
         marker.remove();
       }
       globeMarkersRef.current = [];
-      globePoiElementsRef.current.clear();
       globePlayerMarkerRef.current?.remove();
       globePlayerMarkerRef.current = null;
       globePlayerDisposeRef.current?.();
@@ -5610,7 +4633,6 @@ interface OtherUnitMoveAnim {
       cesiumHtmlOverlayRef.current?.remove();
       cesiumHtmlOverlayRef.current = null;
       cesiumHtmlMarkersRef.current = [];
-      cesiumPoiElementsRef.current.clear();
       cesiumPlayerLastLonRef.current = null;
       cesiumPlayerFacingLeftRef.current = false;
       if (previousViewer && !previousViewer.isDestroyed()) {
@@ -5780,36 +4802,21 @@ interface OtherUnitMoveAnim {
       if (placeCastleAt(point.lat, point.lon)) {
         return;
       }
-      const visited = isVisitedEventKey(point.eventKey);
-      const score = getVisitedScore(point.eventKey);
       if (isNeutralEventKey(point.eventKey)) {
         showMarkerPanel(buildNeutralPanel(point.label, point.eventKey, point.lat, point.lon));
         return;
       }
-      if (point.eventKey) {
-        const isQuizType = point.eventType?.toLowerCase() === "quiztype";
-        const confirmTarget = visited ? undefined : buildEventPageTarget(point.eventKey);
-        showMarkerPanel({
-          title: isQuizType ? "퀴즈 마커" : "이벤트 마커",
-          lines: [
-            `이름: ${point.label ?? "-"}`,
-            `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-            ...(visited ? ["상태: 방문 완료"] : []),
-            ...(score !== null ? [`획득 점수: ${score}점`] : []),
-          ],
-          eventKey: point.eventKey,
-          confirmTarget,
-          confirmLabel: confirmTarget ? "실행" : undefined,
-        });
-      } else {
-        showMarkerPanel({
-          title: "GPS 마커",
-          lines: [
-            `이름: ${point.label ?? "-"}`,
-            `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-          ],
-        });
+      const eventKey = point.eventKey?.trim() ?? "";
+      // 영토 미션의 성 마커는 영토 시트(W2)로 연결한다.
+      if (territoryEnabled && eventKey.startsWith("castle-")) {
+        setTerritoryCastleKey(eventKey);
+        return;
       }
+      showMarkerPanel({
+        title: "성",
+        lines: [`이름: ${point.label ?? "-"}`],
+        eventKey: eventKey || undefined,
+      });
     };
 
     const openCesiumClusterPanel = (points: MapPoint[], count: number): void => {
@@ -5821,15 +4828,10 @@ interface OtherUnitMoveAnim {
       if (placeCastleAt(centerLat, centerLon)) {
         return;
       }
-      const lines = points.flatMap((point) => {
-        const memberScore = getVisitedScore(point.eventKey);
-        return [
-          `이름: ${point.label ?? "-"}`,
-          `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-          ...(memberScore !== null ? [`획득 점수: ${memberScore}점`] : []),
-          "---",
-        ];
-      });
+      const lines = points.flatMap((point) => [
+        `이름: ${point.label ?? "-"}`,
+        "---",
+      ]);
       const clusterEventKeys = points
         .map((point) => point.eventKey?.trim() ?? "")
         .filter((key) => key.length > 0);
@@ -5845,7 +4847,6 @@ interface OtherUnitMoveAnim {
         entry.element.remove();
       }
       cesiumHtmlMarkersRef.current = [];
-      cesiumPoiElementsRef.current.clear();
       const overlay = cesiumHtmlOverlayRef.current;
       if (overlay) {
         // Keep overlay element itself, just clear children (already removed)
@@ -5904,7 +4905,6 @@ interface OtherUnitMoveAnim {
       }
 
       const unvisitedDataUrl = createThreePoiMarkerDataUrl("unvisited");
-      const visitedDataUrl = createThreePoiMarkerDataUrl("visited");
 
       const pointById = new Map<number, MapPoint>(
         markerPoiPoints.map((point) => [point.id, point])
@@ -5921,7 +4921,6 @@ interface OtherUnitMoveAnim {
           label: point.label ?? "",
           eventKey: point.eventKey ?? "",
           eventType: point.eventType ?? "",
-          visited: isVisitedEventKey(point.eventKey),
         },
       }));
 
@@ -5948,7 +4947,6 @@ interface OtherUnitMoveAnim {
         const lat = center.lat;
         if (count > 1) {
           const pointsInCluster = cluster.points;
-          const allVisited = pointsInCluster.every((point) => isVisitedEventKey(point.eventKey));
 
           const element = document.createElement("div");
           element.style.position = "absolute";
@@ -5957,7 +4955,7 @@ interface OtherUnitMoveAnim {
           element.style.transform = "translate(-50%, -50%)";
           element.style.pointerEvents = "auto";
           element.style.cursor = "pointer";
-          element.innerHTML = `<div class="cluster-marker${allVisited ? " cluster-marker-visited" : ""}"><span>${count}</span></div>`;
+          element.innerHTML = `<div class="cluster-marker"><span>${count}</span></div>`;
           element.addEventListener("click", () => {
             openCesiumClusterPanel(pointsInCluster, count);
           });
@@ -5965,11 +4963,7 @@ interface OtherUnitMoveAnim {
           cesiumHtmlMarkersRef.current.push({ element, lon: lng, lat, anchor: "center" });
         } else {
           const point = cluster.points[0];
-          const visited = isVisitedEventKey(point.eventKey);
           const isNeutralCesium = isNeutralEventKey(point.eventKey);
-          const neutralDamageExpiresAt = isNeutralCesium
-            ? getNeutralDamageExpiry(point.eventKey)
-            : null;
           const isCastleCesium = castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble";
           const isCenterCesium = isNeutralCesium || isCastleCesium;
           const element = document.createElement("div");
@@ -5982,50 +4976,9 @@ interface OtherUnitMoveAnim {
             : "translate(-50%, -100%)";
           element.style.pointerEvents = "auto";
           element.style.cursor = "pointer";
-          if (neutralDamageExpiresAt !== null) {
-            appendNeutralDamageAnimation(element, neutralDamageExpiresAt);
-          } else if (visited) {
-            const wrap = document.createElement("div");
-            wrap.className = "three-poi-marker-visited-wrap";
-            const glow = document.createElement("span");
-            glow.className = "three-poi-marker-visited-glow";
-            glow.setAttribute("aria-hidden", "true");
-            wrap.appendChild(glow);
-            const ripple = document.createElement("span");
-            ripple.className = "three-poi-marker-visited-ripple";
-            ripple.setAttribute("aria-hidden", "true");
-            wrap.appendChild(ripple);
-            const vUrl = visitedDataUrl;
-            const uUrl = unvisitedDataUrl;
-            if (vUrl && uUrl) {
-              const redImg = document.createElement("img");
-              redImg.src = uUrl;
-              redImg.alt = "";
-              redImg.className = "three-poi-marker-visited-red";
-              wrap.appendChild(redImg);
-              const visImg = document.createElement("img");
-              visImg.src = vUrl;
-              visImg.alt = "";
-              visImg.className = "three-poi-marker-visited";
-              wrap.appendChild(visImg);
-            } else if (vUrl) {
-              const visImg = document.createElement("img");
-              visImg.src = vUrl;
-              visImg.alt = "";
-              visImg.className = "three-poi-marker-visited";
-              wrap.appendChild(visImg);
-            } else {
-              const redFallback = document.createElement("div");
-              redFallback.className = "three-poi-marker-fallback three-poi-marker-visited-red";
-              redFallback.setAttribute("aria-hidden", "true");
-              wrap.appendChild(redFallback);
-              const visitedFallback = document.createElement("div");
-              visitedFallback.className =
-                "three-poi-marker-fallback three-poi-marker-visited-fallback three-poi-marker-visited";
-              visitedFallback.setAttribute("aria-hidden", "true");
-              wrap.appendChild(visitedFallback);
-            }
-            element.appendChild(wrap);
+          if (territoryEnabled && castleKindOf(point.eventKey) === "lord" && isCastleDamaged(point.eventKey)) {
+            // 내구도가 깎인 영주성은 손상 이미지로 표시한다.
+            appendDamagedLordCastleAnimation(element);
           } else if (isNeutralEventKey(point.eventKey)) {
             const castleImg = document.createElement("img");
             castleImg.src = "/markers/neutral-castle-v2-short.png";
@@ -6083,16 +5036,6 @@ interface OtherUnitMoveAnim {
             label.style.transform = "translateX(-50%)";
             element.appendChild(label);
           }
-          if (visited) {
-            const visitedKey = point.eventKey?.trim() ?? "";
-            if (visitedKey) {
-              globePoiElementsRef.current.set(visitedKey, element);
-              cesiumPoiElementsRef.current.set(visitedKey, element);
-              if (!readCelebratedTimes().has(visitedKey)) {
-                element.classList.add("morph-pending");
-              }
-            }
-          }
           element.addEventListener("click", () => openSinglePoiPanel(point));
           if (isNeutralEventKey(point.eventKey)) {
             try {
@@ -6133,9 +5076,6 @@ interface OtherUnitMoveAnim {
         return;
       }
       renderCesiumPois(Cesium);
-      if (!scoreCelebrationPendingRef.current) {
-        celebrateVisitedMarkers();
-      }
       removeMoveEnd = currentViewer.camera.moveEnd.addEventListener(() => {
         renderCesiumPois(Cesium);
       });
@@ -6161,7 +5101,7 @@ interface OtherUnitMoveAnim {
       clearCesiumHtmlMarkers();
       clearCesiumPoiEntities();
     };
-  }, [mapStyle, isCesiumReady, markerPoiPoints, isVisitedEventKey, getVisitedScore, getNeutralDamageExpiry, showMarkerPanel, createThreePoiMarkerDataUrl, createCesiumClusterDataUrl, castleKindMap, placeCastleAt]);
+  }, [mapStyle, isCesiumReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, createCesiumClusterDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt]);
 
   useEffect(() => {
     if (mapStyle !== "cesium" || !isCesiumReady) {
@@ -6323,70 +5263,8 @@ interface OtherUnitMoveAnim {
     let playerLat = playerLocation.lat;
     let playerLon = playerLocation.lon;
 
-    const PROXIMITY_THRESHOLD = 5;
     const NEUTRAL_PROXIMITY_THRESHOLD_M = 15;
     let nearestMarker: MarkerPanel | null = null;
-
-    if (DEBUG_PSEUDO_MARKER_ENABLED) {
-      const debugMarkers = [
-        {
-          ref: pseudoMarkerRef,
-          name: "디버그 마커",
-          eventKey: DEBUG_PSEUDO_MARKER_EVENT_KEY,
-          eventType: debugEventTypes?.[DEBUG_PSEUDO_MARKER_EVENT_KEY] ?? "QuizType",
-          offsetLon: metersToLongitudeDelta(playerLat, DEBUG_PSEUDO_MARKER_OFFSET_METERS),
-          offsetLat: 0,
-          id: "debug1",
-        },
-        {
-          ref: pseudoMarker2Ref,
-          name: "디버그 마커2",
-          eventKey: DEBUG_PSEUDO_MARKER2_EVENT_KEY,
-          eventType: debugEventTypes?.[DEBUG_PSEUDO_MARKER2_EVENT_KEY] ?? "URLType",
-          offsetLon: 0,
-          offsetLat: metersToLatitudeDelta(DEBUG_PSEUDO_MARKER_OFFSET_METERS),
-          id: "debug2",
-        },
-        {
-          ref: pseudoMarker3Ref,
-          name: "디버그 마커3",
-          eventKey: DEBUG_PSEUDO_MARKER3_EVENT_KEY,
-          eventType: debugEventTypes?.[DEBUG_PSEUDO_MARKER3_EVENT_KEY] ?? "URLType",
-          offsetLon: -metersToLongitudeDelta(playerLat, DEBUG_PSEUDO_MARKER_OFFSET_METERS),
-          offsetLat: 0,
-          id: "debug3",
-        },
-      ];
-
-      for (const marker of debugMarkers) {
-        if (!marker.ref.current) continue;
-        
-        const markerLatLng = marker.ref.current.getLatLng();
-        const markerLat = markerLatLng.lat;
-        const markerLon = markerLatLng.lng;
-        
-        const distance = calculateDistance(playerLat, playerLon, markerLat, markerLon);
-        
-        if (distance <= PROXIMITY_THRESHOLD) {
-          const visited = isVisitedEventKey(marker.eventKey);
-          const visitedScore = getVisitedScore(marker.eventKey);
-          const confirmTarget = visited ? undefined : buildEventPageTarget(marker.eventKey);
-          nearestMarker = {
-            title: marker.name,
-            lines: [
-              `이벤트 종류: ${getEventTypeLabel(marker.eventType)}`,
-              ...(visited ? ["상태: 방문 완료"] : []),
-              ...(visitedScore !== null ? [`획득 점수: ${visitedScore}점`] : []),
-            ],
-            eventKey: marker.eventKey,
-            confirmTarget,
-            confirmLabel: confirmTarget ? "실행" : undefined,
-            isProximity: true,
-          };
-          break;
-        }
-      }
-    }
 
     if (!nearestMarker) {
       // 무법자: 플레이어 본체 또는 아군 부대가 15m 이내면 공격 패널 자동 표시.
@@ -6497,8 +5375,6 @@ interface OtherUnitMoveAnim {
             lat: wildPos.lat,
             lon: wildPos.lon,
             isProximity: true,
-            confirmTarget: "/map",
-            confirmLabel: "공격",
           };
           break;
         }
@@ -6506,36 +5382,15 @@ interface OtherUnitMoveAnim {
     }
 
     if (!nearestMarker) {
+      // 중립성: 15m 이내면 정보 패널 자동 표시 (성은 근접 패널을 띄우지 않는다).
       for (const point of renderablePoiPoints) {
+        if (!isNeutralEventKey(point.eventKey)) {
+          continue;
+        }
         const distance = calculateDistance(playerLat, playerLon, point.lat, point.lon);
-        // 중립성은 진입 판정을 15m로 완화한다.
-        const threshold = isNeutralEventKey(point.eventKey)
-          ? NEUTRAL_PROXIMITY_THRESHOLD_M
-          : PROXIMITY_THRESHOLD;
-
-        if (distance <= threshold) {
-          if (isNeutralEventKey(point.eventKey)) {
-            nearestMarker = {
-              ...buildNeutralPanel(point.label, point.eventKey),
-              isProximity: true,
-              confirmTarget: "/map",
-              confirmLabel: "퀴즈 풀기",
-            };
-            break;
-          }
-          const visited = isVisitedEventKey(point.eventKey);
-          const visitedScore = getVisitedScore(point.eventKey);
-          const confirmTarget = visited ? undefined : buildEventPageTarget(point.eventKey);
+        if (distance <= NEUTRAL_PROXIMITY_THRESHOLD_M) {
           nearestMarker = {
-            title: point.label || "이벤트 마커",
-            lines: [
-              `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-              ...(visited ? ["상태: 방문 완료"] : []),
-              ...(visitedScore !== null ? [`획득 점수: ${visitedScore}점`] : []),
-            ],
-            eventKey: point.eventKey?.trim() || undefined,
-            confirmTarget,
-            confirmLabel: confirmTarget ? "실행" : undefined,
+            ...buildNeutralPanel(point.label, point.eventKey),
             isProximity: true,
           };
           break;
@@ -6561,8 +5416,7 @@ interface OtherUnitMoveAnim {
         const shouldSyncMarkerPanel =
           !currentMarkerPanel ||
           currentMarkerPanel.title !== nearestMarker.title ||
-          currentMarkerPanel.lines[0] !== nearestMarker.lines[0] ||
-          currentMarkerPanel.confirmTarget !== nearestMarker.confirmTarget;
+          currentMarkerPanel.lines[0] !== nearestMarker.lines[0];
 
         if (shouldSyncMarkerPanel) {
           setMarkerPanel(nearestMarker);
@@ -6574,7 +5428,7 @@ interface OtherUnitMoveAnim {
         setMarkerPanel(null);
       }
     }
-  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, playerLocation, isVisitedEventKey, getVisitedScore]);
+  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, playerLocation]);
 
   // ---- 영토전 도보 가능 영역: 현재 동 + 인접 동 + 선택 동 로드 ----
   useEffect(() => {
@@ -7185,28 +6039,25 @@ interface OtherUnitMoveAnim {
           .map((value) => Number.parseInt(value, 10))
           .filter(Number.isFinite);
 
-        const unvisitedCandidates: MapPoint[] = [];
+        const indicatorCandidates: MapPoint[] = [];
         for (const pointId of candidateIds) {
           const candidate = pointById.get(pointId);
           if (!candidate) {
             continue;
           }
-          if (isVisitedEventKey(candidate.eventKey)) {
-            continue;
-          }
-          unvisitedCandidates.push(candidate);
+          indicatorCandidates.push(candidate);
         }
 
-        if (unvisitedCandidates.length === 0) {
+        if (indicatorCandidates.length === 0) {
           continue;
         }
 
         const representativeLat =
-          unvisitedCandidates.reduce((sum, candidate) => sum + candidate.lat, 0) /
-          unvisitedCandidates.length;
+          indicatorCandidates.reduce((sum, candidate) => sum + candidate.lat, 0) /
+          indicatorCandidates.length;
         const representativeLon =
-          unvisitedCandidates.reduce((sum, candidate) => sum + candidate.lon, 0) /
-          unvisitedCandidates.length;
+          indicatorCandidates.reduce((sum, candidate) => sum + candidate.lon, 0) /
+          indicatorCandidates.length;
 
         const point = map.latLngToContainerPoint([representativeLat, representativeLon]);
         const isInside = point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= height;
@@ -7226,7 +6077,7 @@ interface OtherUnitMoveAnim {
 
         let nearestDistanceMeters: number | null = null;
         if (playerReference) {
-          for (const candidate of unvisitedCandidates) {
+          for (const candidate of indicatorCandidates) {
             const distance = calculateDistance(
               playerReference.lat,
               playerReference.lon,
@@ -7249,14 +6100,14 @@ interface OtherUnitMoveAnim {
         }
 
         nextIndicators.push({
-          id: unvisitedCandidates
+          id: indicatorCandidates
             .map((candidate) => candidate.id)
             .sort((a, b) => a - b)
             .join("-"),
           left: projected.left,
           top: projected.top,
           angle: projected.angle,
-          count: unvisitedCandidates.length,
+          count: indicatorCandidates.length,
           nearestDistanceMeters,
         });
       }
@@ -7336,7 +6187,7 @@ interface OtherUnitMoveAnim {
       map.off("rotateend", scheduleImmediate);
       map.off("resize", scheduleImmediate);
     };
-  }, [clusterUnits, isMapReady, isVisitedEventKey, playerLocation, location, renderablePoiPoints]);
+  }, [clusterUnits, isMapReady, playerLocation, location, renderablePoiPoints]);
 
   useEffect(() => {
     if (!isMapReady || clusterUnits.length === 0) {
@@ -7365,11 +6216,6 @@ interface OtherUnitMoveAnim {
     if (status === "success") return "지도의 중앙에 현재 위치를 표시했습니다";
     return "위치 초기화 중";
   }, [errorMessage, status, tileError]);
-
-  const formattedScore = useMemo(() => {
-    const numericScore = typeof playerScore === "number" ? playerScore : 0;
-    return Math.max(0, Math.floor(numericScore)).toLocaleString("ko-KR");
-  }, [playerScore]);
 
   useEffect(() => {
     let cancelled = false;
@@ -7462,18 +6308,6 @@ interface OtherUnitMoveAnim {
       } catch {}
     }
   }, [isHeadingUpMode, mapRotationDeg, isGlobeReady, isCesiumReady]);
-
-  const triggerNavigation = useCallback(
-    (target: string) => {
-      if (target.startsWith("http")) {
-        window.location.href = target;
-        return;
-      }
-
-      router.push(target);
-    },
-    [router]
-  );
 
   // 영토전 GPS-free + 시작 위치 확정 시에는 위치 오버레이를 띄우지 않는다.
   const showOverlay =
@@ -8542,7 +7376,7 @@ const isMapPerfEnabled = (): boolean => {
     // 같은 입력으로 이펙트가 반복 실행돼도 마커 전체 재빌드는 1회로 제한한다.
     // (콜백 identity 변경 등으로 이펙트가 3연타되던 것을 스킵 — clearLayers+191개 재생성이 블로킹 주범)
     // 줌을 제외한 입력 서명. 이것이 바뀌면 전체 재빌드, 줌만 바뀌면 마커 단위로 비교한다.
-    const baseSig = `${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|v:${visitedEventKeys.join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v}`).join(",")}|n:${neutralDamageExpiresAtRef.current.size}`;
+    const baseSig = `${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|d:${[...castleDamagedKeys].sort().join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v}`).join(",")}`;
     const buildSig = `${zoomLevel}|${baseSig}`;
     if (
       markerBuildSigRef.current === buildSig &&
@@ -8554,7 +7388,7 @@ const isMapPerfEnabled = (): boolean => {
       const prevParts = markerBuildSigRef.current.split("|");
       const nextParts = buildSig.split("|");
       const changed: string[] = [];
-      const labels = ["zoom", "territory", "points", "visited", "castleKind", "neutral"];
+      const labels = ["zoom", "territory", "points", "damaged", "castleKind"];
       for (let i = 0; i < labels.length; i += 1) {
         if (prevParts[i] !== nextParts[i]) {
           const a = (prevParts[i] ?? "").length;
@@ -8573,7 +7407,6 @@ const isMapPerfEnabled = (): boolean => {
     const clearAllPoiMarkers = (): void => {
       poiLayerGroup.clearLayers();
       poiEntries.clear();
-      poiMarkerElementsRef.current.clear();
       poiMarkerByKeyRef.current.clear();
     };
     // 줌 외 입력이 바뀌었거나 레이어 그룹이 새로 만들어졌으면 기존처럼 전부 지우고 다시 만든다.
@@ -8627,27 +7460,6 @@ const isMapPerfEnabled = (): boolean => {
       // console.error("[CurrentLocationMap] CRITICAL: poiIcon is still null after creation!");
       return;
     }
-
-    if (!poiVisitedIconRef.current) {
-      const poiVisitedIconDataUrl = createThreePoiMarkerDataUrl("visited");
-      const poiUnvisitedIconDataUrl = createThreePoiMarkerDataUrl("unvisited");
-      if (poiVisitedIconDataUrl) {
-        poiVisitedIconRef.current = L.divIcon({
-          className: "three-poi-marker-visited-shell",
-          html: `<div class="map-rotation-upright"><div class="three-poi-marker-visited-wrap"><span class="three-poi-marker-visited-glow" aria-hidden="true"></span><span class="three-poi-marker-visited-ripple" aria-hidden="true"></span>${poiUnvisitedIconDataUrl ? `<img src="${poiUnvisitedIconDataUrl}" alt="" class="three-poi-marker-visited-red" />` : ""}<img src="${poiVisitedIconDataUrl}" alt="" class="three-poi-marker-visited" /></div></div>`,
-          iconSize: [30, 30],
-          iconAnchor: [15, 29],
-        });
-      } else {
-        poiVisitedIconRef.current = L.divIcon({
-          className: "three-poi-marker-visited-shell",
-          html: '<div class="map-rotation-upright"><div class="three-poi-marker-visited-wrap"><span class="three-poi-marker-visited-glow" aria-hidden="true"></span><span class="three-poi-marker-visited-ripple" aria-hidden="true"></span><div class="three-poi-marker-fallback three-poi-marker-visited-red" aria-hidden="true"></div><div class="three-poi-marker-fallback three-poi-marker-visited-fallback three-poi-marker-visited" aria-hidden="true"></div></div></div>',
-          iconSize: [30, 30],
-          iconAnchor: [15, 29],
-        });
-      }
-    }
-    const poiVisitedIcon = poiVisitedIconRef.current ?? poiIcon;
 
     if (!poiNeutralIconRef.current) {
       poiNeutralIconRef.current = L.divIcon({
@@ -8808,15 +7620,11 @@ const isMapPerfEnabled = (): boolean => {
 
     // 단일 마커 아이콘 종류 판정 (마커 키와 생성에 공통 사용).
     const describeSinglePoint = (point: MapPoint): {
-      pointVisited: boolean;
+      castleDamaged: boolean;
       castleKind: string | null;
-      neutralDamageExpiresAt: number | null;
     } => ({
-      pointVisited: isVisitedEventKey(point.eventKey),
+      castleDamaged: isCastleDamaged(point.eventKey),
       castleKind: castleKindOf(point.eventKey),
-      neutralDamageExpiresAt: isNeutralEventKey(point.eventKey)
-        ? getNeutralDamageExpiry(point.eventKey)
-        : null,
     });
     // 마커 키: 마커의 모양·위치·툴팁·클릭 내용에 쓰이는 값을 모두 담는다.
     const keyOfCluster = (cluster: { center: MapPoint; points: MapPoint[] }): string => {
@@ -8831,9 +7639,8 @@ const isMapPerfEnabled = (): boolean => {
           point.label ?? null,
           point.eventKey ?? null,
           point.eventType ?? null,
-          desc.pointVisited,
+          desc.castleDamaged,
           desc.castleKind,
-          desc.neutralDamageExpiresAt,
         ]);
       }
       return JSON.stringify([
@@ -8842,7 +7649,7 @@ const isMapPerfEnabled = (): boolean => {
         cluster.center.lat,
         cluster.center.lon,
         cluster.points
-          .map((p) => [p.id, p.label ?? null, p.eventKey ?? null, p.eventType ?? null, isVisitedEventKey(p.eventKey)])
+          .map((p) => [p.id, p.label ?? null, p.eventKey ?? null, p.eventType ?? null])
           .sort((a, b) => (a[0] as number) - (b[0] as number)),
       ]);
     };
@@ -8858,9 +7665,6 @@ const isMapPerfEnabled = (): boolean => {
       }
       if (entry.eventKey && poiMarkerByKeyRef.current.get(entry.eventKey) === entry.marker) {
         poiMarkerByKeyRef.current.delete(entry.eventKey);
-      }
-      if (entry.visitedKey && poiMarkerElementsRef.current.get(entry.visitedKey) === entry.marker) {
-        poiMarkerElementsRef.current.delete(entry.visitedKey);
       }
       poiEntries.delete(key);
     }
@@ -8891,8 +7695,8 @@ const isMapPerfEnabled = (): boolean => {
         // 단일 마커
         const point = cluster.center;
         //console.log(`[CurrentLocationMap] adding SINGLE marker ${index}: id=${point.id}, label=${point.label}, lat=${point.lat.toFixed(5)}, lon=${point.lon.toFixed(5)`);
-        const { pointVisited, castleKind, neutralDamageExpiresAt } = describeSinglePoint(point);
-        const territorySoldierIcon = territoryEnabled && !pointVisited && !isNeutralEventKey(point.eventKey) && castleKind === null
+        const { castleDamaged, castleKind } = describeSinglePoint(point);
+        const territorySoldierIcon = territoryEnabled && !isNeutralEventKey(point.eventKey) && castleKind === null
           ? L.divIcon({
               className: "three-poi-marker-shell",
               html: `<div class="map-rotation-upright">${territorySoldierAnimationMarkup()}</div>`,
@@ -8900,26 +7704,18 @@ const isMapPerfEnabled = (): boolean => {
               iconAnchor: [26, 51],
             })
           : null;
-        const poiMarkerIcon = neutralDamageExpiresAt !== null
-          ? L.divIcon({
-              className: "three-poi-marker-shell",
-              html: `<div class="map-rotation-upright">${neutralDamageAnimationMarkup()}</div>`,
-              iconSize: [54, 54],
-              iconAnchor: [27, 27],
-            })
-          : pointVisited && territoryEnabled && castleKind === "lord"
-            ? damagedLordCastleIcon
-              : territorySoldierIcon
-                ? territorySoldierIcon
-                : pointVisited
-              ? poiVisitedIcon
-              : isNeutralEventKey(point.eventKey)
-                ? poiNeutralIcon
-                : castleKind === "lord"
-                  ? poiLordIcon
-                  : castleKind === "noble"
-                    ? poiNobleIcon
-                    : poiIcon;
+        // 내구도가 깎인 영주성은 손상 이미지로 표시한다 (castle list hp/maxHp 기준).
+        const poiMarkerIcon = castleDamaged && territoryEnabled && castleKind === "lord"
+          ? damagedLordCastleIcon
+          : territorySoldierIcon
+            ? territorySoldierIcon
+            : isNeutralEventKey(point.eventKey)
+              ? poiNeutralIcon
+              : castleKind === "lord"
+                ? poiLordIcon
+                : castleKind === "noble"
+                  ? poiNobleIcon
+                  : poiIcon;
         const poiMarker = L.marker([point.lat, point.lon], { icon: poiMarkerIcon });
 
         if (point.label) {
@@ -8951,56 +7747,22 @@ const isMapPerfEnabled = (): boolean => {
               setTerritoryCastleKey(eventKey);
               return;
             }
-            const isQuizType = point.eventType?.toLowerCase() === "quiztype";
-            const clickedScore = getVisitedScore(point.eventKey);
             showMarkerPanel({
-              title: isQuizType ? "퀴즈 마커" : "이벤트 마커",
-              lines: [
-                `이름: ${point.label ?? "-"}`,
-                `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-                ...(pointVisited ? ["상태: 방문 완료"] : []),
-                ...(clickedScore !== null ? [`획득 점수: ${clickedScore}점`] : []),
-              ],
+              title: "성",
+              lines: [`이름: ${point.label ?? "-"}`],
               eventKey,
-            });
-          });
-        } else {
-          poiMarker.on("click", () => {
-            showMarkerPanel({
-              title: "GPS 마커",
-              lines: [
-                `이름: ${point.label ?? "-"}`,
-                `이벤트 종류: ${getEventTypeLabel(point.eventType)}`,
-              ],
             });
           });
         }
 
         pointsLayerRef.current?.addLayer(poiMarker);
-        const entry: PoiMarkerEntry = { marker: poiMarker, layers: [poiMarker], eventKey: null, visitedKey: null };
+        const entry: PoiMarkerEntry = { marker: poiMarker, layers: [poiMarker], eventKey: null };
         poiEntries.set(entryKey, entry);
         if (point.eventKey) {
           poiMarkerByKeyRef.current.set(point.eventKey, poiMarker);
           entry.eventKey = point.eventKey;
         }
         registerTerritorySoldierAnimation(poiMarker.getElement() ?? null);
-        if (neutralDamageExpiresAt !== null) {
-          window.setTimeout(() => {
-            if (map.hasLayer(poiMarker)) {
-              poiMarker.setIcon(poiNeutralIcon);
-            }
-          }, Math.max(0, neutralDamageExpiresAt - Date.now()));
-        }
-        if (pointVisited) {
-          const visitedKey = point.eventKey?.trim() ?? "";
-          if (visitedKey) {
-            poiMarkerElementsRef.current.set(visitedKey, poiMarker);
-            entry.visitedKey = visitedKey;
-            if (!readCelebratedTimes().has(visitedKey)) {
-              poiMarker.getElement()?.classList.add("morph-pending");
-            }
-          }
-        }
         if (isNeutralEventKey(point.eventKey)) {
           const rangeCircle = L.circle([point.lat, point.lon], {
             radius: NEUTRAL_RANGE_RADIUS_M,
@@ -9018,13 +7780,11 @@ const isMapPerfEnabled = (): boolean => {
       } else {
         // 클러스터 마커
         const count = cluster.points.length;
-        const clusterVisitedCount = cluster.points.filter((p) => isVisitedEventKey(p.eventKey)).length;
-        const clusterAllVisited = clusterVisitedCount === count;
         //console.log(`[CurrentLocationMap] adding CLUSTER marker ${index}: count=${count}, lat=${cluster.center.lat.toFixed(5)}, lon=${cluster.center.lon.toFixed(5)}`);
         //console.log(`[CurrentLocationMap] cluster members:`, cluster.points.map(p => ({ id: p.id, label: p.label })));
         const clusterIcon = L.divIcon({
           className: "cluster-marker-shell",
-          html: `<div class="cluster-marker${clusterAllVisited ? " cluster-marker-visited" : ""} map-rotation-upright"><span>${count}</span></div>`,
+          html: `<div class="cluster-marker map-rotation-upright"><span>${count}</span></div>`,
           iconSize: [56, 56],
           iconAnchor: [28, 28],
         });
@@ -9045,15 +7805,10 @@ const isMapPerfEnabled = (): boolean => {
           if (placeCastleAt(cluster.center.lat, cluster.center.lon)) {
             return;
           }
-          const lines = cluster.points.flatMap((p) => {
-            const memberScore = getVisitedScore(p.eventKey);
-            return [
-              `이름: ${p.label ?? "-"}`,
-              `이벤트 종류: ${getEventTypeLabel(p.eventType)}`,
-              ...(memberScore !== null ? [`획득 점수: ${memberScore}점`] : []),
-              "---",
-            ];
-          });
+          const lines = cluster.points.flatMap((p) => [
+            `이름: ${p.label ?? "-"}`,
+            "---",
+          ]);
           const clusterEventKeys = cluster.points
             .map((p) => p.eventKey?.trim() ?? "")
             .filter((key) => key.length > 0);
@@ -9065,13 +7820,9 @@ const isMapPerfEnabled = (): boolean => {
         });
 
         pointsLayerRef.current?.addLayer(clusterMarker);
-        poiEntries.set(entryKey, { marker: clusterMarker, layers: [clusterMarker], eventKey: null, visitedKey: null });
+        poiEntries.set(entryKey, { marker: clusterMarker, layers: [clusterMarker], eventKey: null });
         addedCount += count;
       }
-      }
-
-      if (!scoreCelebrationPendingRef.current) {
-        celebrateVisitedMarkers();
       }
     })();
 
@@ -9081,7 +7832,7 @@ const isMapPerfEnabled = (): boolean => {
     //   addedCount,
     //   layerCount: pointsLayerRef.current?.getLayers().length ?? 0,
     // });
-  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, isVisitedEventKey, getVisitedScore, getNeutralDamageExpiry, celebrateVisitedMarkers, territoryEnabled, placeCastleAt, castleKindMap]);
+  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, territoryEnabled, placeCastleAt, castleKindMap, castleDamagedKeys]);
 
   // 축성 위치 지정: 위성 지도 클릭으로 확정 단계 진입.
   useEffect(() => {
@@ -9236,38 +7987,6 @@ const isMapPerfEnabled = (): boolean => {
   useEffect(() => {
     // console.log("[CurrentLocationMap] zoom level changed", { zoomLevel });
   }, [zoomLevel]);
-
-  useEffect(() => {
-    // console.log("[CurrentLocationMap] playerScore updated", {
-    //   playerScore,
-    //   formattedScore,
-    // });
-  }, [playerScore, formattedScore]);
-
-  const handleConfirmPanel = useCallback(() => {
-    if (!markerPanel?.confirmTarget) {
-      return;
-    }
-    try {
-      const perStyleKey = `map-zoom:${locationCacheKey}:${mapStyle}`;
-      sessionStorage.setItem(perStyleKey, String(zoomLevel));
-      sessionStorage.setItem(`map-zoom:${locationCacheKey}`, String(zoomLevel));
-    } catch {}
-    const target = markerPanel.confirmTarget;
-    const exitUrl = markerPanel.exitUrl;
-    setMarkerPanel(null);
-
-    if (target.includes("/event?")) {
-      window.location.href = target;
-      return;
-    }
-
-    if (exitUrl) {
-      router.push(exitUrl);
-    } else {
-      triggerNavigation(target);
-    }
-  }, [markerPanel, triggerNavigation, router, zoomLevel, locationCacheKey, mapStyle]);
 
   // ---- Admin boundary overlays (Leaflet satellite / MapLibre globe / Cesium 3D) ----
   // Single source of truth: adminGeoJson. Hover/selection restyle without reload.
@@ -9762,46 +8481,10 @@ const isMapPerfEnabled = (): boolean => {
     }
   }, [selectedAdminCode, hoveredAdminCode, adminLevel, mapStyle, isCesiumReady]);
 
-  const handleGoToQR = useCallback(() => {
-    router.push("/qr");
-  }, [router]);
-
-  const handleToggleRankingPanel = useCallback(() => {
-    setShowRankingPanel((previous) => !previous);
-  }, []);
-
-
   const handleExit = useCallback(async () => {
     await signOut({ redirect: false });
     router.push("/");
   }, [router]);
-
-  const handleResetScore = useCallback(async () => {
-    try {
-      const res = await fetch("/api/resetscore", { 
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (res.ok) {
-        console.log("[ResetScore] score reset to 0, reloading page");
-        clearAllGameSnapshots();
-        window.location.reload();
-      } else {
-        console.error("[ResetScore] API returned error", res.status);
-      }
-    } catch (e) {
-      console.error("[ResetScore] failed", e);
-    }
-  }, []);
-
-  const handleAnimationComplete = useCallback(() => {
-    console.log("[Animation] onComplete - animation finished, URL cleanup");
-    animationCompleteRef.current = true;
-    setAnimateScore(false);
-    scoreCelebrationPendingRef.current = false;
-    celebrateVisitedMarkers();
-    router.replace("/map");
-  }, [router, celebrateVisitedMarkers]);
 
   return (
     <section
@@ -9885,29 +8568,6 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      {showRankingPanel && !territoryEnabled ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 top-0 z-[1250]">
-          <div className="pointer-events-none absolute left-3 top-3 z-[1260]">
-            <button
-              type="button"
-              onClick={() => setShowRankingPanel(false)}
-              className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/50 backdrop-blur-sm shadow-lg transition hover:bg-black/70"
-            >
-              <svg className="h-5 w-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M19 12H5M12 19l-7-7 7-7" />
-              </svg>
-            </button>
-          </div>
-          <div className="pointer-events-auto h-full w-full overflow-hidden border-y border-indigo-200/35 pb-[env(safe-area-inset-bottom)] shadow-[0_20px_40px_rgba(15,23,42,0.58)]">
-            <Ranking
-              embedded
-              items={rankingItems}
-              myNickname={rankingNickname ?? playerNickname ?? "PLAYER"}
-            />
-          </div>
-        </div>
-      ) : null}
-
       {showAdminBoundaries && selectedAdminCode ? (
         <div
           className={cn(
@@ -9963,90 +8623,16 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      {!territoryEnabled && !showRankingPanel && totalMarkerCount > 0 && unvisitedMarkerCount === 0 ? (
-        <div
-          role="alertdialog"
-          aria-live="polite"
-          aria-label="모든 미션 완료"
-          className="pointer-events-auto absolute left-1/2 top-[4.25rem] z-[2000] w-max max-w-[92%] -translate-x-1/2 overflow-hidden rounded-2xl border-2 border-emerald-200/50 bg-[linear-gradient(135deg,#064e3b_0%,#022c22_60%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
-        >
-          <div className="flex items-center gap-2.5 px-4 py-3">
-            <span className="text-2xl" aria-hidden="true">
-              🎉
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-black text-emerald-50">모든 미션 완료!</p>
-              <p className="truncate text-xs font-semibold text-emerald-200/80">
-                전체 {totalMarkerCount}개 마커를 모두 방문했습니다
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {attackDenied ? (
-        <div
-          role="alertdialog"
-          aria-live="polite"
-          aria-label="공격 실패"
-          className="pointer-events-auto fixed left-1/2 top-1/2 z-[2000] w-max max-w-[92%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border-2 border-amber-200/50 bg-[linear-gradient(135deg,#1e293b_0%,#0f172a_55%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
-        >
-          <div className="flex flex-col items-center gap-3 px-6 py-5 text-center">
-            <p className="text-base font-black text-amber-50">
-              {attackDenied === "gone"
-                ? "무법자가 이미 사라졌습니다"
-                : "무법자가 범위에서 벗어났습니다"}
-            </p>
-            <p className="text-xs text-slate-300">
-              15m 이내로 접근한 뒤 다시 공격해 주세요.
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setAttackDenied(null);
-                router.replace("/map");
-              }}
-              className="rounded-lg border border-amber-200/50 bg-amber-300/15 px-5 py-2 text-sm font-bold text-amber-50 transition hover:bg-amber-300/25"
-            >
-              확인
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {showEventRevisited ? (
-        <div
-          role="alertdialog"
-          aria-live="polite"
-          aria-label="이미 진행한 이벤트"
-          className="pointer-events-auto fixed left-1/2 top-1/2 z-[2000] w-max max-w-[92%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border-2 border-amber-200/50 bg-[linear-gradient(135deg,#1e293b_0%,#0f172a_55%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
-        >
-          <div className="flex flex-col items-center gap-3 px-6 py-5 text-center">
-            <p className="text-base font-black text-amber-50">이미 진행한 이벤트입니다</p>
-            <button
-              type="button"
-              onClick={() => {
-                setShowEventRevisited(false);
-                router.replace("/map");
-              }}
-              className="rounded-lg border border-amber-200/50 bg-amber-300/15 px-5 py-2 text-sm font-bold text-amber-50 transition hover:bg-amber-300/25"
-            >
-              지도로 이동
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       {markerPanel ? (
         <div
           className={
             territoryEnabled
               ? (() => {
                   // 중립성·무법자 정보창은 하단 가운데, 나머지는 화면 중앙.
-                  const isQuizEntry =
+                  const isBottomEntry =
                     markerPanel.wildId !== undefined ||
                     (markerPanel.eventKey !== undefined && isNeutralEventKey(markerPanel.eventKey));
-                  return isQuizEntry
+                  return isBottomEntry
                     ? "pointer-events-auto fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 z-[1200] mx-auto w-max min-w-[35%] max-w-[92%] -translate-x-1/2 overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#1e293b_0%,#0f172a_55%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
                     : "pointer-events-auto fixed left-1/2 top-1/2 z-[1200] mx-auto w-max min-w-[35%] max-w-[92%] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#1e293b_0%,#0f172a_55%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]";
                 })()
@@ -10124,74 +8710,6 @@ const isMapPerfEnabled = (): boolean => {
             >
               닫기
             </button>
-            {markerPanel.isProximity && markerPanel.confirmTarget ? (
-              <button
-                type="button"
-                onClick={handleConfirmPanel}
-                className="rounded-lg border border-emerald-300/50 bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] transition hover:bg-emerald-400"
-              >
-                {markerPanel.confirmLabel ?? "실행"}
-              </button>
-            ) : null}
-            {!markerPanel.isProximity &&
-            (markerPanel.wildId !== undefined ||
-              (markerPanel.eventKey && isNeutralEventKey(markerPanel.eventKey)))
-              ? (() => {
-                  // 무법자· 중립성 공용: 인접 시 진입 버튼, 범위 밖이면 안내 문구.
-                  const isWild = markerPanel.wildId !== undefined;
-                  const rangeM = isWild ? WILD_ATTACK_RANGE_M : NEUTRAL_QUIZ_RANGE_M;
-                  const plat = markerPanel.lat;
-                  const plon = markerPanel.lon;
-                  let inRange = false;
-                  if (Number.isFinite(plat) && Number.isFinite(plon)) {
-                    const base = playerLocation;
-                    if (
-                      base &&
-                      Number.isFinite(base.lat) &&
-                      Number.isFinite(base.lon) &&
-                      calculateDistance(base.lat, base.lon, plat as number, plon as number) <= rangeM
-                    ) {
-                      inRange = true;
-                    }
-                    if (!inRange) {
-                      inRange = unitMarks.some(
-                        (mark) =>
-                          mark.mine &&
-                          Number.isFinite(mark.lat) &&
-                          Number.isFinite(mark.lon) &&
-                          calculateDistance(mark.lat, mark.lon, plat as number, plon as number) <=
-                            rangeM,
-                      );
-                    }
-                  }
-                  if (!inRange) {
-                    return (
-                      <p className="px-4 py-2.5 text-xs text-slate-400">
-                        {rangeM}m 이내로 접근(본체 또는 부대)해야 {isWild ? "공격" : "퀴즈 풀기"}할 수
-                        있습니다.
-                      </p>
-                    );
-                  }
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        closeMarkerPanel();
-                        if (isWild) {
-                          router.push("/map");
-                        } else {
-                          router.push(
-                            "/map",
-                          );
-                        }
-                      }}
-                      className="rounded-lg border border-emerald-300/50 bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white shadow-[0_4px_14px_rgba(16,185,129,0.4)] transition hover:bg-emerald-400"
-                    >
-                      {isWild ? "공격" : "퀴즈 풀기"}
-                    </button>
-                  );
-                })()
-              : null}
           </div>
         </div>
       ) : null}
@@ -10257,39 +8775,7 @@ const isMapPerfEnabled = (): boolean => {
           <>
             <TerritoryDash />
           </>
-        ) : (
-        <>
-        <div className="pointer-events-auto flex w-auto flex-row items-center gap-1.5 rounded-md border border-amber-200/40 bg-black/60 px-2 py-1 text-amber-100 backdrop-blur-xl shadow-[0_8px_20px_rgba(0,0,0,0.32)]">
-          <span className="text-center text-[11px] font-bold leading-none">점수</span>
-          <AnimatedScoreCounter
-            value={typeof playerScore === "number" ? playerScore : 0}
-            startFrom={previousScore}
-            shouldAnimate={animateScore}
-            onAnimationComplete={handleAnimationComplete}
-            duration={3000}
-          />
-        </div>
-        <div
-          className="pointer-events-auto flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-amber-200/40 bg-black/60 px-2 py-1 text-amber-100 backdrop-blur-xl shadow-[0_8px_20px_rgba(0,0,0,0.32)]"
-          title={`미방문 마커 ${unvisitedMarkerCount}개 / 전체 ${totalMarkerCount}개`}
-          aria-label={`미방문 마커 ${unvisitedMarkerCount}개, 전체 ${totalMarkerCount}개`}
-        >
-          <span className="text-center text-[11px] font-bold leading-none">미방문</span>
-          <span className="flex h-5 items-center text-sm font-extrabold leading-none tabular-nums">
-            {unvisitedMarkerCount}/{totalMarkerCount}
-          </span>
-        </div>
-        <div
-          className="pointer-events-auto flex shrink-0 items-center whitespace-nowrap rounded-md border border-amber-200/40 bg-black/60 px-2 py-1 text-amber-100 backdrop-blur-xl shadow-[0_8px_20px_rgba(0,0,0,0.32)]"
-          title={myRank !== null ? `현재 등수 ${myRank}위` : "현재 등수 확인 불가"}
-          aria-label={myRank !== null ? `현재 등수 ${myRank}위` : "현재 등수 확인 불가"}
-        >
-          <span className="flex h-5 items-center text-sm font-extrabold leading-none tabular-nums">
-            {myRank !== null ? `${myRank}위` : "-"}
-          </span>
-        </div>
-        </>
-        )}
+        ) : null}
       </div>
 
       <div className="pointer-events-none absolute right-4 top-4 z-[1200]">
@@ -10444,31 +8930,6 @@ const isMapPerfEnabled = (): boolean => {
           <div className="relative flex items-center gap-6">
             <button
               type="button"
-              onClick={handleToggleRankingPanel}
-              aria-pressed={showRankingPanel}
-              className={`relative h-14 w-14 shrink-0 rounded-lg border backdrop-blur-md active:translate-y-0.5 ${
-                showRankingPanel
-                  ? "translate-y-0.5 border-emerald-200/80 bg-white/25 shadow-[inset_0_2px_8px_rgba(15,23,42,0.55)]"
-                  : "border-white/20 bg-white/10 shadow-lg shadow-indigo-900/30"
-              }`}
-            >
-              <img
-                src={showRankingPanel ? "/globe.svg" : "/ranking_icon.png"}
-                alt={showRankingPanel ? "지도" : "랭킹"}
-                className="h-full w-full rounded-lg object-contain px-1 pt-[2px] pb-4"
-              />
-              <span className="absolute inset-x-0 bottom-1 text-center text-[9px] font-semibold leading-none text-white drop-shadow-md">{showRankingPanel ? "지도" : "랭킹"}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleGoToQR}
-              className="relative h-14 w-14 shrink-0 rounded-lg border border-white/20 bg-white/10 backdrop-blur-md shadow-lg shadow-indigo-900/30 active:translate-y-0.5"
-            >
-              <img src="/qrreader_icon.png" alt="QR" className="h-full w-full rounded-lg object-contain px-1 pt-[2px] pb-4" />
-              <span className="absolute inset-x-0 bottom-1 text-center text-[9px] font-semibold leading-none text-white drop-shadow-md">QR읽기</span>
-            </button>
-            <button
-              type="button"
               onClick={() => {
                 void handleExit();
               }}
@@ -10476,16 +8937,6 @@ const isMapPerfEnabled = (): boolean => {
             >
               <img src="/exit_icon.png" alt="나가기" className="h-full w-full rounded-lg object-contain px-1 pt-[2px] pb-4" />
               <span className="absolute inset-x-0 bottom-1 text-center text-[9px] font-semibold leading-none text-white drop-shadow-md">나가기</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void handleResetScore();
-              }}
-              className="relative h-14 w-14 shrink-0 rounded-lg border border-white/20 bg-white/10 backdrop-blur-md shadow-lg shadow-indigo-900/30 active:translate-y-0.5"
-            >
-              <img src="/exit_icon.png" alt="점수리셋" className="h-full w-full rounded-lg object-contain px-1 pt-[2px] pb-4" />
-              <span className="absolute inset-x-0 bottom-1 text-center text-[9px] font-semibold leading-none text-white drop-shadow-md">점수리셋</span>
             </button>
           </div>
         </div>
@@ -10840,7 +9291,6 @@ const isMapPerfEnabled = (): boolean => {
           wildSeeds={wildSeeds}
           neutralRefreshNonce={neutralRefreshNonce}
           onExit={() => void handleExit()}
-          onResetScore={() => void handleResetScore()}
           lordMoveTarget={playerMoveTarget}
           onLordMoveOrder={(target) => {
             try {
