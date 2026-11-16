@@ -5,3 +5,4 @@ export * from "./commanders";
 export * from "./engine";
 export * from "./ai";
 export * from "./view";
+export * from "./outlaw";

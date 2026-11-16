@@ -5,6 +5,7 @@ import type {
   Action,
   BattleEvent,
   BattleState,
+  CommanderKind,
   CardInstance,
   Commander,
   GameOverReason,
@@ -147,3 +148,27 @@ export const redactEvents = (events: BattleEvent[], viewer: SideIndex): BattleEv
     }
     return event;
   });
+
+// GET /api/battle/commanders → CommandersResponse
+// 지휘관 선택창용: 영주 + 내 부대의 레벨·출전 가능 여부·부상 해제 시각.
+
+export interface CommanderListItem {
+  /** "lord" 또는 부대 id */
+  id: string;
+  name: string;
+  kind: CommanderKind;
+  level: number;
+  /** 부대 상태 (영주는 "field") */
+  state: "field" | "training" | "garrisoned" | "dead";
+  /** 부상 해제 시각(ms). 부상 중이 아니면 null */
+  injuredUntil: number | null;
+  /** 지금 출전할 수 있는지 (부상·상태 기준. 거리는 시작 시 서버가 확인) */
+  available: boolean;
+}
+
+export interface CommandersResponse {
+  ok: true;
+  /** 서버 현재 시각(ms) — 부상 남은 시간 계산용 */
+  serverNow: number;
+  commanders: CommanderListItem[];
+}

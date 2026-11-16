@@ -43,14 +43,17 @@ import type {
   BattleState,
   BattleTargetInfo,
   CommanderKind,
-  OutlawTier,
+  CommanderListItem,
+  CommandersResponse,
   PublicBattleView,
   StarterDeckKey,
   TargetRef,
 } from "@/lib/battle";
+import { effectiveOutlawTier, outlawTierForId } from "@/lib/battle/outlaw";
 import { nextRandom, seedToRng } from "@/lib/battle/rng";
 import { NEUTRAL_PATH_SNAP_MAX_M, neutralPositionAt, projectOntoPath } from "@/lib/neutral-leg";
 import { acquirePgLock } from "@/lib/pg-advisory-lock";
+import prisma from "@/lib/prismadb";
 import { withNamedLock } from "@/lib/territory";
 import type { Tx } from "@/lib/territory";
 import { isUnitInjured, loadUnits, positionAtMoveTarget, withUnits } from "@/lib/units";
@@ -68,7 +71,8 @@ export const BATTLE_PROXIMITY_M = 150;
 /** 영주 위치(하트비트) 허용 지연 */
 export const LORD_POSITION_STALE_MS = 120_000;
 /** 패배 부상 시간 */
-export const INJURY_MS = 3_600_000;
+/** 패배 부상 시간 (30분) */
+export const INJURY_MS = 30 * 60_000;
 /** 전투 중 무법자 고정 시간 (요청마다 연장) */
 export const OUTLAW_HOLD_MS = 10 * 60_000;
 /** 고정 남은 시간이 이보다 적으면 연장한다 */
@@ -293,11 +297,8 @@ export function resolveCommander(
 // 무법자 (순수)
 // ---------------------------------------------------------------------------
 
-/** 무법자 id → 난이도 (가중치 60/30/10, 결정적) */
-export function outlawTierForId(id: number): OutlawTier {
-  const v = nextRandom(seedToRng((Math.imul(id, 2654435761) ^ 0x71a3) >>> 0)).value;
-  return v < 0.6 ? 1 : v < 0.9 ? 2 : 3;
-}
+// 무법자 등급 계산은 화면과 공유하도록 @/lib/battle/outlaw 로 옮겼다.
+export { outlawTierForId } from "@/lib/battle/outlaw";
 
 export interface OutlawRowLike {
   id: number;
@@ -417,7 +418,8 @@ export function startOutlawBattle(input: {
   outlaw: OutlawTargetInput;
 }): { battle: StoredBattle; events: BattleEvent[] } {
   const { commander, outlaw } = input;
-  const tier = outlawTierForId(outlaw.id);
+  // 저레벨 지휘관은 한 단계 낮은 무법자와 싸운다 (견습 보정).
+  const tier = effectiveOutlawTier(outlawTierForId(outlaw.id), commander.level);
   const preset = OUTLAW_PRESETS[tier];
   const state = createBattle({
     seed: input.seed,
@@ -596,7 +598,7 @@ export function settleBattle(data: JsonObject, battle: StoredBattle, now: number
     cardRewards.push(card);
   }
 
-  // 패배(항복 포함) = 부상 1시간. 무승부는 부상 없음.
+  // 패배(항복 포함) = 부상 30분. 무승부는 부상 없음.
   const injuredUntil = winner === 1 ? now + INJURY_MS : null;
   if (injuredUntil !== null) {
     if (battle.commanderId === "lord") {
@@ -970,4 +972,43 @@ export async function currentForUser(userId: string): Promise<BattleResponse> {
     }
     return { ok: true, battle: cur.view, events: cur.events };
   });
+}
+
+/** 지휘관 선택창 목록에 쓰는 순수 계산 (영주 + 부대). */
+export function listCommanders(data: JsonObject, nickname: string | null, now: number): CommanderListItem[] {
+  const progress = readCommanders(data);
+  const lordInjured = isFiniteNumber(data.lordInjuredUntil) && data.lordInjuredUntil > now ? data.lordInjuredUntil : null;
+  const out: CommanderListItem[] = [
+    {
+      id: "lord",
+      name: nickname?.trim() || "영주",
+      kind: "lord",
+      level: levelFromXp(progress.lord?.xp ?? 0),
+      state: "field",
+      injuredUntil: lordInjured,
+      available: lordInjured === null,
+    },
+  ];
+  for (const unit of loadUnits(data)) {
+    const p = progress[unit.id];
+    const injured = isUnitInjured(unit, now) && isFiniteNumber(unit.injuredUntil) ? unit.injuredUntil : null;
+    out.push({
+      id: unit.id,
+      name: unit.name,
+      kind: p && UNIT_KINDS.includes(p.kind) ? p.kind : "infantry",
+      level: levelFromXp(p?.xp ?? 0),
+      state: unit.state,
+      injuredUntil: injured,
+      available: unit.state === "field" && injured === null,
+    });
+  }
+  return out;
+}
+
+/** GET /api/battle/commanders */
+export async function commandersForUser(userId: string): Promise<CommandersResponse> {
+  const now = Date.now();
+  const row = await prisma.missionUser.findUnique({ where: { userId }, select: { data: true, nickname: true } });
+  if (!row) throw new BattleError("not_found", 404, "사용자를 찾을 수 없습니다.");
+  return { ok: true, serverNow: now, commanders: listCommanders(toJsonObject(row.data), row.nickname, now) };
 }

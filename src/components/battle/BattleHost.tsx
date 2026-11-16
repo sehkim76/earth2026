@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import type { PublicBattleView } from "@/lib/battle";
+import {
+  COMMANDER_KIND_LABEL,
+  NOVICE_COMMANDER_MAX_LEVEL,
+  OUTLAW_TIER_LABEL,
+  OUTLAW_TIER_STARS,
+  effectiveOutlawTier,
+  outlawTierForId,
+} from "@/lib/battle";
+import type { CommandersResponse, PublicBattleView } from "@/lib/battle";
 
 import { createServerBattleSource, fetchCurrentBattle, startBattle } from "@/components/battle/battle-api";
 import { BattleScene } from "@/components/battle/BattleScene";
@@ -28,8 +36,14 @@ interface BattleHostProps {
 interface CommanderOption {
   id: string;
   name: string;
+  /** 병종·레벨 */
   detail: string;
+  level: number;
   available: boolean;
+  /** 부상 해제 시각 (내 기기 시각으로 보정됨) */
+  injuredUntil: number | null;
+  /** 출전 불가 사유 (부상 제외) */
+  reason: string | null;
 }
 
 const CLOSED_KEY = "battle-closed-ids";
@@ -61,32 +75,33 @@ function markClosed(id: string): void {
 }
 
 async function loadCommanders(): Promise<CommanderOption[]> {
-  const out: CommanderOption[] = [{ id: "lord", name: "영주 (나)", detail: "직접 출전", available: true }];
   try {
-    const res = await fetch("/api/units", { credentials: "include", cache: "no-store" });
+    const res = await fetch("/api/battle/commanders", { credentials: "include", cache: "no-store" });
     const body: unknown = await res.json();
-    const units = typeof body === "object" && body !== null ? (body as { units?: unknown }).units : null;
-    if (Array.isArray(units)) {
-      for (const u of units) {
-        if (typeof u !== "object" || u === null) continue;
-        const r = u as Record<string, unknown>;
-        if (typeof r.id !== "string") continue;
-        const state = typeof r.state === "string" ? r.state : "";
-        const extra: string[] = [];
-        if (typeof r.level === "number") extra.push(`Lv.${r.level}`);
-        extra.push(STATE_LABEL[state] ?? state);
-        out.push({
-          id: r.id,
-          name: typeof r.name === "string" && r.name ? r.name : "부대",
-          detail: extra.join(" · "),
-          available: state === "field",
-        });
-      }
+    if (!res.ok || typeof body !== "object" || body === null || (body as { ok?: unknown }).ok !== true) {
+      throw new Error("commanders_failed");
     }
+    const payload = body as CommandersResponse;
+    // 부상 남은 시간은 서버 시각 기준으로 계산해 내 기기 시각으로 옮긴다.
+    const skew = Date.now() - payload.serverNow;
+    return payload.commanders.map((c) => ({
+      id: c.id,
+      name: c.id === "lord" ? `영주 ${c.name}` : c.name,
+      detail: `${COMMANDER_KIND_LABEL[c.kind]} · Lv.${c.level}`,
+      level: c.level,
+      available: c.available,
+      injuredUntil: c.injuredUntil === null ? null : c.injuredUntil + skew,
+      reason: c.state === "field" ? null : (STATE_LABEL[c.state] ?? c.state),
+    }));
   } catch {
-    // 부대 목록을 못 받아도 영주로는 출전할 수 있다
+    // 목록을 못 받아도 영주로는 시도할 수 있다 (서버가 최종 판정).
+    return [{ id: "lord", name: "영주 (나)", detail: "직접 출전", level: 1, available: true, injuredUntil: null, reason: null }];
   }
-  return out;
+}
+
+function formatRemain(ms: number): string {
+  const min = Math.max(1, Math.ceil(ms / 60_000));
+  return `부상 ${min}분 남음`;
 }
 
 interface CommanderPickerProps {
@@ -100,6 +115,14 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
   const [options, setOptions] = useState<CommanderOption[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const baseTier = outlawTierForId(wildId);
+
+  // 부상 남은 시간 표시 갱신 (30초마다).
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -141,25 +164,40 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-amber-200/25 bg-amber-300/10 px-4 py-2.5">
-          <p className="text-sm font-bold">무법자 토벌 — 출전할 지휘관</p>
-          <p className="mt-0.5 text-[11px] text-amber-100/70">지휘관의 덱으로 카드 전투를 벌입니다. 패배하면 1시간 부상.</p>
+          <p className="text-sm font-bold">
+            {OUTLAW_TIER_LABEL[baseTier]} <span className="text-amber-300">{OUTLAW_TIER_STARS[baseTier]}</span> 토벌 — 출전할 지휘관
+          </p>
+          <p className="mt-0.5 text-[11px] text-amber-100/70">
+            지휘관의 덱으로 카드 전투를 벌입니다. 패배하면 30분 부상. Lv.{NOVICE_COMMANDER_MAX_LEVEL} 이하 지휘관은 한 단계 약한 무법자와 싸웁니다.
+          </p>
         </div>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto p-3">
           {options === null ? (
             <p className="py-4 text-center text-xs text-amber-100/70">지휘관 목록을 불러오는 중…</p>
           ) : (
-            options.map((o) => (
-              <button
-                key={o.id}
-                type="button"
-                disabled={!o.available || starting}
-                onClick={() => void start(o.id)}
-                className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200/25 bg-black/30 px-3 py-2 text-left transition enabled:hover:border-amber-200/60 enabled:hover:bg-amber-200/10 disabled:opacity-45"
-              >
-                <span className="truncate text-sm font-bold">{o.name}</span>
-                <span className="shrink-0 text-[11px] text-amber-100/70">{o.detail}</span>
-              </button>
-            ))
+            options.map((o) => {
+              const injured = o.injuredUntil !== null && o.injuredUntil > now;
+              const enabled = o.available && !injured && o.reason === null;
+              const tier = effectiveOutlawTier(baseTier, o.level);
+              const status = injured
+                ? formatRemain((o.injuredUntil as number) - now)
+                : o.reason ?? `상대 ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]}${tier < baseTier ? " (견습 보정)" : ""}`;
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  disabled={!enabled || starting}
+                  onClick={() => void start(o.id)}
+                  className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200/25 bg-black/30 px-3 py-2 text-left transition enabled:hover:border-amber-200/60 enabled:hover:bg-amber-200/10 disabled:opacity-45"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold">{o.name}</span>
+                    <span className="block text-[11px] text-amber-100/70">{o.detail}</span>
+                  </span>
+                  <span className={`shrink-0 text-right text-[11px] ${injured ? "font-semibold text-red-300" : "text-amber-100/80"}`}>{status}</span>
+                </button>
+              );
+            })
           )}
         </div>
         {error ? <p className="px-4 pb-2 text-center text-xs font-semibold text-red-300">{error}</p> : null}

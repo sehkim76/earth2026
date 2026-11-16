@@ -60,6 +60,7 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
+import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
 import { BattleHost } from "@/components/battle/BattleHost";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
 import { serverNow } from "@/lib/server-clock";
@@ -764,6 +765,12 @@ const GPS_ACCURACY_TIER_TEXT_CLASS: Record<GpsAccuracyTier, string> = {
   좋음: "text-emerald-200",
   약함: "text-amber-200",
   나쁨: "text-rose-300",
+};
+
+/** 무법자 패널의 등급 줄 (토벌 전투 상대 난이도, 서버와 같은 계산). */
+const outlawTierLine = (wildId: number): string => {
+  const tier = outlawTierForId(wildId);
+  return `등급: ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]}`;
 };
 
 /** 코드 생성 중립성 마커 prefix (DB Row 없이 사용). */
@@ -5380,7 +5387,7 @@ interface OtherUnitMoveAnim {
           const proxDist = Math.max(0, Math.round(calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon)));
           nearestMarker = {
             title: `무법자 #${wildId}`,
-            lines: [`이름: 무법자 #${wildId}`, "유형: 무법자", "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
+            lines: [`이름: 무법자 #${wildId}`, outlawTierLine(wildId), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
             wildId,
             lat: wildPos.lat,
             lon: wildPos.lon,
@@ -6855,7 +6862,7 @@ interface OtherUnitMoveAnim {
             title: `무법자 #${wildId}`,
             lines: [
               `이름: 무법자 #${wildId}`,
-              "유형: 무법자",
+              outlawTierLine(wildId),
               "상태: 배회 중",
               ...(tapDist !== null ? [`거리: 약 ${tapDist}m (플레이어)`] : []),
             ],
