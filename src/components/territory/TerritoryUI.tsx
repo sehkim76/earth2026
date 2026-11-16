@@ -30,7 +30,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
-  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
+  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
   onUnitMarkerSelectionHandled: () => void;
   targetMarkerUrl: string | null;
@@ -81,6 +81,8 @@ interface UnitInfo {
   castleKey: string | null;
   reviveAt: number | null;
   trainingCompleteAt?: number | null;
+  /** 카드 전투 패배 부상 해제 시각 (지도 부상 표시) */
+  injuredUntil?: number | null;
   moveTarget?: {
     lat: number;
     lon: number;
@@ -577,6 +579,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             mine: false as const,
             selected: false as const,
             moving: !!moveTarget && moveTarget.endsAt > Date.now(),
+            injured: typeof row.injuredUntil === "number" && row.injuredUntil > Date.now(),
             moveTarget,
           };
         });
@@ -592,6 +595,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           mine: true as const,
           moving: movingIds.has(unit.id),
           selected: isDialogSelected(unit.id),
+          injured: typeof unit.injuredUntil === "number" && unit.injuredUntil > Date.now(),
           moveTarget: null,
         }));
       onUnitMarks([...ownMarks, ...otherMarks, ...toNeutralMarks(neutralUnitsRef.current)]);
@@ -968,6 +972,23 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
   }, [sheet, onMoveTargetCenter]);
 
+  // 내 부대 부상이 풀리는 시각에 마커를 다시 내보내 부상 모습을 해제한다.
+  const [injuryTick, setInjuryTick] = useState(0);
+  useEffect(() => {
+    const now = Date.now();
+    let earliest: number | null = null;
+    for (const unit of units) {
+      if (typeof unit.injuredUntil === "number" && unit.injuredUntil > now) {
+        earliest = earliest === null ? unit.injuredUntil : Math.min(earliest, unit.injuredUntil);
+      }
+    }
+    if (earliest === null) {
+      return;
+    }
+    const id = window.setTimeout(() => setInjuryTick((n) => n + 1), earliest - now + 500);
+    return () => window.clearTimeout(id);
+  }, [units, injuryTick]);
+
   // 이동 애니메이션 중 60fps setUnits가 지도 마커 전체를 매 프레임 재설정하면
   // 깜빡임이 생기므로 마커 전달은 200ms로 스로틀한다.
   const lastMarksEmitRef = useRef(0);
@@ -987,6 +1008,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             mine: true as const,
             moving: movingUnitIds.includes(s.id),
             selected: s.id === selectedUnit && sheet === "move",
+            injured: typeof s.injuredUntil === "number" && s.injuredUntil > Date.now(),
             moveTarget: null,
           })),
         ...otherUnitMarks,
@@ -1012,7 +1034,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         pendingMarksEmitRef.current = null;
       }
     };
-  }, [units, otherUnitMarks, neutralUnits, movingUnitIds, selectedUnit, sheet, onUnitMarks]);
+  }, [units, otherUnitMarks, neutralUnits, movingUnitIds, selectedUnit, sheet, onUnitMarks, injuryTick]);
 
   // 마지막 선택 우선: 성이 새로 열리면 시트를 닫는다 (상태는 유지).
   const prevCastleKeyRef = useRef<string | null>(null);

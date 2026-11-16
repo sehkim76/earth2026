@@ -136,6 +136,8 @@ export async function GET(request: Request) {
       castleKey: s.castleKey,
       reviveAt: s.reviveAt,
       trainingCompleteAt: s.trainingCompleteAt ?? null,
+      // 카드 전투 패배 부상 해제 시각 (지도 부상 표시·지휘관 선택용)
+      injuredUntil: s.injuredUntil ?? null,
       moveTarget: s.moveTarget,
     };
   });

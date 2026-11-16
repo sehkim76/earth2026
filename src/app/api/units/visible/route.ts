@@ -51,6 +51,7 @@ export async function GET() {
             lon: live ? live.lon : unit.lon,
             state: unit.state,
             ownerNickname: row.nickname ?? "",
+            injuredUntil: unit.injuredUntil ?? null,
             moveTarget: unit.moveTarget,
           };
         }),

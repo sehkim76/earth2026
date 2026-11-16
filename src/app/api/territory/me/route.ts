@@ -33,6 +33,14 @@ export async function GET() {
     ]);
     const units = loadUnits(userRow?.data);
     const alive = units.filter((s) => s.state !== "dead").length;
+    // 카드 전투 패배로 영주가 부상 중이면 해제 시각 (지도 부상 표시용).
+    const rawData = userRow?.data;
+    const lordInjured =
+      rawData && typeof rawData === "object" && !Array.isArray(rawData)
+        ? (rawData as Record<string, unknown>).lordInjuredUntil
+        : null;
+    const lordInjuredUntil =
+      typeof lordInjured === "number" && Number.isFinite(lordInjured) && lordInjured > Date.now() ? lordInjured : null;
 
     return NextResponse.json({
       ok: true,
@@ -47,6 +55,8 @@ export async function GET() {
       wins: stats.wins,
       maxCommanderLevel: stats.maxCommanderLevel,
       contribution: stats.wins,
+      lordInjuredUntil,
+      serverNow: Date.now(),
     });
   } catch {
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });

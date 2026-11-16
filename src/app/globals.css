@@ -714,3 +714,139 @@
   border-radius: 14px;
   filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.9)) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
 }
+
+/* ===== 부상 표시 (카드 전투 패배 후 부상 중인 영주·부대) =====
+ * 마커 상자와 스프라이트는 이미 transform(지도 회전 보정·좌우 반전)을 쓰므로
+ * 절뚝임은 개별 변환 속성(rotate/translate)으로 겹쳐 충돌을 피한다. */
+@keyframes injured-limp {
+  0%, 100% { rotate: -9deg; translate: 0 2px; }
+  30% { rotate: 3deg; translate: 0 -1px; }
+  48% { rotate: -5deg; translate: 0 3px; }
+  70% { rotate: 1deg; translate: 0 0; }
+}
+
+@keyframes injured-badge {
+  0%, 100% { scale: 1; opacity: 1; }
+  50% { scale: 1.28; opacity: 0.7; }
+}
+
+@keyframes injured-glow {
+  0%, 100% { opacity: 0.35; scale: 0.85; }
+  50% { opacity: 0.8; scale: 1.1; }
+}
+
+@keyframes injured-drip {
+  0% { translate: 0 0; opacity: 0; }
+  15% { opacity: 1; }
+  100% { translate: 0 16px; opacity: 0; }
+}
+
+.unit-pin.unit-injured,
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root) {
+  position: relative;
+  animation: injured-limp 1.5s ease-in-out infinite;
+}
+
+/* 영주 마커 상자는 transform이 없어 발끝 기준으로 기울인다.
+ * (부대 상자는 지도 회전 보정 transform의 기준점을 바꾸면 안 되므로 그대로 둔다.) */
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root) {
+  transform-origin: 50% 100%;
+}
+
+/* 걸음·숨쉬기가 느려지고 붉은 기운이 돈다. */
+.unit-pin.unit-injured > .territory-soldier-idle {
+  animation-duration: 1920ms;
+  filter: sepia(0.55) saturate(2.1) hue-rotate(-28deg) brightness(0.82) drop-shadow(0 2px 4px rgba(0, 0, 0, 0.55));
+}
+
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root) > .player-walk-sprite {
+  animation-duration: 4320ms;
+}
+
+/* 붉은 기운은 캐릭터 그림에만 (배지가 물들지 않게). 스프라이트의 인라인 그림자보다 우선해야 해서 !important. */
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root) > .player-walk-sprite {
+  filter: sepia(0.5) saturate(2) hue-rotate(-26deg) brightness(0.85) drop-shadow(0 6px 10px rgba(2, 6, 23, 0.35)) !important;
+}
+
+/* 발밑 붉은 빛 */
+.unit-pin.unit-injured::before,
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 40px;
+  height: 12px;
+  margin-left: -20px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(239, 68, 68, 0.85) 0%, rgba(239, 68, 68, 0) 70%);
+  animation: injured-glow 1.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.unit-pin.unit-injured::before {
+  top: 40px;
+}
+
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::before {
+  bottom: -4px;
+}
+
+/* 붕대 십자 배지 */
+.unit-pin.unit-injured::after,
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::after {
+  content: "✚";
+  position: absolute;
+  top: -2px;
+  right: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  color: #dc2626;
+  font: 900 12px/16px system-ui, sans-serif;
+  text-align: center;
+  box-shadow: 0 0 0 2px #dc2626, 0 0 8px rgba(220, 38, 38, 0.85);
+  animation: injured-badge 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+:is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::after {
+  top: 2px;
+  right: 6px;
+}
+
+/* 핏방울 (배지 아래로 떨어짐) */
+.unit-pin.unit-injured > .unit-pin-label::after {
+  content: "";
+  position: absolute;
+  top: 18px;
+  right: 15px;
+  width: 4px;
+  height: 6px;
+  border-radius: 50% 50% 50% 50% / 40% 40% 60% 60%;
+  background: #dc2626;
+  animation: injured-drip 1.4s ease-in infinite;
+  pointer-events: none;
+}
+
+.unit-pin.unit-injured > .unit-pin-label {
+  background: rgba(127, 29, 29, 0.92);
+}
+
+.unit-pin.unit-injured > .unit-pin-label::before {
+  content: "부상 · ";
+  color: #fecaca;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unit-pin.unit-injured,
+  :is(.player-injured, .lord-injured .three-player-marker .player-marker-root),
+  .unit-pin.unit-injured::after,
+  :is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::after,
+  .unit-pin.unit-injured::before,
+  :is(.player-injured, .lord-injured .three-player-marker .player-marker-root)::before,
+  .unit-pin.unit-injured > .unit-pin-label::after {
+    animation: none;
+  }
+}

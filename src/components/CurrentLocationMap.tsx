@@ -272,6 +272,8 @@ type NearbyPlayer = {
   lon: number;
   updatedAt: string;
   selectedCharacter: PlayerCharacter;
+  /** 카드 전투 패배 부상 해제 시각 (서버 시각, 부상 아니면 null) */
+  injuredUntil?: number | null;
 };
 
 type NearbyPlayerMarkerEntry = {
@@ -1510,6 +1512,9 @@ export default function CurrentLocationMap({
   const [placementNotice, setPlacementNotice] = useState<{ id: number; message: string } | null>(null);
   const [placementReason, setPlacementReason] = useState<string | null>(null);
   const [myTerritory, setMyTerritory] = useState<{ klass: string; contribution: number } | null>(null);
+  // 영주 부상 해제 시각 (카드 전투 패배). territoryMeNonce를 올리면 /api/territory/me를 다시 읽는다.
+  const [lordInjuredUntil, setLordInjuredUntil] = useState<number | null>(null);
+  const [territoryMeNonce, setTerritoryMeNonce] = useState(0);
   const [dongCastleCounts, setDongCastleCounts] = useState<{ lord: number; noble: number } | null>(null);
   const [walkableTick, setWalkableTick] = useState(0);
   const walkableBuiltSigRef = useRef<string | null>(null);
@@ -1608,7 +1613,7 @@ export default function CurrentLocationMap({
         if (cancelled || !data || typeof data !== "object") {
           return;
         }
-        const payload = data as { class?: unknown; contribution?: unknown };
+        const payload = data as { class?: unknown; contribution?: unknown; lordInjuredUntil?: unknown; serverNow?: unknown };
         if (typeof payload.class === "string") {
           setMyTerritory({
             klass: payload.class,
@@ -1616,12 +1621,33 @@ export default function CurrentLocationMap({
               typeof payload.contribution === "number" ? payload.contribution : 0,
           });
         }
+        // 영주 부상 해제 시각 (서버 시각 → 내 기기 시각으로 보정).
+        const skew = typeof payload.serverNow === "number" ? Date.now() - payload.serverNow : 0;
+        setLordInjuredUntil(
+          typeof payload.lordInjuredUntil === "number" ? payload.lordInjuredUntil + skew : null,
+        );
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [territoryEnabled]);
+  }, [territoryEnabled, territoryMeNonce]);
+
+  // 영주 부상 표시: 부상 중이면 body에 lord-injured를 달아 CSS가 내 영주 마커에 부상 애니메이션을 입힌다.
+  // 해제 시각이 지나면 자동으로 뗀다.
+  useEffect(() => {
+    const now = Date.now();
+    const injured = lordInjuredUntil !== null && lordInjuredUntil > now;
+    document.body.classList.toggle("lord-injured", injured);
+    if (!injured) {
+      return () => document.body.classList.remove("lord-injured");
+    }
+    const id = window.setTimeout(() => setLordInjuredUntil(null), (lordInjuredUntil as number) - now + 300);
+    return () => {
+      window.clearTimeout(id);
+      document.body.classList.remove("lord-injured");
+    };
+  }, [lordInjuredUntil]);
 
   // 확정 좌표의 동 + 이번 시즌 성 현황.
   const placementDong = useMemo((): string | null => {
@@ -1806,7 +1832,7 @@ export default function CurrentLocationMap({
   }, [location?.lat, location?.lon, location?.accuracy, playerLocation?.lat, playerLocation?.lon, placementBusy]);
   const [lordSelected, setLordSelected] = useState(false);
   const [unitMarks, setUnitMarks] = useState<
-    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; moveTarget: UnitMoveTargetMark | null }[]
+    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; moveTarget: UnitMoveTargetMark | null }[]
   >([]);
   const unitMarksRef = useRef<typeof unitMarks>([]);
   useEffect(() => {
@@ -3284,6 +3310,8 @@ interface OtherUnitMoveAnim {
     (sheetUrl: string, framesReady: boolean, label: string): PlayerMarkerVisual => {
       const size = 66;
       const root = document.createElement("div");
+      // 부상 표시 CSS가 영주 마커 상자를 찾는 데 쓴다 (.player-injured / .lord-injured).
+      root.className = "player-marker-root";
       root.style.width = `${size}px`;
       root.style.height = `${size}px`;
       root.style.pointerEvents = "auto";
@@ -6455,8 +6483,15 @@ interface OtherUnitMoveAnim {
           return;
         }
 
-        const payload = (await response.json()) as { players?: NearbyPlayer[] };
+        const payload = (await response.json()) as { players?: NearbyPlayer[]; serverNow?: number };
         const players = Array.isArray(payload.players) ? payload.players : [];
+        // 다른 영주의 부상 표시 (마커 상자에 player-injured, 이름표에 "· 부상").
+        const applyNearbyInjury = (marker: Marker, player: NearbyPlayer): void => {
+          const injured = typeof player.injuredUntil === "number" && player.injuredUntil > Date.now();
+          marker.getElement()?.querySelector(".player-marker-root")?.classList.toggle("player-injured", injured);
+          const label = `${player.nickname || "PLAYER"}${injured ? " · 부상" : ""}`;
+          marker.setTooltipContent(label);
+        };
         const nextIds = new Set(players.map((player) => player.userId));
 
         markerMap.forEach((entry, id) => {
@@ -6501,11 +6536,12 @@ interface OtherUnitMoveAnim {
               dispose: markerVisual.dispose,
               selectedCharacter,
             });
+            applyNearbyInjury(marker, player);
             return;
           }
 
           currentEntry.marker.setLatLng(position);
-          currentEntry.marker.setTooltipContent(player.nickname || "PLAYER");
+          applyNearbyInjury(currentEntry.marker, player);
         });
       } catch {
       }
@@ -6797,12 +6833,13 @@ interface OtherUnitMoveAnim {
         if (pin) {
           pin.classList.toggle("unit-pin-enemy", !mark.mine);
           pin.classList.toggle("unit-pin-selected", mark.selected);
+          pin.classList.toggle("unit-injured", mark.injured === true);
         }
         continue;
       }
       const icon = L.divIcon({
         className: "map-unit-marker",
-        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
+        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
         iconSize: [72, 68],
         iconAnchor: [36, 26],
       });
@@ -9305,6 +9342,8 @@ const isMapPerfEnabled = (): boolean => {
         onBattleFinished={() => {
           battleWildRef.current = null;
           setNeutralRefreshNonce((n) => n + 1);
+          // 전투 결과(부상·승리 수)를 반영한다.
+          setTerritoryMeNonce((n) => n + 1);
         }}
       />
       {territoryEnabled ? (

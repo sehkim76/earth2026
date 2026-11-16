@@ -12,6 +12,8 @@ type NearbyPlayerResponse = {
   lon: number;
   updatedAt: string;
   selectedCharacter: "walking" | "fallenAngel";
+  /** 카드 전투 패배로 영주가 부상 중이면 해제 시각(ms), 아니면 null */
+  injuredUntil: number | null;
 };
 
 const toNumber = (value: unknown): number | null => {
@@ -31,6 +33,15 @@ const toNumber = (value: unknown): number | null => {
 
   const fallback = Number(value);
   return Number.isFinite(fallback) ? fallback : null;
+};
+
+/** data.lordInjuredUntil (부상 중일 때만) */
+const readLordInjuredUntil = (data: unknown): number | null => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+  const v = (data as Record<string, unknown>).lordInjuredUntil;
+  return typeof v === "number" && Number.isFinite(v) && v > Date.now() ? v : null;
 };
 
 const parseFiniteNumber = (value: string | null): number | null => {
@@ -122,6 +133,7 @@ export async function GET(request: Request) {
         lon: lonValue,
         updatedAt: row.updatedAt.toISOString(),
         selectedCharacter: extractMapUserSettingsFromData(row.data).selectedCharacter,
+        injuredUntil: readLordInjuredUntil(row.data),
       };
     })
     .filter((player): player is NearbyPlayerResponse => player !== null);
