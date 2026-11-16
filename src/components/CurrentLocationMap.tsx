@@ -767,6 +767,8 @@ const NEARBY_PLAYERS_SINCE_SEC = 35;
 const NEARBY_PLAYERS_LIMIT = 80;
 const NEARBY_PLAYERS_BOUNDS_PAD_RATIO = 0.15;
 const PLAYER_LOCATION_MIN_MOVE_METERS = 2;
+/** 제자리여도 위치를 다시 기록하는 주기 (NEARBY_PLAYERS_SINCE_SEC보다 충분히 짧게). */
+const PLAYER_LOCATION_HEARTBEAT_MS = 15_000;
 const MAP_ROTATION_STATE_COMMIT_INTERVAL_MS = 50;
 const MAP_ROTATION_MIN_DEG_TO_COMMIT = 0.5;
 const SPRITE_DIRECTION_LON_THRESHOLD = 0.000001;
@@ -1589,6 +1591,13 @@ export default function CurrentLocationMap({
   useLayoutEffect(() => {
     playerLocationRef.current = playerLocation;
   }, [playerLocation]);
+  // 주변 플레이어 폴링이 최신 영토전 상태를 읽기 위한 ref.
+  const territoryEnabledRef = useRef(territoryEnabled);
+  const territoryStartRef = useRef(territoryStart);
+  useLayoutEffect(() => {
+    territoryEnabledRef.current = territoryEnabled;
+    territoryStartRef.current = territoryStart;
+  }, [territoryEnabled, territoryStart]);
   // 약 100m 격자 좌표 (위치 변화에 둔감해도 되는 이펙트의 의존성용).
   const playerGridLat = playerLocation ? Math.round(playerLocation.lat * 1000) : null;
   const playerGridLon = playerLocation ? Math.round(playerLocation.lon * 1000) : null;
@@ -7488,40 +7497,50 @@ interface OtherUnitMoveAnim {
 
     const markerMap = nearbyPlayerMarkerMapRef.current;
     let cancelled = false;
+    let lastWriteAt = 0;
 
     const syncNearbyPlayers = async () => {
       if (cancelled) {
         return;
       }
 
-      // 기록 우선순위: GPS > 영토전 시작 위치.
-      // 영토전 GPS-free에서도 체크인·주변 플레이어용으로 시작 위치를 기록한다.
+      // 이펙트가 처음 실행된 시점의 값이 아니라 최신 값을 ref로 읽는다
+      // (영토전 시작 위치가 지도 준비 후에 정해져도 기록·조회가 멈추지 않게).
+      const isTerritory = territoryEnabledRef.current;
+      const start = territoryStartRef.current;
       const startLocation =
-        territoryEnabled && territoryStart
-          ? { lat: territoryStart.lat, lon: territoryStart.lon, accuracy: undefined as number | undefined }
+        isTerritory && start
+          ? { lat: start.lat, lon: start.lon, accuracy: undefined as number | undefined }
           : null;
-      // 영토전 GPS-free 모드에서는 실시간 GPS를 서버에 올리지 않는다 (시작 위치만 사용).
-      const currentLocation = territoryEnabled
-        ? startLocation
+      // 영토전은 실시간 GPS 대신 현재 영주 위치(이동 중 위치·수동 위치·시작 위치 순)를 기록한다.
+      // 상대방 지도에는 이 위치에 영주 캐릭터가 표시된다.
+      const lordLocation = isTerritory ? playerLocationRef.current : null;
+      const currentLocation = isTerritory
+        ? lordLocation
+          ? { lat: lordLocation.lat, lon: lordLocation.lon, accuracy: undefined as number | undefined }
+          : startLocation
         : locationRef.current ?? startLocation;
-      if (!currentLocation) {
-        return;
-      }
 
       const baseLocation = currentLocation;
 
       const previousWriteLocation = lastLocationWriteRef.current;
-      const movedDistance = previousWriteLocation
-        ? calculateDistance(
-            previousWriteLocation.lat,
-            previousWriteLocation.lon,
-            baseLocation.lat,
-            baseLocation.lon
-          )
-        : Number.POSITIVE_INFINITY;
-      const shouldWriteLocation = movedDistance >= PLAYER_LOCATION_MIN_MOVE_METERS;
+      const movedDistance =
+        previousWriteLocation && baseLocation
+          ? calculateDistance(
+              previousWriteLocation.lat,
+              previousWriteLocation.lon,
+              baseLocation.lat,
+              baseLocation.lon
+            )
+          : Number.POSITIVE_INFINITY;
+      // 제자리여도 주기적으로 다시 기록한다: 주변 플레이어 조회는 최근 NEARBY_PLAYERS_SINCE_SEC초 안에
+      // 기록된 사용자만 돌려주므로, 움직이지 않는 영주는 그 뒤로 상대방 지도에서 사라졌다.
+      const shouldWriteLocation =
+        baseLocation !== null &&
+        (movedDistance >= PLAYER_LOCATION_MIN_MOVE_METERS ||
+          Date.now() - lastWriteAt >= PLAYER_LOCATION_HEARTBEAT_MS);
 
-      if (shouldWriteLocation) {
+      if (shouldWriteLocation && baseLocation) {
         try {
           const response = await fetch("/api/player-location", {
             method: "POST",
@@ -7538,11 +7557,12 @@ interface OtherUnitMoveAnim {
                       baseLocation.lon === startLocation.lon
                     ? "start"
                     : "gps",
-              accuracy: currentLocation.accuracy ?? null,
+              accuracy: baseLocation.accuracy ?? null,
             }),
           });
 
           if (response.ok) {
+            lastWriteAt = Date.now();
             lastLocationWriteRef.current = {
               lat: baseLocation.lat,
               lon: baseLocation.lon,
