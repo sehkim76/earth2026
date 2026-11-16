@@ -171,11 +171,9 @@ export default async function MapPage({ searchParams }: MapPageProps) {
     });
 
     mapPoints = rows.reduce<MapPoint[]>((acc, row) => {
-      // 퀴즈 마커(성이 아닌 퀴즈형 지점)는 지도에 표시하지 않는다. 성도 퀴즈형이므로 castle- 키는 유지한다.
-      const isQuizMarker =
-        row.eventType?.trim().toLowerCase() === "quiztype" &&
-        !(row.EventKey ?? "").trim().startsWith("castle-");
-      if (isQuizMarker) {
+      // 퀴즈 마커(성이 아닌 GPS 지점 — 지도에 병사 모양으로 표시되던 것)는 표시하지 않는다.
+      // 이벤트 종류(퀴즈형·URL형)와 상관없이 성(castle- 키)만 남긴다.
+      if (!(row.EventKey ?? "").trim().startsWith("castle-")) {
         return acc;
       }
       const coords = parseLocation(row.location);
