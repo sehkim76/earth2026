@@ -123,8 +123,8 @@ export default function TerritoryDash() {
           <span className="text-[10px] font-bold text-[#c8bea8]">부대</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums">{me.unitsAlive}/{me.unitCap}</span>
         </div>
-        <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="공헌">
-          <span className="text-[10px] font-bold text-[#c8bea8]">공헌</span>
+        <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="전투 승리">
+          <span className="text-[10px] font-bold text-[#c8bea8]">승리</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums"><RollingNumber value={me.contribution} /></span>
         </div>
       </div>

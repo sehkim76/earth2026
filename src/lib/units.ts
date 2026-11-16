@@ -52,6 +52,8 @@ export interface Unit {
   lastMoveAt: number;
   trainingCompleteAt?: number | null;
   moveTarget: UnitMoveTarget | null;
+  /** 카드 전투 패배 부상 해제 시각(ms). 이 시각 전에는 전투 지휘관으로 나설 수 없다. */
+  injuredUntil?: number | null;
 }
 
 interface UnitRecord {
@@ -66,6 +68,7 @@ interface UnitRecord {
   lastMoveAt: unknown;
   trainingCompleteAt: unknown;
   moveTarget: unknown;
+  injuredUntil?: unknown;
 }
 
 export const UNIT_RECALL_RADIUS_M = 3000;
@@ -191,8 +194,14 @@ export function loadUnits(data: unknown): Unit[] {
       lastMoveAt: s.lastMoveAt as number,
       trainingCompleteAt: isFiniteNumber(s.trainingCompleteAt) ? s.trainingCompleteAt : null,
       moveTarget: normalizeMoveTarget(s.moveTarget),
+      injuredUntil: isFiniteNumber(s.injuredUntil) ? s.injuredUntil : null,
     };
   });
+}
+
+/** 카드 전투 패배로 부상 중인지 (injuredUntil 이 지나면 자동 회복). */
+export function isUnitInjured(unit: Pick<Unit, "injuredUntil">, now: number): boolean {
+  return typeof unit.injuredUntil === "number" && unit.injuredUntil > now;
 }
 
 export function withUnits(

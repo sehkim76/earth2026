@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prismadb";
+import { levelFromXp } from "@/lib/battle/commanders";
 import {
   UNIT_GARRISON_COOLDOWN_BONUS_SEC,
   loadUnits,
@@ -247,9 +248,40 @@ export async function getUserClass(db: Tx | typeof prisma, userId: string): Prom
 }
 
 interface UserStats {
-  visits: number;
-  contribution: number;
+  /** 모든 지휘관(영주·부대)의 전투 승리 합계 */
+  wins: number;
+  /** 지휘관 중 최고 레벨 (전투 기록이 없으면 1) */
+  maxCommanderLevel: number;
   lastActiveAt: number | null;
+}
+
+/** MissionUser.data.commanders(카드 전투 지휘관 성장 기록)에서 승리 합계·최고 레벨을 읽는다. */
+export function readBattleProgress(data: unknown): { wins: number; maxCommanderLevel: number; lastBattleAt: number | null } {
+  let wins = 0;
+  let maxCommanderLevel = 1;
+  let lastBattleAt: number | null = null;
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const record = data as Record<string, unknown>;
+    const commanders = record.commanders;
+    if (commanders && typeof commanders === "object" && !Array.isArray(commanders)) {
+      for (const value of Object.values(commanders as Record<string, unknown>)) {
+        if (!value || typeof value !== "object") {
+          continue;
+        }
+        const entry = value as { wins?: unknown; xp?: unknown };
+        if (typeof entry.wins === "number" && Number.isFinite(entry.wins)) {
+          wins += Math.max(0, Math.floor(entry.wins));
+        }
+        if (typeof entry.xp === "number" && Number.isFinite(entry.xp)) {
+          maxCommanderLevel = Math.max(maxCommanderLevel, levelFromXp(Math.max(0, entry.xp)));
+        }
+      }
+    }
+    if (typeof record.lastBattleAt === "number" && Number.isFinite(record.lastBattleAt)) {
+      lastBattleAt = record.lastBattleAt;
+    }
+  }
+  return { wins, maxCommanderLevel, lastBattleAt };
 }
 
 export async function getUserStats(
@@ -258,26 +290,35 @@ export async function getUserStats(
   missionKey: string,
 ): Promise<UserStats> {
   const client = db as typeof prisma;
-  const aggRows = await client.$queryRaw<
-    Array<{ visits: bigint | number | null; contribution: bigint | number | null; lastActive: Date | null }>
-  >`
-    SELECT COUNT(DISTINCT CASE WHEN COALESCE(s.score, 0) >= 1 THEN TRIM(s."EventKey") END) AS "visits",
-           COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS "contribution",
-           MAX(s.scoredate) AS "lastActive"
-    FROM "ARMissionUserScore" s
-    WHERE s."UserId" = ${userId}
-      AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
-  `;
-  const toNum = (v: bigint | number | null): number => {
-    const n = typeof v === "bigint" ? Number(v) : Number(v ?? 0);
-    return Number.isFinite(n) ? n : 0;
-  };
+  // 활동 시각: 점수 기록(공성·수비·이적 기록 등)과 마지막 전투 중 늦은 쪽.
+  const [aggRows, userRow] = await Promise.all([
+    client.$queryRaw<Array<{ lastActive: Date | null }>>`
+      SELECT MAX(s.scoredate) AS "lastActive"
+      FROM "ARMissionUserScore" s
+      WHERE s."UserId" = ${userId}
+        AND TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
+    `,
+    client.missionUser.findUnique({ where: { userId }, select: { data: true } }),
+  ]);
+  const progress = readBattleProgress(userRow?.data);
+  const scoreActive = aggRows[0]?.lastActive instanceof Date ? aggRows[0].lastActive.getTime() : null;
+  const lastActiveAt =
+    scoreActive === null ? progress.lastBattleAt : progress.lastBattleAt === null ? scoreActive : Math.max(scoreActive, progress.lastBattleAt);
   return {
-    visits: Math.trunc(toNum(aggRows[0]?.visits ?? 0)),
-    contribution: Math.trunc(toNum(aggRows[0]?.contribution ?? 0)),
-    lastActiveAt: aggRows[0]?.lastActive instanceof Date ? aggRows[0].lastActive.getTime() : null,
+    wins: progress.wins,
+    maxCommanderLevel: progress.maxCommanderLevel,
+    lastActiveAt,
   };
 }
+
+/** 계급 승급·영주성 창시 조건 (카드 전투 기록 기준). */
+export const PROMOTION_RULES = {
+  commoner: { wins: 3, level: 2 },
+  knight: { wins: 10, castles: 1 },
+  noble: { wins: 30, level: 5, castles: 3 },
+  /** 동 최초 영주성 창시: 평민 이상 + 승리 */
+  foundLordCastle: { wins: 5 },
+} as const;
 
 export async function countOwnedCastles(
   db: Tx | typeof prisma,
@@ -298,10 +339,10 @@ export async function countOwnedCastles(
 }
 
 /**
- * Lazy 승급/강등. 액션 시점에 호출한다.
- * - commoner: 방문 3 + 공헌 300 / knight: 점령 1 + 공헌 1000
- * - noble: 공헌 5000 + (점령 3 or 상위 10%)
- * - lord는 정복 경로로만付与, 여기서는 유지조건(보유 1+) 미달 시 noble로
+ * Lazy 승급/강등. 액션 시점에 호출한다. 조건은 카드 전투 기록 기준 (PROMOTION_RULES).
+ * - commoner: 승리 3 + 지휘관 2레벨 / knight: 성 1 + 승리 10
+ * - noble: 승리 30 + 지휘관 5레벨 + (성 3 or 승리 상위 10%)
+ * - lord는 정복 경로로만 부여, 여기서는 유지조건(보유 1+) 미달 시 noble로
  * - 7일 무활동 시 1단계 강등 (slave 제외)
  */
 export async function refreshUserClass(
@@ -322,18 +363,23 @@ export async function refreshUserClass(
   if (inactive && current !== "slave") {
     const order: CastleClass[] = ["slave", "commoner", "knight", "noble", "lord"];
     next = order[Math.max(0, CLASS_ORDER[current] - 1)];
-  } else if (current === "slave" && stats.visits >= 3 && stats.contribution >= 300) {
+  } else if (
+    current === "slave" &&
+    stats.wins >= PROMOTION_RULES.commoner.wins &&
+    stats.maxCommanderLevel >= PROMOTION_RULES.commoner.level
+  ) {
     next = "commoner";
   } else if (
-    (current === "commoner" || current === "slave") &&
-    owned >= 1 &&
-    stats.contribution >= 1000
+    current === "commoner" &&
+    owned >= PROMOTION_RULES.knight.castles &&
+    stats.wins >= PROMOTION_RULES.knight.wins
   ) {
     next = "knight";
   } else if (
-    (current === "knight" || current === "commoner") &&
-    stats.contribution >= 5000 &&
-    (owned >= 3 || (await isTopContributor(client, userId, missionKey)))
+    current === "knight" &&
+    stats.wins >= PROMOTION_RULES.noble.wins &&
+    stats.maxCommanderLevel >= PROMOTION_RULES.noble.level &&
+    (owned >= PROMOTION_RULES.noble.castles || (await isTopByWins(client, userId, missionKey, stats.wins)))
   ) {
     next = "noble";
   }
@@ -355,24 +401,25 @@ export async function refreshUserClass(
   return next;
 }
 
-async function isTopContributor(
+/** 같은 미션 사용자 중 전투 승리 상위 10% 인지. */
+async function isTopByWins(
   db: typeof prisma,
   userId: string,
   missionKey: string,
+  myWins: number,
 ): Promise<boolean> {
-  const rows = await db.$queryRaw<Array<{ userId: string | null; c: bigint | number | null }>>`
-    SELECT s."UserId" AS "userId", COALESCE(SUM(CASE WHEN COALESCE(s.islastscore, 0) = 1 THEN s.score ELSE 0 END), 0) AS c
-    FROM "ARMissionUserScore" s
-    WHERE TRIM(COALESCE(s."ARMissionKey", '')) = ${missionKey}
-    GROUP BY s."UserId"
-  `;
-  const mine = rows.find((r) => r.userId === userId);
-  const myScore = Number(mine?.c ?? 0);
-  if (!Number.isFinite(myScore) || myScore <= 0 || rows.length === 0) {
+  if (myWins <= 0) {
     return false;
   }
-  const rank = rows.filter((r) => Number(r.c ?? 0) > myScore).length + 1;
-  return rank <= Math.max(1, Math.ceil(rows.length * 0.1));
+  const rows = await db.missionUser.findMany({
+    where: { ARMissionKey: missionKey },
+    select: { userId: true, data: true },
+  });
+  if (rows.length === 0) {
+    return false;
+  }
+  const higher = rows.filter((r) => r.userId !== userId && readBattleProgress(r.data).wins > myWins).length;
+  return higher + 1 <= Math.max(1, Math.ceil(rows.length * 0.1));
 }
 
 // ---------------------------------------------------------------------------

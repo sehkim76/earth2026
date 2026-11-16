@@ -60,6 +60,8 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
+import { BattleHost } from "@/components/battle/BattleHost";
+import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
 import { serverNow } from "@/lib/server-clock";
 import {
   ADMIN_LEVEL_LABEL,
@@ -1587,7 +1589,7 @@ export default function CurrentLocationMap({
     setCastlePlacement(null);
   }, []);
 
-  // 내 계급/공헌 (축성 사전 검증용).
+  // 내 계급/전투 승리 수 (축성 사전 검증용).
   useEffect(() => {
     if (!territoryEnabled) {
       return;
@@ -1659,7 +1661,7 @@ export default function CurrentLocationMap({
     lord: 4,
   };
 
-  // 계급/공헌 실패 요소 사전 판정. null이면 통과(서버 최종 검증).
+  // 계급/승리 수 실패 요소 사전 판정. null이면 통과(서버 최종 검증).
   const placementBlockReason = useMemo((): string | null => {
     if (!castlePlacement || !myTerritory) {
       return null;
@@ -1677,9 +1679,10 @@ export default function CurrentLocationMap({
     if (
       dongCastleCounts &&
       dongCastleCounts.lord === 0 &&
-      myTerritory.contribution < 1000
+      myTerritory.contribution < 5
     ) {
-      return `동 최초 영주성 창시에는 공헌 1000이 필요합니다. (현재 공헌 ${myTerritory.contribution})`;
+      // contribution 필드에는 서버가 전투 승리 수를 넣는다 (PROMOTION_RULES.foundLordCastle).
+      return `동 최초 영주성 창시에는 전투 승리 5회가 필요합니다. (현재 ${myTerritory.contribution}회)`;
     }
     return null;
   }, [castlePlacement, myTerritory, dongCastleCounts]);
@@ -1745,7 +1748,7 @@ export default function CurrentLocationMap({
     setPlacementBusy(true);
     const codeMessage: Record<string, string> = {
       class_ineligible: "계급 조건을 만족하지 않습니다.",
-      founder_ineligible: "동 최초 영주성 창시에는 평민 이상 + 공헌 1000이 필요합니다.",
+      founder_ineligible: "동 최초 영주성 창시에는 평민 이상 + 전투 승리 5회가 필요합니다.",
       funds: "영향력이 부족합니다.",
       limit: "축성 상한을 초과했습니다.",
       distance: "성과의 간격 조건을 만족하지 않습니다.",
@@ -2166,6 +2169,10 @@ interface OtherUnitMoveAnim {
   // 중립성과 동일 조건: 플레이어 20km 이내 동 또는 선택 동만.
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
   const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
+  // 무법자 토벌(카드 전투) 요청과, 전투 중인 무법자 (패널을 닫아도 고정 해제 신호를 보내지 않는다).
+  const [outlawBattleRequest, setOutlawBattleRequest] = useState<OutlawBattleRequest | null>(null);
+  const battleWildRef = useRef<number | null>(null);
+  const clearOutlawBattleRequest = useCallback(() => setOutlawBattleRequest(null), []);
   useEffect(() => {
     if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocationRef.current) {
       return;
@@ -3387,7 +3394,10 @@ interface OtherUnitMoveAnim {
       stopped = true;
       window.clearInterval(timerId);
       document.removeEventListener("visibilitychange", onVisible);
-      hold(false);
+      // 전투가 시작된 무법자는 서버가 전투 동안 고정하므로 해제하지 않는다.
+      if (battleWildRef.current !== wildId) {
+        hold(false);
+      }
     };
   }, [territoryEnabled, markerPanel?.wildId]);
 
@@ -8703,6 +8713,20 @@ const isMapPerfEnabled = (): boolean => {
                   );
                 })()
               : null}
+            {territoryEnabled && markerPanel.wildId !== undefined ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const wildId = markerPanel.wildId;
+                  if (wildId !== undefined) {
+                    setOutlawBattleRequest({ wildId, nonce: Date.now() });
+                  }
+                }}
+                className="whitespace-nowrap rounded-lg border border-red-300/60 bg-[linear-gradient(#b02c38,#5e121c)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+              >
+                토벌
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={closeMarkerPanel}
@@ -9263,6 +9287,19 @@ const isMapPerfEnabled = (): boolean => {
           onClose={() => setStartPickerOpen(false)}
         />
       ) : null}
+      <BattleHost
+        enabled={territoryEnabled}
+        outlawRequest={outlawBattleRequest}
+        onOutlawRequestDone={clearOutlawBattleRequest}
+        onBattleStarted={(wildId) => {
+          battleWildRef.current = wildId;
+          closeMarkerPanel();
+        }}
+        onBattleFinished={() => {
+          battleWildRef.current = null;
+          setNeutralRefreshNonce((n) => n + 1);
+        }}
+      />
       {territoryEnabled ? (
         <TerritoryUI
           castleKey={territoryCastleKey}

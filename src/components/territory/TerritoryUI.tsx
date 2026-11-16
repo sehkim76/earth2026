@@ -911,6 +911,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       return;
     }
     void refreshNeutralUnits();
+    // 전투가 끝난 뒤에도 이 논스로 부르므로 부대(부상·경험치)도 함께 갱신한다.
+    void refreshUnits();
     // 논스 변화에만 반응한다 (refreshNeutralUnits 변경은 위 폴링 effect가 처리).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.neutralRefreshNonce]);

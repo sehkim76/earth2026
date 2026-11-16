@@ -4,3 +4,4 @@ export * from "./cards";
 export * from "./commanders";
 export * from "./engine";
 export * from "./ai";
+export * from "./view";

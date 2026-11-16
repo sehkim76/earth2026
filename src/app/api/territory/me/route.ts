@@ -43,7 +43,10 @@ export async function GET() {
       unitCap: UNIT_CAP_BY_CLASS[klass],
       servantsAlive: alive,
       servantCap: UNIT_CAP_BY_CLASS[klass],
-      contribution: stats.contribution,
+      // 카드 전투 기록 (승급 조건). contribution은 구 화면 호환용으로 승리 수를 넣는다.
+      wins: stats.wins,
+      maxCommanderLevel: stats.maxCommanderLevel,
+      contribution: stats.wins,
     });
   } catch {
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });

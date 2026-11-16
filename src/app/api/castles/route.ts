@@ -21,6 +21,7 @@ import {
   getSiegeCooldownRemainingSecTx,
   getUserClass,
   getUserStats,
+  PROMOTION_RULES,
   haversineM,
   parseCastleMeta,
   parseLatLon,
@@ -138,11 +139,11 @@ export async function POST(request: Request) {
         if (kind === "lord" && lordCount >= LORD_CASTLE_CAP_PER_DONG) {
           throw new Error("limit");
         }
-        // 창시 경로: 동 최초 영주성은 commoner+ & 공헌 1000+ 에게 허용.
+        // 창시 경로: 동 최초 영주성은 commoner+ & 전투 승리 PROMOTION_RULES.foundLordCastle.wins+ 에게 허용.
         // 이후 영주성은 기사 이상만 (창시자가 영주가 되므로 자연 충족).
         if (kind === "lord" && lordCount === 0) {
           const stats = await getUserStats(tx, userId, ctx.missionKey);
-          if (!(classAtLeast(klass, "commoner") && stats.contribution >= 1000)) {
+          if (!(classAtLeast(klass, "commoner") && stats.wins >= PROMOTION_RULES.foundLordCastle.wins)) {
             throw new Error("founder_ineligible");
           }
         } else if (kind === "lord" && !classAtLeast(klass, "knight")) {
