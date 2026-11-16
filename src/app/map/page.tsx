@@ -171,6 +171,13 @@ export default async function MapPage({ searchParams }: MapPageProps) {
     });
 
     mapPoints = rows.reduce<MapPoint[]>((acc, row) => {
+      // 퀴즈 마커(성이 아닌 퀴즈형 지점)는 지도에 표시하지 않는다. 성도 퀴즈형이므로 castle- 키는 유지한다.
+      const isQuizMarker =
+        row.eventType?.trim().toLowerCase() === "quiztype" &&
+        !(row.EventKey ?? "").trim().startsWith("castle-");
+      if (isQuizMarker) {
+        return acc;
+      }
       const coords = parseLocation(row.location);
       if (!coords) {
         console.warn("[/map] skip gps row due to invalid coords", {
