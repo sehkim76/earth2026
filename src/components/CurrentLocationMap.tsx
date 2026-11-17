@@ -2086,6 +2086,8 @@ interface OtherUnitMoveAnim {
   };
   const [unitMoveDestination, setUnitMoveDestination] = useState<{ lat: number; lon: number } | null>(null);
   const unitMoveDestinationLayerRef = useRef<LayerGroup | null>(null);
+  // 목적지 지정 중 출발점 → 화면 중앙(역삼각형) 빨간 점선
+  const [moveAimOrigin, setMoveAimOrigin] = useState<{ lat: number; lon: number } | null>(null);
   const [moveTargetCenter, setMoveTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
 
   const [edgeIndicators, setEdgeIndicators] = useState<EdgeIndicator[]>([]);
@@ -7373,6 +7375,40 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, [isMapReady]);
 
+  // 영토전: 목적지 지정 중 출발점(영주·부대) → 지도 중앙 빨간 점선. 지도를 움직일 때마다 끝점을 갱신한다.
+  const aimOriginLat = moveAimOrigin?.lat ?? null;
+  const aimOriginLon = moveAimOrigin?.lon ?? null;
+  useEffect(() => {
+    if (!territoryEnabled || !isMapReady || aimOriginLat === null || aimOriginLon === null) {
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) {
+      return;
+    }
+    const origin: [number, number] = [aimOriginLat, aimOriginLon];
+    const style = { interactive: false, lineCap: "round" as const };
+    // 밝은 지도·위성 모두에서 보이도록 어두운 테두리 위에 빨간 점선을 겹친다.
+    const halo = L.polyline([origin, origin], { ...style, color: "#1a0505", weight: 6, opacity: 0.45, dashArray: "10 9" }).addTo(map);
+    const line = L.polyline([origin, origin], { ...style, color: "#ef1c1c", weight: 3.5, opacity: 0.95, dashArray: "10 9" }).addTo(map);
+    const update = (): void => {
+      const c = map.getCenter();
+      const pts: [number, number][] = [origin, [c.lat, c.lng]];
+      halo.setLatLngs(pts);
+      line.setLatLngs(pts);
+    };
+    update();
+    map.on("move", update);
+    map.on("zoom", update);
+    return () => {
+      map.off("move", update);
+      map.off("zoom", update);
+      halo.remove();
+      line.remove();
+    };
+  }, [territoryEnabled, isMapReady, aimOriginLat, aimOriginLon]);
+
   // 영토전: 부대 이동 목적지 역삼각형 마커 (지시 후 유지)
   useEffect(() => {
     if (!territoryEnabled || !isMapReady) {
@@ -9367,6 +9403,7 @@ const isMapPerfEnabled = (): boolean => {
           onMovePath={setUnitMovePath}
           onMoveDestination={setUnitMoveDestination}
           onMoveTargetCenter={setMoveTargetCenter}
+          onMoveAimOrigin={setMoveAimOrigin}
           onLordSelectedChange={setLordSelected}
           markerDialogOpen={territoryEnabled && markerPanel !== null}
           dongCode={selectedAdminCode}

@@ -38,6 +38,8 @@ interface TerritoryUIProps {
   onMoveDestination: (dest: { lat: number; lon: number } | null) => void;
   /** 이동 목표 지정 중 지도 중앙 좌표 (이동가능영역 표시용). */
   onMoveTargetCenter: (center: { lat: number; lon: number } | null) => void;
+  /** 목적지 지정 중 출발점 (지도에 출발점→화면 중앙 점선 표시용). 지정 중이 아니면 null. */
+  onMoveAimOrigin?: (origin: { lat: number; lon: number } | null) => void;
   /** 지도에서 선택된 행정구역 코드 (축성 동 자동 지정용). */
   dongCode: string | null;
   /** 플레이어가 위치한 동 코드 (중립 부대 스폰·조회 기준). */
@@ -2626,20 +2628,42 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     return `${(meters / 1000).toFixed(1)}km`;
   };
-  const targetDistanceLabel = (() => {
-    if (sheet !== "move" || !selectedUnit || !targetCenter) {
+  // 목적지 지정의 출발점: 영주는 플레이어 위치, 부대는 부대 위치.
+  const aimOrigin = (() => {
+    if (sheet !== "move" || !selectedUnit) {
       return null;
+    }
+    if (selectedUnit === LORD_UNIT_ID) {
+      void targetCenter; // 지도 이동(0.5초 주기) 때마다 영주 위치도 다시 읽는다
+      return props.getPlayerLocation();
     }
     const unit = units.find((item) => item.id === selectedUnit);
-    if (!unit) {
+    return unit ? { lat: unit.lat, lon: unit.lon } : null;
+  })();
+  // 역삼각형 핀과 같은 조건 (이동 중·길 찾는 중에는 점선도 숨긴다)
+  const aimPicking =
+    sheet === "move" &&
+    selectedUnit !== null &&
+    !movingUnitIds.includes(selectedUnit) &&
+    findingPathUnitId !== selectedUnit &&
+    !(selectedUnit === LORD_UNIT_ID && lordActive);
+  const aimOriginLat = aimPicking ? (aimOrigin?.lat ?? null) : null;
+  const aimOriginLon = aimPicking ? (aimOrigin?.lon ?? null) : null;
+  const { onMoveAimOrigin } = props;
+  useEffect(() => {
+    onMoveAimOrigin?.(aimOriginLat !== null && aimOriginLon !== null ? { lat: aimOriginLat, lon: aimOriginLon } : null);
+  }, [aimOriginLat, aimOriginLon, onMoveAimOrigin]);
+  useEffect(() => () => onMoveAimOrigin?.(null), [onMoveAimOrigin]);
+  const targetDistanceLabel = (() => {
+    if (!targetCenter || !aimOrigin) {
       return null;
     }
-    const kx = 111320 * Math.cos((unit.lat * Math.PI) / 180);
+    const kx = 111320 * Math.cos((aimOrigin.lat * Math.PI) / 180);
     const distM = Math.hypot(
-      (targetCenter.lon - unit.lon) * kx,
-      (targetCenter.lat - unit.lat) * 110540,
+      (targetCenter.lon - aimOrigin.lon) * kx,
+      (targetCenter.lat - aimOrigin.lat) * 110540,
     );
-    return formatTargetDistance(distM);
+    return `직선 ${formatTargetDistance(distM)}`;
   })();
   const moveCountdownLabelFor = (unitId: string): string => {
     const progress = moveProgressMap[unitId];
@@ -2794,7 +2818,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <div className="pointer-events-none fixed left-1/2 top-1/2 z-[1300] -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
               <div className="unit-target-center-pin" />
               {targetDistanceLabel ? (
-                <div className="absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900/85 px-2 py-0.5 text-xs font-bold tabular-nums text-white">
+                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-red-400/70 bg-slate-900/85 px-2 py-0.5 text-xs font-bold tabular-nums text-white shadow-[0_2px_6px_rgba(0,0,0,0.45)]">
                   {targetDistanceLabel}
                 </div>
               ) : null}
