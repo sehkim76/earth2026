@@ -673,7 +673,8 @@ const clusterByPixelDistance = (
   }
   return clusters;
 };
-const POI_LABEL_OFFSET_Y = -28;
+/** 이름표를 캐릭터·마커 아래 끝에서 얼마나 띄울지 (px) */
+const NAME_LABEL_BELOW_Y = 2;
 const NEARBY_PLAYERS_POLL_INTERVAL_MS = 5_000;
 const NEARBY_PLAYERS_SINCE_SEC = 35;
 const NEARBY_PLAYERS_LIMIT = 80;
@@ -4033,10 +4034,11 @@ interface OtherUnitMoveAnim {
 
       if (markerRef.current) {
         if (!markerRef.current.getTooltip()) {
+          // 이름표는 캐릭터 발아래 (머리 위 부상 배지 등 상태 표시를 가리지 않게)
           markerRef.current.bindTooltip(playerLabel, {
             permanent: true,
-            direction: "top",
-            offset: [0, -45],
+            direction: "bottom",
+            offset: [0, NAME_LABEL_BELOW_Y],
             className: "map-player-label",
           });
         } else {
@@ -4377,8 +4379,8 @@ interface OtherUnitMoveAnim {
             label.style.whiteSpace = "nowrap";
             label.style.pointerEvents = "none";
             label.style.position = "absolute";
-            label.style.bottom = "100%";
-            label.style.marginBottom = "8px";
+            label.style.top = "100%";
+            label.style.marginTop = "2px";
             label.style.left = "50%";
             label.style.transform = "translateX(-50%)";
             element.appendChild(label);
@@ -4530,8 +4532,8 @@ interface OtherUnitMoveAnim {
         label.style.borderRadius = "4px";
         label.style.padding = "4px 8px";
         label.style.position = "absolute";
-        label.style.bottom = "100%";
-        label.style.marginBottom = "8px";
+        label.style.top = "100%";
+        label.style.marginTop = "2px";
         label.style.left = "50%";
         label.style.transform = "translateX(-50%)";
         label.style.pointerEvents = "none";
@@ -5077,8 +5079,8 @@ interface OtherUnitMoveAnim {
             label.style.whiteSpace = "nowrap";
             label.style.pointerEvents = "none";
             label.style.position = "absolute";
-            label.style.bottom = "100%";
-            label.style.marginBottom = "8px";
+            label.style.top = "100%";
+            label.style.marginTop = "2px";
             label.style.left = "50%";
             label.style.transform = "translateX(-50%)";
             element.appendChild(label);
@@ -6528,8 +6530,8 @@ interface OtherUnitMoveAnim {
             const marker = L.marker(position, { icon: markerVisual.icon }).addTo(layer);
             marker.bindTooltip(player.nickname || "PLAYER", {
               permanent: true,
-              direction: "top",
-              offset: [0, POI_LABEL_OFFSET_Y],
+              direction: "bottom",
+              offset: [0, NAME_LABEL_BELOW_Y],
               className: "map-player-label",
             });
 
@@ -7809,10 +7811,16 @@ const isMapPerfEnabled = (): boolean => {
         const poiMarker = L.marker([point.lat, point.lon], { icon: poiMarkerIcon });
 
         if (point.label) {
+          // 이름표는 마커 아래: 아이콘 기준점에서 아이콘 아래 끝까지 내린다.
+          const poiIconOpts = poiMarkerIcon.options;
+          const poiBelowY =
+            Array.isArray(poiIconOpts.iconSize) && Array.isArray(poiIconOpts.iconAnchor)
+              ? Math.max(0, poiIconOpts.iconSize[1] - poiIconOpts.iconAnchor[1]) + NAME_LABEL_BELOW_Y
+              : NAME_LABEL_BELOW_Y;
           poiMarker.bindTooltip(point.label, {
             permanent: true,
-            direction: "top",
-            offset: [0, POI_LABEL_OFFSET_Y],
+            direction: "bottom",
+            offset: [0, poiBelowY],
             className: "map-poi-label",
           });
         }

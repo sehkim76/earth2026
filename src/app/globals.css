@@ -581,7 +581,9 @@
 }
 
 .leaflet-tooltip-top.map-poi-label::before,
-.leaflet-tooltip-top.map-player-label::before {
+.leaflet-tooltip-top.map-player-label::before,
+.leaflet-tooltip-bottom.map-poi-label::before,
+.leaflet-tooltip-bottom.map-player-label::before {
   display: none;
 }
 
