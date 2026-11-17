@@ -1114,11 +1114,39 @@ export const searchGraphs = (
     scoredFrom.sort((a, b) => a.d2 - b.d2);
     scoredTo.sort((a, b) => a.d2 - b.d2);
   }
+  // 끝점 연결선(출발·도착점 ↔ 그래프 노드)이 보라색 영역 밖을 지나지 않는 후보를 먼저 쓴다.
+  // 도로 노드가 듬성한 곳에서 가장 가까운 노드가 건물·담장 건너편이면 직선 연결이 영역을 가로지른다.
+  const connectorOk = (idx: number, lat: number, lon: number): boolean => {
+    if (!isWalkable) return true;
+    const nLon = repCoords[idx * 2] as number;
+    const nLat = repCoords[idx * 2 + 1] as number;
+    const len = Math.sqrt(dist2(lon, lat, nLon, nLat));
+    const steps = Math.ceil(len / BRIDGE_CHECK_STEP_M);
+    for (let k = 1; k < steps; k += 1) {
+      const t = k / steps;
+      // 출발·도착점 자체는 보라색 밖일 수 있으니 처음 5m는 보지 않는다.
+      if (t * len < 5) continue;
+      if (!isWalkable(lat + (nLat - lat) * t, lon + (nLon - lon) * t)) return false;
+    }
+    return true;
+  };
+  const preferWalkableConnector = (
+    list: Array<{ idx: number; d2: number }>,
+    lat: number,
+    lon: number,
+  ): Array<{ idx: number; d2: number }> => {
+    if (!isWalkable) return list;
+    const ok: Array<{ idx: number; d2: number }> = [];
+    const bad: Array<{ idx: number; d2: number }> = [];
+    for (const c of list) (connectorOk(c.idx, lat, lon) ? ok : bad).push(c);
+    // 가려진 후보는 거리 점수에 벌점을 줘 뒤로 미룬다 (모두 가려지면 원래 순서와 같다).
+    return [...ok, ...bad.map((c) => ({ idx: c.idx, d2: c.d2 * 16 + 1e6 }))];
+  };
   let runs = 0;
   for (const radius of [snapMaxM, 1500, 3000]) {
     const r2 = radius * radius;
-    const starts = scoredFrom.filter((s) => s.d2 <= r2).slice(0, SNAP_CANDIDATES);
-    const goals = scoredTo.filter((s) => s.d2 <= r2).slice(0, SNAP_CANDIDATES);
+    const starts = preferWalkableConnector(scoredFrom.filter((s) => s.d2 <= r2).slice(0, SNAP_CANDIDATES), fromLat, fromLon);
+    const goals = preferWalkableConnector(scoredTo.filter((s) => s.d2 <= r2).slice(0, SNAP_CANDIDATES), toLat, toLon);
     if (starts.length === 0 || goals.length === 0) {
       continue;
     }

@@ -1066,6 +1066,49 @@ export const smoothPathLatLon = (
   return out;
 };
 
+/** 이 직선거리 이하 이동은 그래프 경로와 보라색 격자 A* 경로를 비교한다 (m). */
+const GRID_COMPARE_MAX_M = 1200;
+/** 격자 비교 탐색 시간 상한 (ms). 넘기면 그래프 경로를 그대로 쓴다. */
+const GRID_COMPARE_BUDGET_MS = 400;
+/** 격자 경로가 그래프 경로보다 이 비율 이상 짧으면 격자 경로를 쓴다. */
+const GRID_PREFER_RATIO = 0.9;
+
+const polylineLengthM = (pts: Array<{ lat: number; lon: number }>): number => {
+  let total = 0;
+  for (let i = 1; i < pts.length; i += 1) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (!a || !b) continue;
+    const kx = 111320 * Math.cos((a.lat * Math.PI) / 180);
+    total += Math.hypot((b.lon - a.lon) * kx, (b.lat - a.lat) * 110540);
+  }
+  return total;
+};
+
+/** 경로 전 구간이 보라색 영역 안인지 (2.5m 간격 표본, 끝점 5m 여유). */
+const polylineStaysWalkable = (
+  pts: Array<{ lat: number; lon: number }>,
+  isWalkable: (lat: number, lon: number) => boolean,
+): boolean => {
+  for (let i = 1; i < pts.length; i += 1) {
+    const a = pts[i - 1];
+    const b = pts[i];
+    if (!a || !b) continue;
+    const kx = 111320 * Math.cos((a.lat * Math.PI) / 180);
+    const len = Math.hypot((b.lon - a.lon) * kx, (b.lat - a.lat) * 110540);
+    const steps = Math.ceil(len / 2.5);
+    for (let s = 1; s < steps; s += 1) {
+      const t = s / steps;
+      // 출발·도착 점 자체가 보라색 밖일 수 있으니 양 끝 5m는 보지 않는다.
+      if ((i === 1 && t * len < 5) || (i === pts.length - 1 && (1 - t) * len < 5)) continue;
+      if (!isWalkable(a.lat + (b.lat - a.lat) * t, a.lon + (b.lon - a.lon) * t)) {
+        return false;
+      }
+    }
+  }
+  return true;
+};
+
 /** 출발지→목적지 이동가능 셀 경로 (A*, 5m 격자). 없으면 null. */
 /** A* 단일 구간 상한 (m). 이보다 길면 다구간으로 나눈다. */
 const LEG_MAX_M = 2500;
@@ -1209,9 +1252,33 @@ export const findWalkablePath = async (
     // 래스터 로드 상태가 다르면 다리 결과가 달라지므로 서명에 포함한다.
     const rasterIds = uniqueGraphIds.filter((_, i) => (rasters[i]?.length ?? 0) > 0);
     const stitchKey = `g:${loadedIds.sort().join(",")}|r:${rasterIds.sort().join(",")}`;
-    const isWalkable = createGridWalkableCheck(rasters.flatMap((list) => list ?? []));
+    const rasterGrids = rasters.flatMap((list) => list ?? []);
+    const isWalkable = createGridWalkableCheck(rasterGrids);
     const graphFound = searchGraphs(graphs, fromLat, fromLon, toLat, toLon, 500, stitchKey, isWalkable);
-    return graphFound && graphFound.length > 0 ? smoothPathLatLon(graphFound) : null;
+    const graphPath = graphFound && graphFound.length > 0 ? smoothPathLatLon(graphFound) : null;
+    // 가까운 이동: 보라색 격자 A*로도 찾아 비교한다. 그래프는 도로선 위로만 다녀
+    // 광장 같은 넓은 보라색 영역을 가로지르지 못하고(우회), 끝점 연결선이 영역 밖을 지나기도 한다.
+    if (rasterGrids.length > 0 && earlyStraightM <= GRID_COMPARE_MAX_M) {
+      const gridFound = await searchLoadedGrids(rasterGrids, fromLat, fromLon, toLat, toLon, Date.now() + GRID_COMPARE_BUDGET_MS);
+      const gridPath = gridFound && gridFound.length > 0 ? smoothPathLatLon(gridFound) : null;
+      if (gridPath) {
+        if (!graphPath) {
+          wlog("[walkable] graph 실패 → 격자 경로 사용");
+          return gridPath;
+        }
+        const withEnds = [{ lat: fromLat, lon: fromLon }, ...graphPath, { lat: toLat, lon: toLon }];
+        const graphLen = polylineLengthM(withEnds);
+        const gridLen = polylineLengthM([{ lat: fromLat, lon: fromLon }, ...gridPath, { lat: toLat, lon: toLon }]);
+        const graphLeaves = !polylineStaysWalkable(withEnds, isWalkable);
+        if (graphLeaves || gridLen < graphLen * GRID_PREFER_RATIO) {
+          wlog(
+            `[walkable] 격자 경로 채택 (graph ${Math.round(graphLen)}m${graphLeaves ? " 영역 이탈" : ""} → grid ${Math.round(gridLen)}m)`,
+          );
+          return gridPath;
+        }
+      }
+    }
+    return graphPath;
   };
   const graphFirst = await tryGraph(graphFirstIds);
   if (graphFirst) {
@@ -1744,12 +1811,19 @@ const searchLoadedGrids = async (
     return null;
   }
       // 직선 가시성이 확보되는 구간은 건너뛰어 웨이포인트를 줄인다.
+      // 셀 중심을 잇는 선이 셀 사이 모서리로 영역 밖을 스치지 않도록 셀당 4번 표본을 보고,
+      // 표본마다 ±0.35셀(약 1.75m) 둘레까지 이동가능해야 통과로 본다.
+      const LINE_CLEAR = 0.35;
       const lineBlocked = (ax: number, ay: number, bx: number, by: number): boolean => {
-        const steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay));
+        const steps = Math.max(1, Math.max(Math.abs(bx - ax), Math.abs(by - ay)) * 4);
         for (let s = 1; s < steps; s += 1) {
-          const x = Math.round(ax + ((bx - ax) * s) / steps);
-          const y = Math.round(ay + ((by - ay) * s) / steps);
-          if (!isFilled(x, y)) {
+          const px = ax + ((bx - ax) * s) / steps;
+          const py = ay + ((by - ay) * s) / steps;
+          const x0 = Math.round(px - LINE_CLEAR);
+          const x1 = Math.round(px + LINE_CLEAR);
+          const y0 = Math.round(py - LINE_CLEAR);
+          const y1 = Math.round(py + LINE_CLEAR);
+          if (!isFilled(x0, y0) || !isFilled(x1, y0) || !isFilled(x0, y1) || !isFilled(x1, y1)) {
             return true;
           }
         }
