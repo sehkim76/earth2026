@@ -2719,6 +2719,20 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     return () => window.clearInterval(id);
   }, [lordTarget]);
   const lordActive = lordTarget !== null && Date.now() < lordTarget.endsAt;
+  // 영주를 선택하면 이동 주문(새로고침 후 복원된 것 포함)에서 경로·목적지를 다시 그린다.
+  // (경로 표시는 이동 지시 때만 하던 것이라, 새로고침하면 영주를 선택해도 보이지 않았다)
+  const lordRouteKey = lordTarget ? `${lordTarget.startedAt}:${lordTarget.endsAt}:${lordTarget.lat}:${lordTarget.lon}` : null;
+  useEffect(() => {
+    if (sheet !== "move" || selectedUnit !== LORD_UNIT_ID || !lordTarget || Date.now() >= lordTarget.endsAt) {
+      return;
+    }
+    const line = movePolyline(lordTarget);
+    if (line.length >= 2) {
+      publishRouteLive(LORD_UNIT_ID, line, { lat: lordTarget.lat, lon: lordTarget.lon }, true);
+    }
+    // lordTarget 객체는 같은 주문이어도 새로 올 수 있어 내용 키로만 반응한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, selectedUnit, lordRouteKey, publishRouteLive]);
   const lordProgressPct = (() => {
     if (!lordTarget) {
       return 0;
