@@ -3954,7 +3954,10 @@ interface OtherUnitMoveAnim {
       // 진행률은 부대 메뉴에서 확인하고, 지도는 사용자가 자유롭게 본다.
       const lordMovingNow = playerMoveTarget !== null && Date.now() < playerMoveTarget.endsAt;
       // POI 목록 변경은 현재 뷰를 유지하고, 플레이어 이동은 지역 선택 여부와 무관하게 따라간다.
-      if ((isNewMap || playerMoved) && !lordMovingNow) {
+      // 단, 아직 중심·줌을 한 번도 받지 못한 지도(새 지도)는 영주 이동 중이어도 반드시 위치를 정한다.
+      // (건너뛰면 지도가 '로드 전' 상태로 남아 드래그 끝·좌표 변환마다 "Set map center and zoom first" 예외가 난다)
+      const mapUnloaded = !isLeafletMapLoaded(map);
+      if (mapUnloaded || ((isNewMap || playerMoved) && !lordMovingNow)) {
         map.setView([centerLat, centerLon], nextZoomLevel);
         setZoomLevel(nextZoomLevel);
       }
