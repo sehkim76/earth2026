@@ -22,6 +22,13 @@ export interface TerritoryCastlePoint {
   label: string;
 }
 
+export interface TrackTarget {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+}
+
 interface TerritoryUIProps {
   castleKey: string | null;
   onCloseCastle: () => void;
@@ -42,6 +49,10 @@ interface TerritoryUIProps {
   onMoveTargetCenter: (center: { lat: number; lon: number } | null) => void;
   /** 목적지 지정 중 출발점 (지도에 출발점→화면 중앙 점선 표시용). 지정 중이 아니면 null. */
   onMoveAimOrigin?: (origin: { lat: number; lon: number } | null) => void;
+  /** 화면 중앙(조준점) 위의 추적 대상 (무법자·남의 부대·남의 영주). 없으면 null. */
+  findTrackTargetAtCenter?: () => TrackTarget | null;
+  /** 추적 대상의 현재 위치. 사라졌으면 null. */
+  getTrackTargetPosition?: (targetId: string) => { lat: number; lon: number } | null;
   /** 지도에서 선택된 행정구역 코드 (축성 동 자동 지정용). */
   dongCode: string | null;
   /** 플레이어가 위치한 동 코드 (중립 부대 스폰·조회 기준). */
@@ -1257,22 +1268,139 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   };
 
   const moveSelectedToCenter = (): void => {
-    if (selectedUnit === LORD_UNIT_ID) {
-      void moveLordToCenter();
+    if (!selectedUnit) {
       return;
     }
-    const center = getMapCenter();
+    // 조준점이 무법자·남의 부대·영주 위에 있으면 그 대상을 추적한다 (목적지가 대상을 따라간다).
+    const lock = props.findTrackTargetAtCenter?.() ?? null;
+    if (selectedUnit === LORD_UNIT_ID) {
+      startChase(LORD_UNIT_ID, lock);
+      void moveLordToCenter(lock ? { dest: { lat: lock.lat, lon: lock.lon } } : undefined);
+      return;
+    }
+    const center = lock ? { lat: lock.lat, lon: lock.lon } : getMapCenter();
     const unit = units.find((item) => item.id === selectedUnit);
-    if (!selectedUnit || !center || !unit) {
+    if (!center || !unit) {
       flash("지도를 움직여 목적지를 가운데에 두세요.");
       return;
     }
     if (movingUnitIdsRef.current.has(selectedUnit)) {
       return;
     }
+    startChase(selectedUnit, lock);
     // 스피너를 먼저 그리고, 무거운 재병합·탐색은 페인트 이후에 시작한다.
     void moveUnitGradually(selectedUnit, unit.lat, unit.lon, center.lat, center.lon, center);
   };
+
+  // ── 추적 이동: 목적지를 대상(무법자·남의 부대·영주)의 현재 위치로 계속 갱신한다 ──
+  // 대상이 지난 목적지에서 CHASE_REROUTE_M 이상 벗어나면 지금 위치에서 다시 길을 찾는다.
+  const CHASE_REROUTE_M = 25;
+  // 무법자 공격 버튼은 15m 안에서 나오므로 그보다 가깝게 붙는다.
+  const CHASE_NEAR_M = 10;
+  const CHASE_SETTLE_M = 6;
+  const chaseRef = useRef(new Map<string, { targetId: string; name: string; destLat: number; destLon: number }>());
+  const chaseReroutingRef = useRef(new Set<string>());
+  const [chaseNames, setChaseNames] = useState<Record<string, string>>({});
+  const syncChaseNames = (): void => {
+    const next: Record<string, string> = {};
+    chaseRef.current.forEach((entry, id) => {
+      next[id] = entry.name;
+    });
+    setChaseNames(next);
+  };
+  function startChase(commanderId: string, target: TrackTarget | null): void {
+    if (!target) {
+      if (chaseRef.current.delete(commanderId)) {
+        syncChaseNames();
+      }
+      return;
+    }
+    chaseRef.current.set(commanderId, { targetId: target.id, name: target.name, destLat: target.lat, destLon: target.lon });
+    syncChaseNames();
+    flash(`${target.name} 추적을 시작합니다. 목적지가 대상을 따라갑니다.`);
+  }
+  function endChase(commanderId: string, message?: string): void {
+    if (!chaseRef.current.delete(commanderId)) {
+      return;
+    }
+    syncChaseNames();
+    if (message) {
+      flash(message);
+    }
+  }
+  const chaseTickRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    chaseTickRef.current = (): void => {
+      if (chaseRef.current.size === 0 || document.hidden) {
+        return;
+      }
+      const getPos = props.getTrackTargetPosition;
+      const meters = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number =>
+        Math.hypot((b.lon - a.lon) * 111320 * Math.cos((a.lat * Math.PI) / 180), (b.lat - a.lat) * 110540);
+      for (const [cid, entry] of [...chaseRef.current]) {
+        if (chaseReroutingRef.current.has(cid) || findingPathUnitId === cid) {
+          continue;
+        }
+        const tpos = getPos?.(entry.targetId) ?? null;
+        if (!tpos) {
+          endChase(cid, `${entry.name}이(가) 보이지 않아 추적을 끝냈습니다.`);
+          continue;
+        }
+        let cur: { lat: number; lon: number } | null;
+        let moving: boolean;
+        if (cid === LORD_UNIT_ID) {
+          cur = props.getPlayerLocation();
+          moving = !!props.lordMoveTarget && props.lordMoveTarget.endsAt > Date.now();
+        } else {
+          const unit = unitsRef.current.find((u) => u.id === cid);
+          if (!unit || unit.state !== "field") {
+            endChase(cid);
+            continue;
+          }
+          cur = { lat: unit.lat, lon: unit.lon };
+          moving = movingUnitIdsRef.current.has(cid);
+        }
+        if (!cur) {
+          continue;
+        }
+        // 이미 대상 곁에 있으면 그대로 둔다. 가는 중에는 대상이 목적지에서 크게 벗어날 때만,
+        // 멈춘 뒤에는 조금만 벗어나도 다시 쫓아간다.
+        const drift = meters({ lat: entry.destLat, lon: entry.destLon }, tpos);
+        if (meters(cur, tpos) < CHASE_NEAR_M || drift < (moving ? CHASE_REROUTE_M : CHASE_SETTLE_M)) {
+          continue;
+        }
+        entry.destLat = tpos.lat;
+        entry.destLon = tpos.lon;
+        chaseReroutingRef.current.add(cid);
+        const from = cur;
+        void (async () => {
+          try {
+            if (cid === LORD_UNIT_ID) {
+              await moveLordToCenter({ dest: tpos, quiet: true });
+            } else {
+              if (movingUnitIdsRef.current.has(cid)) {
+                await stopUnitMovement(cid);
+                // 이전 이동 애니메이션 루프가 끝날 시간을 준다.
+                await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+              }
+              if (!chaseRef.current.has(cid)) {
+                return;
+              }
+              const unit = unitsRef.current.find((u) => u.id === cid);
+              const start = unit ? { lat: unit.lat, lon: unit.lon } : from;
+              await moveUnitGradually(cid, start.lat, start.lon, tpos.lat, tpos.lon, undefined, true);
+            }
+          } finally {
+            chaseReroutingRef.current.delete(cid);
+          }
+        })();
+      }
+    };
+  });
+  useEffect(() => {
+    const id = window.setInterval(() => chaseTickRef.current(), 3000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const isLordSelected = selectedUnit === LORD_UNIT_ID;
 
@@ -1330,8 +1458,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     return out;
   };
-  const moveLordToCenter = async (): Promise<void> => {
-    const center = getMapCenter();
+  const moveLordToCenter = async (opts?: { dest?: { lat: number; lon: number }; quiet?: boolean }): Promise<void> => {
+    const quiet = opts?.quiet === true;
+    const center = opts?.dest ?? getMapCenter();
     const from = props.getPlayerLocation() ?? getMapCenter();
     if (!center || !from) {
       flash("지도를 움직여 목적지를 가운데에 두세요.");
@@ -1342,8 +1471,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     setBusy(true);
     setFindingPathUnitId(LORD_UNIT_ID);
-    onMovePath(null);
-    onMoveDestination(center);
+    if (!quiet || selectedUnitRef.current === LORD_UNIT_ID) {
+      onMovePath(null);
+      onMoveDestination(center);
+    }
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
     });
@@ -1358,7 +1489,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       const snapped =
         (await snapToNearestWalkableLocation(center.lat, center.lon, 500)) ??
         (await snapToNearestWalkableLocation(center.lat, center.lon, 3000));
-      if (snapped && (Math.abs(snapped.lat - center.lat) > 1e-9 || Math.abs(snapped.lon - center.lon) > 1e-9)) {
+      if (!quiet && snapped && (Math.abs(snapped.lat - center.lat) > 1e-9 || Math.abs(snapped.lon - center.lon) > 1e-9)) {
         const km = snapped.distanceM >= 1000
           ? `${(snapped.distanceM / 1000).toFixed(1)}km`
           : `${Math.round(snapped.distanceM)}m`;
@@ -1379,8 +1510,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           via: null,
           path: null,
         });
-        setSelectedUnit(LORD_UNIT_ID);
-        setSheet("move");
+        if (!quiet) {
+          setSelectedUnit(LORD_UNIT_ID);
+          setSheet("move");
+        }
         return;
       }
       // 부대와 동일한 클라이언트 길찾기 (이동가능영역 그래프).
@@ -1426,6 +1559,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         }
       }
       if (!path) {
+        if (quiet) {
+          endChase(LORD_UNIT_ID, "길이 막혀 추적을 멈췄습니다.");
+          return;
+        }
         setActionDialog({
           title: "영주를 이동할 수 없습니다",
           message: "길이 막혔습니다. 이동가능 영역으로 연결된 목적지를 선택해 주세요.",
@@ -1458,8 +1595,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       order.endsAt = startedAt + durationMs;
       props.onLordMoveOrder?.(order);
       publishRouteLive(LORD_UNIT_ID, line, { lat: toLat, lon: toLon }, true);
-      setSelectedUnit(LORD_UNIT_ID);
-      setSheet("move");
+      if (!quiet) {
+        setSelectedUnit(LORD_UNIT_ID);
+        setSheet("move");
+      }
       setMoveNow(Date.now());
     } catch (error) {
       setActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
@@ -2117,6 +2256,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     rawToLat: number,
     rawToLon: number,
     moveCenter?: { lat: number; lon: number },
+    quiet = false,
   ): Promise<void> => {
     if (movingUnitIdsRef.current.has(unitId)) {
       return;
@@ -2151,6 +2291,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         (await snapToNearestWalkableLocation(rawToLat, rawToLon, 500)) ??
         (await snapToNearestWalkableLocation(rawToLat, rawToLon, 3000));
       if (
+        !quiet &&
         snapped &&
         (Math.abs(snapped.lat - rawToLat) > 1e-9 || Math.abs(snapped.lon - rawToLon) > 1e-9)
       ) {
@@ -2593,9 +2734,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   })();
   // 이동 목표 지정 중 지도 중앙까지의 거리를 마커 아래에 표시한다.
   const [targetCenter, setTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
+  // 조준점 위의 추적 대상 (있으면 목적지가 그 대상을 따라간다).
+  const [aimLock, setAimLock] = useState<TrackTarget | null>(null);
+  const { findTrackTargetAtCenter } = props;
   useEffect(() => {
     if (sheet !== "move" || selectedUnit === null) {
       setTargetCenter(null);
+      setAimLock(null);
       return;
     }
     const update = (): void => {
@@ -2603,6 +2748,16 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       if (!center) {
         return;
       }
+      const lock = findTrackTargetAtCenter?.() ?? null;
+      setAimLock((prev) => {
+        if (!lock) {
+          return null;
+        }
+        if (prev && prev.id === lock.id && Math.abs(prev.lat - lock.lat) < 1e-5 && Math.abs(prev.lon - lock.lon) < 1e-5) {
+          return prev;
+        }
+        return lock;
+      });
       setTargetCenter((prev) => {
         if (prev) {
           const kx = 111320 * Math.cos((prev.lat * Math.PI) / 180);
@@ -2617,7 +2772,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     update();
     const timerId = window.setInterval(update, 500);
     return () => window.clearInterval(timerId);
-  }, [sheet, selectedUnit, getMapCenter]);
+  }, [sheet, selectedUnit, getMapCenter, findTrackTargetAtCenter]);
   const formatTargetDistance = (meters: number): string => {
     if (meters < 100) {
       return `${meters.toFixed(1)}m`;
@@ -2657,15 +2812,16 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   }, [aimOriginLat, aimOriginLon, onMoveAimOrigin]);
   useEffect(() => () => onMoveAimOrigin?.(null), [onMoveAimOrigin]);
   const targetDistanceLabel = (() => {
-    if (!targetCenter || !aimOrigin) {
+    const aimAt = aimLock ?? targetCenter;
+    if (!aimAt || !aimOrigin) {
       return null;
     }
     const kx = 111320 * Math.cos((aimOrigin.lat * Math.PI) / 180);
     const distM = Math.hypot(
-      (targetCenter.lon - aimOrigin.lon) * kx,
-      (targetCenter.lat - aimOrigin.lat) * 110540,
+      (aimAt.lon - aimOrigin.lon) * kx,
+      (aimAt.lat - aimOrigin.lat) * 110540,
     );
-    return `직선 ${formatTargetDistance(distM)}`;
+    return aimLock ? `${aimLock.name} 추적 · 직선 ${formatTargetDistance(distM)}` : `직선 ${formatTargetDistance(distM)}`;
   })();
   const moveCountdownLabelFor = (unitId: string): string => {
     const progress = moveProgressMap[unitId];
@@ -2820,7 +2976,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <div className="pointer-events-none fixed left-1/2 top-1/2 z-[1300] -translate-x-1/2 -translate-y-1/2" aria-hidden="true">
               <div className="unit-target-center-pin" />
               {targetDistanceLabel ? (
-                <div className="absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-red-400/70 bg-slate-900/85 px-2 py-0.5 text-xs font-bold tabular-nums text-white shadow-[0_2px_6px_rgba(0,0,0,0.45)]">
+                <div className={`absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border bg-slate-900/85 px-2 py-0.5 text-xs font-bold tabular-nums shadow-[0_2px_6px_rgba(0,0,0,0.45)] ${aimLock ? "border-yellow-300 text-yellow-200" : "border-red-400/70 text-white"}`}>
                   {targetDistanceLabel}
                 </div>
               ) : null}
@@ -2882,7 +3038,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             {isLordSelected && lordActive ? (
               <div aria-live="polite" className="text-xs font-bold text-[#354b3c]">
                 <p className="mb-1 truncate">
-                  영주 이동 중 ·{" "}
+                  {chaseNames[LORD_UNIT_ID] ? `${chaseNames[LORD_UNIT_ID]} 추적 중` : "영주 이동 중"} ·{" "}
                   <span className="tabular-nums">{lordCountdownLabel}</span>
                 </p>
                 <div
@@ -2903,7 +3059,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 </div>
                 <button
                   type="button"
-                  onClick={() => stopLordMovement()}
+                  onClick={() => {
+                    endChase(LORD_UNIT_ID);
+                    stopLordMovement();
+                  }}
                   className={`${buttonGhost} mt-1 w-full`}
                 >
                   이동 중지
@@ -2920,7 +3079,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             ) : isSelectedUnitMoving ? (
               <div aria-live="polite" className="text-xs font-bold text-[#354b3c]">
                 <p className="mb-1 truncate">
-                  {movingUnitName ?? "부대"} 이동 중{selectedMoveProgress?.legLabel ? ` · ${selectedMoveProgress.legLabel}` : ""} ·{" "}
+                  {movingUnitName ?? "부대"} {selectedUnit && chaseNames[selectedUnit] ? `${chaseNames[selectedUnit]} 추적 중` : "이동 중"}{selectedMoveProgress?.legLabel ? ` · ${selectedMoveProgress.legLabel}` : ""} ·{" "}
                   <span className="tabular-nums">{moveCountdownLabel}</span>
                 </p>
                 <div
@@ -2943,6 +3102,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   type="button"
                   onClick={() => {
                     if (selectedUnit) {
+                      endChase(selectedUnit);
                       void stopUnitMovement(selectedUnit);
                     }
                   }}
@@ -2953,7 +3113,19 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               </div>
             ) : (
               <>
-                <p className="mb-1.5 text-sm text-slate-700">지도를 움직여 화면 중앙에 목적지를 맞춘 뒤 이동을 누르세요.</p>
+                {selectedUnit && chaseNames[selectedUnit] ? (
+                  <div className="mb-1.5 flex items-center justify-between gap-2 rounded-lg bg-yellow-100 px-2 py-1 text-xs font-bold text-yellow-900">
+                    <span className="truncate">{chaseNames[selectedUnit]} 곁에서 추적 중 (대상이 움직이면 따라갑니다)</span>
+                    <button type="button" onClick={() => endChase(selectedUnit)} className="shrink-0 underline">
+                      추적 해제
+                    </button>
+                  </div>
+                ) : null}
+                <p className="mb-1.5 text-sm text-slate-700">
+                  {aimLock
+                    ? `${aimLock.name}에 조준했습니다. 이동하면 목적지가 대상을 따라갑니다.`
+                    : "지도를 움직여 화면 중앙에 목적지를 맞춘 뒤 이동을 누르세요. 무법자·상대 부대·영주에 맞추면 추적합니다."}
+                </p>
                 <div className="grid grid-cols-2 gap-1.5">
                   <button
                     type="button"
@@ -2961,7 +3133,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                     disabled={busy}
                     className={buttonPrimary}
                   >
-                    여기로 이동
+                    {aimLock ? "추적 이동" : "여기로 이동"}
                   </button>
                   <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
                     취소

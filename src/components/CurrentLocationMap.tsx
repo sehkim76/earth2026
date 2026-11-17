@@ -6609,6 +6609,95 @@ interface OtherUnitMoveAnim {
     return { lat: current.lat, lon: current.lon };
   }, []);
 
+  // 추적 대상(무법자·남의 부대·남의 영주)의 현재 위치. 이동 중이면 애니메이션과 같은 수식으로 계산한다
+  // (화면 밖 마커는 위치 갱신을 건너뛰므로 마커 좌표만 믿지 않는다).
+  const getTrackTargetPosition = useCallback((targetId: string): { lat: number; lon: number } | null => {
+    if (targetId.startsWith("player:")) {
+      const entry = nearbyPlayerMarkerMapRef.current.get(targetId.slice("player:".length));
+      if (!entry) {
+        return null;
+      }
+      const ll = entry.marker.getLatLng();
+      return { lat: ll.lat, lon: ll.lng };
+    }
+    const mark = unitMarksRef.current.find((m) => m.id === targetId && !m.mine);
+    if (!mark) {
+      return null;
+    }
+    const anim = otherUnitMoveAnimRef.current.get(targetId);
+    if (anim && !anim.done) {
+      const pos = positionAtMoveTarget(
+        {
+          fromLat: anim.fromLat,
+          fromLon: anim.fromLon,
+          lat: anim.destLat,
+          lon: anim.destLon,
+          startedAt: anim.startedAt,
+          endsAt: anim.endsAt,
+          via: null,
+          path: anim.path,
+        },
+        targetId.startsWith("neutral-") ? serverNow() : Date.now(),
+      );
+      if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
+        return { lat: pos.lat, lon: pos.lon };
+      }
+    }
+    const marker = unitMarkerMapRef.current.get(targetId);
+    if (marker) {
+      const ll = marker.getLatLng();
+      return { lat: ll.lat, lon: ll.lng };
+    }
+    return { lat: mark.lat, lon: mark.lon };
+  }, []);
+
+  // 화면 중앙(목적지 조준점) 가까이에 있는 추적 대상을 찾는다. 화면 픽셀 기준 반경 안의 가장 가까운 것.
+  const findTrackTargetAtCenter = useCallback((): { id: string; name: string; lat: number; lon: number } | null => {
+    const map = mapInstanceRef.current;
+    if (!map) {
+      return null;
+    }
+    let size: { x: number; y: number };
+    try {
+      size = map.getSize();
+    } catch {
+      return null;
+    }
+    const cx = size.x / 2;
+    const cy = size.y / 2;
+    const LOCK_RADIUS_PX = 34;
+    let best: { id: string; name: string; lat: number; lon: number; d: number } | null = null;
+    const consider = (id: string, name: string): void => {
+      const pos = getTrackTargetPosition(id);
+      if (!pos) {
+        return;
+      }
+      let pt: { x: number; y: number };
+      try {
+        pt = map.latLngToContainerPoint([pos.lat, pos.lon]);
+      } catch {
+        return;
+      }
+      // 마커 기준점(캐릭터 몸통 가운데)과 조준점(역삼각형 가운데) 사이 화면 거리.
+      const d = Math.hypot(pt.x - cx, pt.y - cy);
+      if (d <= LOCK_RADIUS_PX && (!best || d < best.d)) {
+        best = { id, name, lat: pos.lat, lon: pos.lon, d };
+      }
+    };
+    for (const mark of unitMarksRef.current) {
+      if (!mark.mine) {
+        consider(mark.id, mark.name);
+      }
+    }
+    nearbyPlayerMarkerMapRef.current.forEach((entry, userId) => {
+      const content = entry.marker.getTooltip()?.getContent();
+      const raw = typeof content === "string" ? content.replace(/ · 부상$/, "") : "";
+      consider(`player:${userId}`, raw ? `영주 ${raw}` : "영주");
+    });
+    const found = best as { id: string; name: string; lat: number; lon: number; d: number } | null;
+    return found ? { id: found.id, name: found.name, lat: found.lat, lon: found.lon } : null;
+  }, [getTrackTargetPosition]);
+
   const isTerritoryVisible = useCallback(
     (lat: number, lon: number): boolean => {
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -7394,22 +7483,45 @@ const isMapPerfEnabled = (): boolean => {
     // 밝은 지도·위성 모두에서 보이도록 어두운 테두리 위에 빨간 점선을 겹친다.
     const halo = L.polyline([origin, origin], { ...style, color: "#1a0505", weight: 6, opacity: 0.45, dashArray: "10 9" }).addTo(map);
     const line = L.polyline([origin, origin], { ...style, color: "#ef1c1c", weight: 3.5, opacity: 0.95, dashArray: "10 9" }).addTo(map);
+    // 조준점이 무법자·남의 부대·영주 위에 있으면 그 대상에 고정(추적)된다: 노란 원과 함께 선 끝을 대상에 붙인다.
+    const lockRing = L.circleMarker(origin, {
+      interactive: false,
+      radius: 24,
+      color: "#facc15",
+      weight: 3,
+      opacity: 0,
+      fillColor: "#facc15",
+      fillOpacity: 0,
+      dashArray: "6 5",
+    }).addTo(map);
     const update = (): void => {
       const c = map.getCenter();
-      const pts: [number, number][] = [origin, [c.lat, c.lng]];
+      const lock = findTrackTargetAtCenter();
+      const end: [number, number] = lock ? [lock.lat, lock.lon] : [c.lat, c.lng];
+      const pts: [number, number][] = [origin, end];
       halo.setLatLngs(pts);
       line.setLatLngs(pts);
+      if (lock) {
+        lockRing.setLatLng(end);
+        lockRing.setStyle({ opacity: 1, fillOpacity: 0.18 });
+      } else {
+        lockRing.setStyle({ opacity: 0, fillOpacity: 0 });
+      }
     };
     update();
     map.on("move", update);
     map.on("zoom", update);
+    // 지도를 가만히 둬도 대상은 움직이므로 주기적으로 다시 맞춘다.
+    const timerId = window.setInterval(update, 400);
     return () => {
+      window.clearInterval(timerId);
       map.off("move", update);
       map.off("zoom", update);
       halo.remove();
       line.remove();
+      lockRing.remove();
     };
-  }, [territoryEnabled, isMapReady, aimOriginLat, aimOriginLon]);
+  }, [territoryEnabled, isMapReady, aimOriginLat, aimOriginLon, findTrackTargetAtCenter]);
 
   // 영토전: 부대 이동 목적지 역삼각형 마커 (지시 후 유지)
   useEffect(() => {
@@ -9412,6 +9524,8 @@ const isMapPerfEnabled = (): boolean => {
           onMoveDestination={setUnitMoveDestination}
           onMoveTargetCenter={setMoveTargetCenter}
           onMoveAimOrigin={setMoveAimOrigin}
+          findTrackTargetAtCenter={findTrackTargetAtCenter}
+          getTrackTargetPosition={getTrackTargetPosition}
           onLordSelectedChange={setLordSelected}
           markerDialogOpen={territoryEnabled && markerPanel !== null}
           dongCode={selectedAdminCode}
