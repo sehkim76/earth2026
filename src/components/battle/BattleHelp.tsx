@@ -89,7 +89,7 @@ export function BattleHelp({ coachOff, onCoachChange, onClose }: BattleHelpProps
           <section>
             <h3>카드 보는 법</h3>
             <div className={styles.helpCardRow}>
-              <BattleCardFace cardId="shield_bearer" width={118} />
+              <BattleCardFace cardId="shield_bearer" width={140} />
               <ul className={styles.helpLegend}>
                 <li>
                   <span className={styles.legendCost}>2</span>
@@ -145,7 +145,7 @@ export function BattleHelp({ coachOff, onCoachChange, onClose }: BattleHelpProps
             <ul className={styles.helpTerms}>
               {terms.map((t) => (
                 <li key={t.name}>
-                  <PixelArt name={t.icon} scale={1.5} />
+                  <PixelArt name={t.icon} scale={2} />
                   <b>{t.name}</b>
                   <span>{t.desc}</span>
                 </li>

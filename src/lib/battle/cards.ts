@@ -504,60 +504,65 @@ export interface OutlawPreset {
   name: string;
   /** 무법자 지휘관 레벨 (체력·능력 강화에 반영) */
   level: number;
+  /** 지휘관 체력 (짧은 토벌전: 2분 안팎에 끝나도록 낮게) */
+  hp: number;
   deck: string[];
 }
 
+// 무법자 토벌은 처음 하는 사람도 2분 안팎에 이기도록 체력을 낮추고,
+// 수호·회복·카드 뽑기처럼 판을 길게 끄는 카드는 뺀다 (2026-11-17).
 export const OUTLAW_PRESETS: Readonly<Record<OutlawTier, OutlawPreset>> = {
   1: {
     tier: 1,
     name: "떠돌이 무법자",
     level: 1,
+    hp: 8,
     deck: [
+      "recruit_spear",
       "recruit_spear",
       "recruit_spear",
       "beacon_runner",
       "scout_rider",
       "novice_archer",
-      "conscriptor",
-      "shield_bearer",
-      "fort_captain",
-      "field_medic",
-      "war_council",
+      "recruit_spear",
+      "beacon_runner",
+      "novice_archer",
+      "scout_rider",
     ],
   },
   2: {
     tier: 2,
     name: "무법자 패거리",
     level: 1,
+    hp: 9,
     deck: [
       "recruit_spear",
       "recruit_spear",
       "beacon_runner",
       "scout_rider",
       "novice_archer",
-      "fire_arrow",
+      "novice_archer",
       "conscriptor",
-      "shield_bearer",
-      "fort_captain",
-      "charge_knight",
+      "beacon_runner",
+      "scout_rider",
+      "fire_arrow",
     ],
   },
   3: {
     tier: 3,
     name: "무법자 두목",
-    level: 2,
+    level: 1,
+    hp: 11,
     deck: [
       "recruit_spear",
-      "beacon_runner",
       "beacon_runner",
       "scout_rider",
       "novice_archer",
       "fire_arrow",
-      "mana_bolt",
       "conscriptor",
-      "conscriptor",
-      "fort_captain",
-      "marksman",
+      "recruit_spear",
+      "scout_rider",
+      "novice_archer",
       "charge_knight",
     ],
   },

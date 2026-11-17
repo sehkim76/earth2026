@@ -160,20 +160,20 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
       onClick={() => !starting && onCancel()}
     >
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
+        className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-amber-200/25 bg-amber-300/10 px-4 py-2.5">
-          <p className="text-sm font-bold">
+          <p className="text-lg font-bold">
             {OUTLAW_TIER_LABEL[baseTier]} <span className="text-amber-300">{OUTLAW_TIER_STARS[baseTier]}</span> 토벌 — 출전할 지휘관
           </p>
-          <p className="mt-0.5 text-[11px] text-amber-100/70">
+          <p className="mt-0.5 text-sm text-amber-100/70">
             지휘관의 덱으로 카드 전투를 벌입니다. 패배하면 30분 부상. Lv.{NOVICE_COMMANDER_MAX_LEVEL} 이하 지휘관은 한 단계 약한 무법자와 싸웁니다.
           </p>
         </div>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto p-3">
           {options === null ? (
-            <p className="py-4 text-center text-xs text-amber-100/70">지휘관 목록을 불러오는 중…</p>
+            <p className="py-4 text-center text-base text-amber-100/70">지휘관 목록을 불러오는 중…</p>
           ) : (
             options.map((o) => {
               const injured = o.injuredUntil !== null && o.injuredUntil > now;
@@ -191,22 +191,22 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
                   className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200/25 bg-black/30 px-3 py-2 text-left transition enabled:hover:border-amber-200/60 enabled:hover:bg-amber-200/10 disabled:opacity-45"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-bold">{o.name}</span>
-                    <span className="block text-[11px] text-amber-100/70">{o.detail}</span>
+                    <span className="block truncate text-base font-bold">{o.name}</span>
+                    <span className="block text-sm text-amber-100/70">{o.detail}</span>
                   </span>
-                  <span className={`shrink-0 text-right text-[11px] ${injured ? "font-semibold text-red-300" : "text-amber-100/80"}`}>{status}</span>
+                  <span className={`shrink-0 text-right text-sm ${injured ? "font-semibold text-red-300" : "text-amber-100/80"}`}>{status}</span>
                 </button>
               );
             })
           )}
         </div>
-        {error ? <p className="px-4 pb-2 text-center text-xs font-semibold text-red-300">{error}</p> : null}
+        {error ? <p className="px-4 pb-2 text-center text-base font-semibold text-red-300">{error}</p> : null}
         <div className="flex justify-end gap-2 border-t border-amber-200/15 bg-amber-200/5 px-4 py-2.5">
           <button
             type="button"
             disabled={starting}
             onClick={onCancel}
-            className="rounded-lg border border-slate-600/60 bg-slate-800/80 px-4 py-1.5 text-xs font-semibold text-slate-200"
+            className="rounded-lg border border-slate-600/60 bg-slate-800/80 px-5 py-2 text-base font-semibold text-slate-200"
           >
             {starting ? "출전 중…" : "취소"}
           </button>
@@ -273,7 +273,7 @@ export function BattleHost({ enabled, outlawRequest, onOutlawRequestDone, onBatt
               else setHidden(false);
             });
           }}
-          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-[3800] -translate-x-1/2 animate-pulse rounded-full border-2 border-amber-200/70 bg-[linear-gradient(#a8352c,#5e121c)] px-4 py-1.5 text-xs font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.5)]"
+          className="fixed left-1/2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-[3800] -translate-x-1/2 animate-pulse rounded-full border-2 border-amber-200/70 bg-[linear-gradient(#a8352c,#5e121c)] px-5 py-2 text-base font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.5)]"
         >
           진행 중인 전투로 돌아가기
         </button>

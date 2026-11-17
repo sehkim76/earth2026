@@ -47,6 +47,7 @@ interface DeckSpec {
   kind: CommanderKindT;
   level: number;
   deck: string[];
+  maxHp?: number;
 }
 
 interface GameResult {
@@ -58,7 +59,7 @@ function playGame(seed: number, a: DeckSpec, d: DeckSpec): GameResult {
   let s: BattleStateT = B.createBattle({
     seed,
     attacker: { commander: { id: "A", kind: a.kind, name: a.label, level: a.level }, deck: a.deck },
-    defender: { commander: { id: "D", kind: d.kind, name: d.label, level: d.level }, deck: d.deck },
+    defender: { commander: { id: "D", kind: d.kind, name: d.label, level: d.level, maxHp: d.maxHp }, deck: d.deck },
   });
   let safety = 0;
   while (s.winner === null) {
@@ -168,7 +169,7 @@ const header = pad("", 16) + keys.map((k) => pad(k)).join("") + "평균턴";
 console.log(header + "   (플레이어 승률 %)");
 for (const tier of [1, 2, 3] as const) {
   const preset = B.OUTLAW_PRESETS[tier];
-  const outlaw: DeckSpec = { label: preset.name, kind: "outlaw", level: preset.level, deck: preset.deck };
+  const outlaw: DeckSpec = { label: preset.name, kind: "outlaw", level: preset.level, deck: preset.deck, maxHp: preset.hp };
   const cells: string[] = [];
   let tSum = 0;
   let n = 0;

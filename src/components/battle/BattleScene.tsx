@@ -215,25 +215,25 @@ function CommanderBadge({ view, side, target, ready, selected }: CommanderProps)
         data-bkey={`cmd-${side}`}
         className={[styles.cmdFrame, target ? styles.isTarget : "", ready ? styles.solReady : "", selected ? styles.isSelected : ""].join(" ")}
       >
-        <PixelArt name={commanderArtKey(c.kind)} scale={2.25} />
+        <PixelArt name={commanderArtKey(c.kind)} scale={2.5} />
       </div>
       <div className={styles.cmdName}>
         {c.name || COMMANDER_KIND_LABEL[c.kind]} <span>Lv.{c.level}</span>
       </div>
       <div className={`${styles.cmdHp} ${hurt ? styles.statHurt : ""}`} title="지휘관 체력">
-        <PixelArt name="ic-health" scale={1.25} />
+        <PixelArt name="ic-health" scale={1.75} />
         {Math.max(0, c.hp)}
       </div>
       {c.armor > 0 ? (
         <div className={styles.cmdArmor} data-bkey={`armor-${side}`} title="방어도 (체력보다 먼저 깎임)">
-          <PixelArt name="ic-armor" scale={1.25} />
+          <PixelArt name="ic-armor" scale={1.75} />
           {c.armor}
         </div>
       ) : null}
       <div className={styles.weaponSlot} data-bkey={`weapon-${side}`}>
         {c.weapon ? (
           <>
-            <PixelArt name={getCard(c.weapon.cardId).artKey} scale={1} />
+            <PixelArt name={getCard(c.weapon.cardId).artKey} scale={1.25} />
             <span className={styles.weaponAtk} title="무기 공격력">{c.weapon.attack}</span>
             <span className={styles.weaponDur} title="남은 사용 횟수">{c.weapon.durability}</span>
           </>
@@ -278,7 +278,7 @@ function HelpBody({ info }: { info: HelpInfo }) {
         <div className={styles.infoStats}>
           {info.stats.map((st) => (
             <span key={st.label} className={st.tone === "up" ? styles.statUp : st.tone === "down" ? styles.infoDown : ""}>
-              <PixelArt name={st.icon} scale={1} />
+              <PixelArt name={st.icon} scale={1.5} />
               {st.label} <b>{st.value}</b>
             </span>
           ))}
@@ -291,7 +291,7 @@ function HelpBody({ info }: { info: HelpInfo }) {
       ) : null}
       {info.terms.map((t) => (
         <div key={t.name} className={styles.infoTerm}>
-          <PixelArt name={t.icon} scale={1} />
+          <PixelArt name={t.icon} scale={1.5} />
           <b>{t.name}</b>
           <span>{t.desc}</span>
         </div>
@@ -406,6 +406,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
   const [concedeArmed, setConcedeArmed] = useState(false);
   const [info, setInfo] = useState<InfoTarget | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [coachOff, setCoachOff] = useState(false);
 
   // 처음 전투면 도움말을 먼저 띄운다. 안내 문구 끄기 설정을 읽는다.
@@ -811,7 +812,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
   };
 
   // 손패 부채꼴 배치
-  const handCardW = Math.min(88, Math.max(66, Math.round(vw * 0.2)));
+  const handCardW = Math.min(112, Math.max(84, Math.round(vw * 0.25)));
   const handLayout = useMemo(() => {
     const n = hand.length;
     const avail = Math.min(vw, 520) - 24 - handCardW;
@@ -907,21 +908,21 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
                 className={styles.ebackWrap}
                 data-bkey={`eback-${i}`}
                 data-flip="1"
-                style={{ left: `${(i - (foe.handCount - 1) / 2) * 14}px`, rotate: `${(i - (foe.handCount - 1) / 2) * 6}deg` }}
+                style={{ left: `${(i - (foe.handCount - 1) / 2) * 17}px`, rotate: `${(i - (foe.handCount - 1) / 2) * 6}deg` }}
               >
-                <BattleCardBack width={26} />
+                <BattleCardBack width={32} />
               </div>
             ))}
           </div>
           <div className={styles.deckPile} data-bkey="deck-1" title="적 덱">
-            <PixelArt name="ic-deck" scale={1.5} />
+            <PixelArt name="ic-deck" scale={2} />
             <span>덱 {foe.deckCount}</span>
           </div>
           <CommanderBadge view={view} side={ENEMY} target={targetKeys.has("cmd-1")} ready={false} selected={false} />
           <div className={styles.enemyRight}>
             <ManaBar view={view} side={ENEMY} />
             <div className={styles.foePower} data-bkey="power-1" title={`${foePower.name}: ${foePower.text}`}>
-              <PixelArt name="ic-power" scale={1.5} />
+              <PixelArt name="ic-power" scale={2} />
               <span>{foePower.name}</span>
             </div>
           </div>
@@ -963,7 +964,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
         <div className={styles.myHud}>
           <div className={styles.myLeft}>
             <div className={styles.deckPile} data-bkey="deck-0" title="내 덱">
-              <PixelArt name="ic-deck" scale={1.5} />
+              <PixelArt name="ic-deck" scale={2} />
               <span>덱 {me.deckCount}</span>
             </div>
             <ManaBar view={view} side={PLAYER} />
@@ -988,7 +989,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
             disabled={busy}
             title={`${myPower.name}: ${myPower.text}`}
           >
-            <PixelArt name="ic-power" scale={2} />
+            <PixelArt name="ic-power" scale={2.5} />
             <span className={styles.powerName}>{myPower.name}</span>
             <span className={styles.powerCost}>{myPower.cost}</span>
           </button>
@@ -1057,7 +1058,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
       {preview ? (
         <div className={styles.previewWrap}>
           <div data-bkey="preview" className={`${styles.preview} ${preview.side === ENEMY ? styles.previewEnemy : ""}`}>
-            <BattleCardFace cardId={preview.cardId} width={Math.min(170, Math.round(vw * 0.42))} />
+            <BattleCardFace cardId={preview.cardId} width={Math.min(210, Math.round(vw * 0.52))} />
           </div>
           <div className={styles.previewLabel}>{preview.side === ENEMY ? "적의 카드" : "사용"}</div>
         </div>
@@ -1066,7 +1067,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
       {inspect ? (
         <div className={styles.previewWrap}>
           <div className={styles.preview}>
-            <BattleCardFace cardId={inspect} width={Math.min(190, Math.round(vw * 0.48))} />
+            <BattleCardFace cardId={inspect} width={Math.min(230, Math.round(vw * 0.58))} />
           </div>
           {(() => {
             const d = describeCard(inspect);
@@ -1079,20 +1080,42 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
         </div>
       ) : null}
 
-      {/* 상단 버튼 */}
+      {/* 상단 메뉴: 도움말·지도로·항복을 하나로 접어 적 진영을 가리지 않게 */}
       <div className={styles.topButtons}>
-        <button type="button" className={`${styles.smallBtn} ${styles.helpBtn}`} onClick={() => setHelpOpen(true)}>
-          ? 도움말
+        <button
+          type="button"
+          className={`${styles.smallBtn} ${styles.menuBtn}`}
+          aria-expanded={menuOpen}
+          onClick={() => {
+            setMenuOpen((o) => !o);
+            setConcedeArmed(false);
+          }}
+        >
+          {menuOpen ? "✕ 닫기" : "☰ 메뉴"}
         </button>
-        {onExit ? (
-          <button type="button" className={styles.smallBtn} onClick={onExit}>
-            지도로
-          </button>
-        ) : null}
-        {view.winner === null ? (
-          <button type="button" className={`${styles.smallBtn} ${concedeArmed ? styles.smallBtnDanger : ""}`} onClick={onConcede}>
-            {concedeArmed ? "정말 항복" : "항복"}
-          </button>
+        {menuOpen ? (
+          <div className={styles.menuList}>
+            <button
+              type="button"
+              className={`${styles.smallBtn} ${styles.helpBtn}`}
+              onClick={() => {
+                setMenuOpen(false);
+                setHelpOpen(true);
+              }}
+            >
+              ? 도움말
+            </button>
+            {onExit ? (
+              <button type="button" className={styles.smallBtn} onClick={onExit}>
+                지도로
+              </button>
+            ) : null}
+            {view.winner === null ? (
+              <button type="button" className={`${styles.smallBtn} ${concedeArmed ? styles.smallBtnDanger : ""}`} onClick={onConcede}>
+                {concedeArmed ? "정말 항복" : "항복"}
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

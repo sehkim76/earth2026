@@ -428,7 +428,7 @@ export function startOutlawBattle(input: {
       deck: starterDeck(starterKeyFor(commander.kind), deckSizeForLevel(commander.level)),
     },
     defender: {
-      commander: { id: `outlaw-${outlaw.id}`, kind: "outlaw", name: preset.name, level: preset.level },
+      commander: { id: `outlaw-${outlaw.id}`, kind: "outlaw", name: preset.name, level: preset.level, maxHp: preset.hp },
       deck: preset.deck,
     },
   });

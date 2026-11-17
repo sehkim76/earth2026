@@ -37,11 +37,13 @@ export interface CommanderSetup {
   kind: CommanderKind;
   name: string;
   level: number;
+  /** 체력 직접 지정 (무법자처럼 레벨 공식과 다른 체력). 없으면 레벨 공식 */
+  maxHp?: number;
 }
 
 export function makeCommander(setup: CommanderSetup): Commander {
   const level = clampLevel(setup.level);
-  const hp = commanderMaxHp(level);
+  const hp = setup.maxHp !== undefined && setup.maxHp > 0 ? Math.round(setup.maxHp) : commanderMaxHp(level);
   return {
     id: setup.id,
     kind: setup.kind,

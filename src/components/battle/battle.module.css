@@ -154,7 +154,7 @@
   border-radius: 10px;
   background: rgba(10, 8, 12, 0.6);
   border: 1px solid rgba(231, 194, 106, 0.35);
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -182,7 +182,7 @@
   border-radius: 10px;
   background: rgba(60, 10, 14, 0.55);
   border: 1px solid rgba(236, 109, 92, 0.4);
-  font-size: 10px;
+  font-size: 15px;
   color: #ffd8cc;
 }
 
@@ -213,7 +213,7 @@
   border-radius: 4px;
   background: linear-gradient(90deg, rgba(20, 14, 10, 0.78), rgba(20, 14, 10, 0.3));
   border-left: 3px solid var(--gold);
-  font-size: 12px;
+  font-size: 18px;
   line-height: 1.3;
   color: #f3e6c4;
   white-space: nowrap;
@@ -300,7 +300,7 @@
 }
 
 .manaText {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 800;
   color: #cfe3ff;
   font-variant-numeric: tabular-nums;
@@ -356,7 +356,7 @@
   padding: 1px 8px;
   border-radius: 3px;
   background: rgba(15, 10, 8, 0.75);
-  font-size: 11px;
+  font-size: 16.5px;
   font-weight: 700;
   white-space: nowrap;
   max-width: 132px;
@@ -366,7 +366,7 @@
 
 .cmdName span {
   color: var(--gold);
-  font-size: 10px;
+  font-size: 15px;
 }
 
 .cmdHp,
@@ -379,7 +379,7 @@
   height: 24px;
   padding: 0 5px 0 3px;
   border-radius: 6px;
-  font-size: 15px;
+  font-size: 22.5px;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 0 #000, 0 0 3px #000;
@@ -423,7 +423,7 @@
   min-width: 16px;
   height: 16px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 16.5px;
   font-weight: 900;
   text-align: center;
   line-height: 16px;
@@ -476,7 +476,7 @@
 }
 
 .powerName {
-  font-size: 9px;
+  font-size: 13.5px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -489,7 +489,7 @@
   height: 22px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, #bfe8ff, #3f8cff 55%, #1c3c92);
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 900;
   line-height: 22px;
   text-align: center;
@@ -542,7 +542,7 @@
   min-width: 22px;
   height: 22px;
   padding: 0 3px;
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 900;
   line-height: 20px;
   text-align: center;
@@ -693,7 +693,7 @@
 
 .endTurnLabel {
   position: relative;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: -0.02em;
   text-shadow: 0 1px 0 #000;
@@ -722,7 +722,7 @@
   left: 50%;
   bottom: 9px;
   transform: translateX(-50%);
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 800;
   opacity: 0.85;
   font-variant-numeric: tabular-nums;
@@ -1009,32 +1009,32 @@
 }
 
 .fxLayer :global(.bfx-float-dmg) {
-  font-size: 28px;
+  font-size: 33.5px;
   color: #ff4a3a;
 }
 
 .fxLayer :global(.bfx-float-heal) {
-  font-size: 24px;
+  font-size: 29px;
   color: #6dff8a;
 }
 
 .fxLayer :global(.bfx-float-armor) {
-  font-size: 18px;
+  font-size: 21.5px;
   color: #d6e2f5;
 }
 
 .fxLayer :global(.bfx-float-buff) {
-  font-size: 18px;
+  font-size: 21.5px;
   color: #b8ff8a;
 }
 
 .fxLayer :global(.bfx-float-info) {
-  font-size: 15px;
+  font-size: 18px;
   color: #ffe9a8;
 }
 
 .fxLayer :global(.bfx-float-trigger) {
-  font-size: 14px;
+  font-size: 17px;
   color: #ffd34a;
   padding: 1px 8px;
   border-radius: 3px;
@@ -1048,7 +1048,7 @@
   left: 50%;
   top: 48%;
   padding: 10px 56px;
-  font-size: 30px;
+  font-size: 36px;
   font-weight: 900;
   letter-spacing: 0.12em;
   white-space: nowrap;
@@ -1112,7 +1112,7 @@
   padding: 2px 10px;
   border-radius: 3px;
   background: rgba(20, 10, 8, 0.8);
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 800;
 }
 
@@ -1135,7 +1135,7 @@
   border: 1px solid rgba(231, 194, 106, 0.5);
   background: rgba(20, 14, 10, 0.75);
   color: #f3e6c4;
-  font-size: 11px;
+  font-size: 16.5px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1175,7 +1175,7 @@
   border-radius: 6px;
   background: rgba(110, 16, 16, 0.92);
   border: 1px solid #ff8a7a;
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 700;
   text-align: center;
   z-index: 70;
@@ -1247,7 +1247,7 @@
 .resultBanner {
   margin-top: -18px;
   padding: 10px 50px 16px;
-  font-size: 34px;
+  font-size: 41px;
   font-weight: 900;
   letter-spacing: 0.3em;
   text-indent: 0.3em;
@@ -1273,7 +1273,7 @@
 }
 
 .resultSub {
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 700;
   color: #f3e6c4;
 }
@@ -1286,7 +1286,7 @@
 }
 
 .xpLevel {
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 900;
   color: var(--gold);
 }
@@ -1320,7 +1320,7 @@
 }
 
 .xpGain {
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 800;
   color: #b8ff8a;
   white-space: nowrap;
@@ -1332,7 +1332,7 @@
   background: rgba(255, 211, 74, 0.18);
   border: 1px solid #ffd34a;
   color: #ffe9a8;
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 900;
   animation: panelIn 0.4s ease;
 }
@@ -1373,7 +1373,7 @@
 }
 
 .resultNote {
-  font-size: 12px;
+  font-size: 18px;
   color: #e8d9ac;
   text-align: center;
 }
@@ -1386,7 +1386,7 @@
   border: 2px solid #2a1606;
   background: linear-gradient(#e0a03a, #8a4e10);
   color: #fff;
-  font-size: 15px;
+  font-size: 22.5px;
   font-weight: 900;
   cursor: pointer;
   box-shadow: 0 3px 0 #2a1606;
@@ -1459,7 +1459,7 @@
   background: rgba(10, 6, 4, 0.85);
   border: 1px solid var(--cls-light);
   color: #fff3d0;
-  font-size: 9px;
+  font-size: 13.5px;
   font-weight: 800;
   line-height: 12px;
   white-space: nowrap;
@@ -1471,7 +1471,7 @@
 }
 
 .manaWord {
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 700;
   opacity: 0.85;
 }
@@ -1490,7 +1490,7 @@
   border: 1px solid rgba(231, 194, 106, 0.55);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
   color: #f6ecd2;
-  font-size: 12px;
+  font-size: 18px;
   line-height: 1.4;
   animation: infoIn 0.16s ease-out;
 }
@@ -1527,7 +1527,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: 21px;
 }
 
 .infoTag {
@@ -1536,7 +1536,7 @@
   border-radius: 3px;
   background: var(--gold);
   color: #2a1a08;
-  font-size: 10px;
+  font-size: 15px;
   font-weight: 900;
   line-height: 16px;
 }
@@ -1546,7 +1546,7 @@
   flex-wrap: wrap;
   gap: 4px 10px;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: 18px;
 }
 
 .infoStats > span {
@@ -1556,7 +1556,7 @@
 }
 
 .infoStats b {
-  font-size: 14px;
+  font-size: 21px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1570,7 +1570,7 @@
   border-radius: 4px;
   background: var(--paper);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 19px;
   font-weight: 600;
 }
 
@@ -1583,7 +1583,7 @@
   align-items: flex-start;
   gap: 4px;
   margin-top: 4px;
-  font-size: 11.5px;
+  font-size: 17px;
 }
 
 .infoTerm > span:first-child {
@@ -1600,7 +1600,7 @@
   padding-top: 4px;
   border-top: 1px dashed rgba(231, 194, 106, 0.35);
   color: #bfe3ff;
-  font-size: 11.5px;
+  font-size: 17px;
   font-weight: 700;
 }
 
@@ -1611,7 +1611,7 @@
   background: rgba(16, 11, 8, 0.94);
   border: 1px solid rgba(231, 194, 106, 0.55);
   color: #f6ecd2;
-  font-size: 12px;
+  font-size: 18px;
   line-height: 1.4;
 }
 
@@ -1660,13 +1660,13 @@
   padding: 10px 12px;
   border-bottom: 1px solid rgba(231, 194, 106, 0.25);
   background: rgba(231, 194, 106, 0.1);
-  font-size: 15px;
+  font-size: 22.5px;
 }
 
 .helpScroll {
   overflow-y: auto;
   padding: 4px 14px 14px;
-  font-size: 13px;
+  font-size: 19.5px;
   line-height: 1.5;
 }
 
@@ -1677,7 +1677,7 @@
 .helpScroll h3 {
   margin: 0 0 3px;
   color: var(--gold);
-  font-size: 13.5px;
+  font-size: 20px;
   font-weight: 900;
 }
 
@@ -1706,7 +1706,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 12px;
+  font-size: 18px;
 }
 
 .helpLegend li {
@@ -1723,7 +1723,7 @@
   width: 20px;
   height: 20px;
   color: #fff;
-  font-size: 12px;
+  font-size: 18px;
   font-weight: 900;
   line-height: 20px;
   text-align: center;
@@ -1769,14 +1769,14 @@
   align-items: center;
   gap: 8px;
   margin-top: 14px;
-  font-size: 12.5px;
+  font-size: 19px;
   font-weight: 700;
 }
 
 .helpNote {
   margin-top: 6px !important;
   color: rgba(246, 236, 210, 0.6);
-  font-size: 11px;
+  font-size: 16.5px;
 }
 
 .manaMine {
@@ -1802,4 +1802,316 @@
 .cardPlain {
   font-style: normal;
   opacity: 0.6;
+}
+
+/* ===========================================================================
+ * 글자 1.5배 (2026-11-17): 커진 숫자·글자에 맞춰 판·배지·버튼 크기를 다시 잡는다.
+ * 위의 기본 규칙을 덮어쓰므로 이 블록은 파일 끝에 둔다.
+ * ========================================================================= */
+
+.enemyHud {
+  height: 134px;
+}
+
+.enemyHud > .deckPile {
+  top: 64px;
+}
+
+.myHud {
+  height: 142px;
+}
+
+.deckPile {
+  gap: 4px;
+  padding: 3px 9px 3px 4px;
+  border-radius: 12px;
+}
+
+.foePower {
+  gap: 4px;
+  padding: 3px 9px 3px 3px;
+  border-radius: 12px;
+}
+
+.boardRow {
+  min-height: 108px;
+  gap: 6px;
+}
+
+.midline {
+  height: 58px;
+  padding-right: 96px;
+}
+
+.logLine {
+  padding: 6px 12px;
+  line-height: 1.25;
+}
+
+.endTurn {
+  width: 90px;
+  height: 90px;
+}
+
+.timerText {
+  bottom: 12px;
+}
+
+.mana {
+  gap: 6px;
+  padding: 4px 9px 4px 6px;
+  border-radius: 14px;
+}
+
+.manaPips {
+  gap: 3px;
+}
+
+.manaPips > span {
+  width: 15px;
+  height: 15px;
+}
+
+.manaEnemy .manaPips > span {
+  width: 11px;
+  height: 11px;
+}
+
+.manaMine {
+  border-radius: 10px;
+}
+
+.cmd {
+  width: 164px;
+}
+
+.cmdFrame {
+  width: 92px;
+  height: 92px;
+}
+
+.cmdName {
+  max-width: 164px;
+  padding: 2px 10px;
+}
+
+.cmdHp,
+.cmdArmor {
+  gap: 3px;
+  min-width: 46px;
+  height: 34px;
+  padding: 0 7px 0 4px;
+  border-radius: 8px;
+}
+
+.cmdHp {
+  right: 4px;
+  top: 60px;
+}
+
+.cmdArmor {
+  right: 4px;
+  top: 22px;
+}
+
+.weaponSlot {
+  left: 0;
+  top: 44px;
+  width: 46px;
+  height: 46px;
+}
+
+.weaponAtk,
+.weaponDur {
+  bottom: -8px;
+  min-width: 24px;
+  height: 24px;
+  line-height: 24px;
+  border-radius: 6px;
+}
+
+.weaponAtk {
+  left: -8px;
+}
+
+.weaponDur {
+  right: -8px;
+}
+
+.powerBtn {
+  right: 2px;
+  bottom: 18px;
+  width: 86px;
+  height: 86px;
+}
+
+.powerCost {
+  top: -8px;
+  left: -8px;
+  width: 32px;
+  height: 32px;
+  line-height: 32px;
+}
+
+.solWrap {
+  width: min(17vw, 80px);
+}
+
+.solAtk,
+.solHp {
+  bottom: -10px;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 4px;
+  line-height: 28px;
+}
+
+.solKw {
+  gap: 2px;
+}
+
+.kwChip {
+  padding: 0 4px;
+  line-height: 18px;
+  border-radius: 4px;
+}
+
+.topButtons {
+  top: calc(env(safe-area-inset-top) + 140px);
+  right: 4px;
+  gap: 8px;
+}
+
+.smallBtn {
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+
+.info,
+.coach {
+  top: calc(env(safe-area-inset-top) + 142px);
+  right: 108px;
+  line-height: 1.38;
+}
+
+.info {
+  padding: 9px 12px 10px;
+  max-height: 50%;
+}
+
+.infoLow {
+  right: 8px;
+  bottom: calc(var(--hand-w) * 1.4 * 0.78 + env(safe-area-inset-bottom) + 148px);
+}
+
+.coach {
+  padding: 7px 12px;
+}
+
+.infoTag {
+  padding: 1px 8px;
+  line-height: 20px;
+}
+
+.inspectHelp {
+  width: min(360px, 92vw);
+  padding: 9px 12px 10px;
+}
+
+.toast {
+  padding: 10px 18px;
+}
+
+.previewLabel {
+  padding: 4px 14px;
+}
+
+/* 손패(작은 카드) 글자: 카드도 커졌지만 이름·꼬리표를 조금 더 키운다 */
+.cardCompact .cardName {
+  font-size: 1.12em;
+}
+
+.cardCompact .cardType {
+  font-size: 0.8em;
+}
+
+.cardCompact .cardArt {
+  height: 46%;
+}
+
+.statCap {
+  font-size: 0.62em;
+}
+
+.capAtk,
+.capRight {
+  bottom: 1.75em;
+}
+
+.helpSheet {
+  max-width: 520px;
+}
+
+.helpCardRow {
+  gap: 18px;
+}
+
+.legendCost,
+.legendAtk,
+.legendHp {
+  width: 30px;
+  height: 30px;
+  line-height: 30px;
+}
+
+.topButtons {
+  top: calc(env(safe-area-inset-top) + 96px);
+  right: 6px;
+}
+
+.menuBtn {
+  min-width: 92px;
+  text-align: center;
+}
+
+.menuList {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 92px;
+  padding: 6px;
+  border-radius: 8px;
+  background: rgba(16, 11, 8, 0.92);
+  border: 1px solid rgba(231, 194, 106, 0.45);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.55);
+}
+
+.menuList > .smallBtn {
+  text-align: center;
+}
+
+/* 적 마나는 글자만 (구슬은 적 지휘관 그림과 겹친다) */
+.manaEnemy .manaPips {
+  display: none;
+}
+
+.info,
+.coach {
+  right: 100px;
+}
+
+/* 아래쪽 배치: 위의 top 지정을 풀어야 늘어나지 않는다 */
+.infoLow {
+  top: auto;
+  right: 8px;
+}
+
+.helpCardRow {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.helpLegend {
+  flex: 1 1 200px;
 }

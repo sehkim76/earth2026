@@ -67,7 +67,7 @@ export function createLocalBattle(opts: LocalBattleOptions): LocalBattle {
       deck: starterDeck(deckKey, 15),
     },
     defender: {
-      commander: { id: "outlaw", kind: "outlaw", name: preset.name, level: preset.level },
+      commander: { id: "outlaw", kind: "outlaw", name: preset.name, level: preset.level, maxHp: preset.hp },
       deck: preset.deck,
     },
   });
