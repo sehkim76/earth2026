@@ -50,6 +50,7 @@ export async function GET() {
             lat: live ? live.lat : unit.lat,
             lon: live ? live.lon : unit.lon,
             state: unit.state,
+            ownerId: row.userId,
             ownerNickname: row.nickname ?? "",
             injuredUntil: unit.injuredUntil ?? null,
             moveTarget: unit.moveTarget,

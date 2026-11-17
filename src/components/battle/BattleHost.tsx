@@ -17,9 +17,14 @@ import { createServerBattleSource, fetchCurrentBattle, startBattle } from "@/com
 import { BattleScene } from "@/components/battle/BattleScene";
 import type { BattleSource } from "@/components/battle/battle-source";
 
-/** 지도 화면에서 무법자 토벌 요청 (wildId = 무법자 행 id) */
+/** 전투 대상: 무법자(wildId = 무법자 행 id) 또는 다른 영주의 부대·영주 */
+export type BattleTargetRequest =
+  | { type: "outlaw"; wildId: number }
+  | { type: "unit" | "lord"; ownerId: string; targetId: string; name: string };
+
+/** 지도 화면의 전투 요청 */
 export interface OutlawBattleRequest {
-  wildId: number;
+  target: BattleTargetRequest;
   nonce: number;
 }
 
@@ -105,13 +110,15 @@ function formatRemain(ms: number): string {
 }
 
 interface CommanderPickerProps {
-  wildId: number;
+  target: BattleTargetRequest;
   onCancel: () => void;
   onStarted: (v: PublicBattleView, wildId: number | null) => void;
 }
 
 /** 출전 지휘관 선택창 (영주 + 출전 가능한 부대) */
-function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) {
+function CommanderPicker({ target, onCancel, onStarted }: CommanderPickerProps) {
+  const wildId = target.type === "outlaw" ? target.wildId : 0;
+  const isOutlaw = target.type === "outlaw";
   const [options, setOptions] = useState<CommanderOption[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
@@ -138,9 +145,12 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
     if (starting) return;
     setStarting(true);
     setError(null);
-    const res = await startBattle({ targetType: "outlaw", targetId: String(wildId), commanderId });
+    const res =
+      target.type === "outlaw"
+        ? await startBattle({ targetType: "outlaw", targetId: String(target.wildId), commanderId })
+        : await startBattle({ targetType: target.type, targetId: target.targetId, targetOwnerId: target.ownerId, commanderId });
     if (res.ok && res.battle) {
-      onStarted(res.battle, wildId);
+      onStarted(res.battle, isOutlaw ? wildId : null);
       return;
     }
     if (!res.ok && res.code === "battle_active") {
@@ -164,12 +174,25 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-amber-200/25 bg-amber-300/10 px-4 py-2.5">
-          <p className="text-lg font-bold">
-            {OUTLAW_TIER_LABEL[baseTier]} <span className="text-amber-300">{OUTLAW_TIER_STARS[baseTier]}</span> 토벌 — 출전할 지휘관
-          </p>
-          <p className="mt-0.5 text-sm text-amber-100/70">
-            지휘관의 덱으로 카드 전투를 벌입니다. 패배하면 30분 부상. Lv.{NOVICE_COMMANDER_MAX_LEVEL} 이하 지휘관은 한 단계 약한 무법자와 싸웁니다.
-          </p>
+          {target.type === "outlaw" ? (
+            <>
+              <p className="text-lg font-bold">
+                {OUTLAW_TIER_LABEL[baseTier]} <span className="text-amber-300">{OUTLAW_TIER_STARS[baseTier]}</span> 토벌 — 출전할 지휘관
+              </p>
+              <p className="mt-0.5 text-sm text-amber-100/70">
+                지휘관의 덱으로 카드 전투를 벌입니다. 패배하면 30분 부상. Lv.{NOVICE_COMMANDER_MAX_LEVEL} 이하 지휘관은 한 단계 약한 무법자와 싸웁니다.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-bold">
+                <span className="text-red-300">{target.name}</span> 공격 — 출전할 지휘관
+              </p>
+              <p className="mt-0.5 text-sm text-amber-100/70">
+                상대 지휘관은 자기 병종·레벨의 덱으로 맞서며, 서버가 대신 싸웁니다. 이기면 상대가, 지면 내 지휘관이 30분 부상을 입습니다. 상대와 150m 안에 있어야 합니다.
+              </p>
+            </>
+          )}
         </div>
         <div className="max-h-[50vh] space-y-1.5 overflow-y-auto p-3">
           {options === null ? (
@@ -181,7 +204,10 @@ function CommanderPicker({ wildId, onCancel, onStarted }: CommanderPickerProps) 
               const tier = effectiveOutlawTier(baseTier, o.level);
               const status = injured
                 ? formatRemain((o.injuredUntil as number) - now)
-                : o.reason ?? `상대 ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]}${tier < baseTier ? " (견습 보정)" : ""}`;
+                : o.reason ??
+                  (isOutlaw
+                    ? `상대 ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]}${tier < baseTier ? " (견습 보정)" : ""}`
+                    : "출전 가능");
               return (
                 <button
                   key={o.id}
@@ -256,7 +282,7 @@ export function BattleHost({ enabled, outlawRequest, onOutlawRequestDone, onBatt
       {outlawRequest ? (
         <CommanderPicker
           key={outlawRequest.nonce}
-          wildId={outlawRequest.wildId}
+          target={outlawRequest.target}
           onCancel={onOutlawRequestDone}
           onStarted={onStarted}
         />

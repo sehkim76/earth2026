@@ -448,6 +448,95 @@ export function startOutlawBattle(input: {
   };
 }
 
+/** 다른 영주의 부대·영주 공격 전투 생성. 수비 지휘관은 상대의 병종·레벨·시작 덱으로 서버 AI가 대신 싸운다. */
+export function startPlayerBattle(input: {
+  battleId: string;
+  seed: number;
+  now: number;
+  commander: Pick<ResolvedCommander, "id" | "kind" | "name" | "level">;
+  defender: ResolvedCommander;
+  ownerId: string;
+  ownerName: string | null;
+}): { battle: StoredBattle; events: BattleEvent[] } {
+  const { commander, defender } = input;
+  const isLord = defender.id === "lord";
+  const displayName = isLord ? `영주 ${defender.name}` : defender.name;
+  const state = createBattle({
+    seed: input.seed,
+    attacker: {
+      commander: { id: commander.id, kind: commander.kind, name: commander.name, level: commander.level },
+      deck: starterDeck(starterKeyFor(commander.kind), deckSizeForLevel(commander.level)),
+    },
+    defender: {
+      commander: { id: `pvp-${defender.id}`, kind: defender.kind, name: displayName, level: defender.level },
+      deck: starterDeck(starterKeyFor(defender.kind), deckSizeForLevel(defender.level)),
+    },
+  });
+  const events = redactEvents(state.log, 0);
+  return {
+    battle: {
+      id: input.battleId,
+      state: { ...state, log: [] },
+      commanderId: commander.id,
+      commanderKind: commander.kind,
+      target: {
+        type: isLord ? "lord" : "unit",
+        id: defender.id,
+        ownerId: input.ownerId,
+        name: isLord || !input.ownerName ? displayName : `${input.ownerName}의 ${defender.name}`,
+        lat: defender.lat,
+        lon: defender.lon,
+      },
+      targetDong: null,
+      turnDeadline: input.now + TURN_MS,
+      startedAt: input.now,
+    },
+    events,
+  };
+}
+
+/**
+ * 끝난 대인 전투를 수비 측 data 에 반영: 수비 지휘관 전적·경험치, 지면 부상 30분.
+ * 수비 지휘관이 그 사이 사라졌으면(해산 등) 전적만 남기지 않는다.
+ */
+export function settleDefender(data: JsonObject, battle: StoredBattle, now: number): { data: JsonObject; injuredUntil: number | null } {
+  const state = battle.state;
+  if (state.winner === null) throw new Error("settleDefender: 끝나지 않은 전투");
+  const defenderId = battle.target.id;
+  const defenderWon = state.winner === 1;
+  let out: JsonObject = { ...data };
+  if (defenderId !== "lord" && !loadUnits(out).some((u) => u.id === defenderId)) {
+    return { data: out, injuredUntil: null };
+  }
+  const commanders = readCommanders(out);
+  const prev: CommanderProgress = commanders[defenderId] ?? {
+    xp: 0,
+    kind: defenderId === "lord" ? "lord" : "infantry",
+    wins: 0,
+    battles: 0,
+  };
+  commanders[defenderId] = {
+    xp: prev.xp + battleXp({ won: defenderWon, kills: state.sides[1].kills, vsOutlaw: false }),
+    kind: prev.kind,
+    wins: prev.wins + (defenderWon ? 1 : 0),
+    battles: prev.battles + 1,
+  };
+  out.commanders = commanders as unknown as JsonValue;
+  // 공격자가 이겼을 때만 수비 지휘관 부상 (공격자 항복·시간 초과 패배는 수비 승리).
+  const injuredUntil = state.winner === 0 ? now + INJURY_MS : null;
+  if (injuredUntil !== null) {
+    if (defenderId === "lord") {
+      out.lordInjuredUntil = injuredUntil;
+    } else {
+      out = withUnits(
+        out,
+        loadUnits(out).map((u) => (u.id === defenderId ? { ...u, injuredUntil } : u)),
+      );
+    }
+  }
+  return { data: out, injuredUntil };
+}
+
 /** AI(1번) 한 턴. 잘못된 행동이 나오면 멈추고 턴 종료를 강제한다. */
 export function runAiTurn(start: BattleState): { state: BattleState; events: BattleEvent[] } {
   let state = start;
@@ -855,16 +944,134 @@ async function afterStep(tx: Tx, userId: string, step: StepResult, active: Store
 
 const userLock = (userId: string): string => `unit:${userId}`;
 
+/**
+ * 대인 전투가 끝났으면 수비 측에 결과를 반영한다. 공격자 트랜잭션이 끝난 뒤 따로 잠가서
+ * 두 사용자 잠금을 한꺼번에 잡지 않는다 (서로 공격할 때 교착 방지).
+ */
+async function settleDefenderAfter(attackerId: string, finished: StoredBattle | null): Promise<void> {
+  if (!finished || (finished.target.type !== "unit" && finished.target.type !== "lord")) return;
+  const ownerId = finished.target.ownerId;
+  if (!ownerId || ownerId === attackerId) return;
+  try {
+    await withNamedLock(userLock(ownerId), async (tx) => {
+      const now = Date.now();
+      const data = await loadUserData(tx, ownerId);
+      const settled = settleDefender(data, finished, now);
+      await saveUserData(tx, ownerId, settled.data);
+      console.log(
+        `[battle] defender settled owner=${ownerId} target=${finished.target.id} attacker=${attackerId} battle=${finished.id} winner=${finished.state.winner} injured=${settled.injuredUntil !== null}`,
+      );
+    });
+  } catch (error) {
+    console.error(`[battle] defender settle failed battle=${finished.id}`, error);
+  }
+}
+
+/** 공격할 상대 지휘관 확인 (락 없이 읽기 — 위치·부상 확인용 스냅샷). */
+async function resolveDefender(attackerId: string, ownerId: string, targetId: string, now: number): Promise<{ defender: ResolvedCommander; ownerName: string | null }> {
+  if (!ownerId || ownerId === attackerId) throw new BattleError("invalid", 400, "공격할 수 없는 대상입니다.");
+  const [me, owner] = await Promise.all([
+    prisma.missionUser.findUnique({ where: { userId: attackerId }, select: { ARMissionKey: true } }),
+    prisma.missionUser.findUnique({
+      where: { userId: ownerId },
+      select: { ARMissionKey: true, data: true, nickname: true, lat: true, lon: true, location_updated_at: true },
+    }),
+  ]);
+  if (!owner || !me || (owner.ARMissionKey ?? "").trim() !== (me.ARMissionKey ?? "").trim()) {
+    throw new BattleError("not_found", 404, "상대를 찾을 수 없습니다.");
+  }
+  try {
+    const defender = resolveCommander(
+      toJsonObject(owner.data),
+      targetId,
+      {
+        nickname: owner.nickname,
+        lat: owner.lat === null ? null : Number(owner.lat),
+        lon: owner.lon === null ? null : Number(owner.lon),
+        updatedAt: owner.location_updated_at ? owner.location_updated_at.getTime() : null,
+      },
+      now,
+    );
+    return { defender, ownerName: owner.nickname?.trim() || null };
+  } catch (error) {
+    if (error instanceof BattleError) {
+      if (error.code === "injured") throw new BattleError("target_injured", 409, "상대가 부상 중이라 공격할 수 없습니다.");
+      throw new BattleError("target_unavailable", 409, "지금은 이 상대를 공격할 수 없습니다.");
+    }
+    throw error;
+  }
+}
+
 /** POST /api/battle/start */
 export async function startBattleForUser(userId: string, body: unknown): Promise<BattleResponse> {
   const rec = isRecord(body) ? body : {};
   const commanderId = typeof rec.commanderId === "string" ? rec.commanderId.trim() : "";
+  const targetType = rec.targetType;
+  if (targetType === "unit" || targetType === "lord") {
+    const ownerId = typeof rec.targetOwnerId === "string" ? rec.targetOwnerId.trim() : "";
+    const targetId = targetType === "lord" ? "lord" : typeof rec.targetId === "string" ? rec.targetId.trim() : "";
+    if (!commanderId || !ownerId || !targetId) throw new BattleError("invalid", 400, "잘못된 요청입니다.");
+    let finished: StoredBattle | null = null;
+    const res = await withNamedLock(userLock(userId), async (tx): Promise<BattleResponse> => {
+      const now = Date.now();
+      const user = await tx.missionUser.findUnique({
+        where: { userId },
+        select: { data: true, nickname: true, lat: true, lon: true, location_updated_at: true },
+      });
+      if (!user) throw new BattleError("not_found", 404, "사용자를 찾을 수 없습니다.");
+      const data = toJsonObject(user.data);
+      const active = readActiveBattle(data);
+      if (active) {
+        const step = stepBattle(data, active, null, now, false);
+        await afterStep(tx, userId, step, active, now);
+        finished = step.finished;
+        return { ok: true, battle: step.view, events: step.events };
+      }
+      const commander = resolveCommander(
+        data,
+        commanderId,
+        {
+          nickname: user.nickname,
+          lat: user.lat === null ? null : Number(user.lat),
+          lon: user.lon === null ? null : Number(user.lon),
+          updatedAt: user.location_updated_at ? user.location_updated_at.getTime() : null,
+        },
+        now,
+      );
+      const { defender, ownerName } = await resolveDefender(userId, ownerId, targetId, now);
+      const dist = distM(commander.lat, commander.lon, defender.lat, defender.lon);
+      if (dist > BATTLE_PROXIMITY_M) {
+        throw new BattleError("too_far", 400, `상대와 너무 멉니다 (${Math.round(dist)}m, 최대 ${BATTLE_PROXIMITY_M}m).`);
+      }
+      const battleId = makeBattleId();
+      const started = startPlayerBattle({
+        battleId,
+        seed: makeBattleSeed(),
+        now,
+        commander,
+        defender,
+        ownerId,
+        ownerName,
+      });
+      const next: JsonObject = { ...data, battle: started.battle as unknown as JsonValue };
+      delete next.lastBattle;
+      await saveUserData(tx, userId, next);
+      console.log(
+        `[battle] start pvp user=${userId} battle=${battleId} commander=${commander.id}(${commander.kind} lv${commander.level}) vs owner=${ownerId} ${defender.id}(${defender.kind} lv${defender.level}) dist=${Math.round(dist)}m`,
+      );
+      return { ok: true, battle: buildView(started.battle, next, null), events: started.events };
+    });
+    await settleDefenderAfter(userId, finished);
+    return res;
+  }
+
   const outlawId = typeof rec.targetId === "string" || typeof rec.targetId === "number" ? Number(rec.targetId) : NaN;
-  if (rec.targetType !== "outlaw" || !commanderId || !Number.isInteger(outlawId)) {
+  if (targetType !== "outlaw" || !commanderId || !Number.isInteger(outlawId)) {
     throw new BattleError("invalid", 400, "잘못된 요청입니다.");
   }
 
-  return withNamedLock(userLock(userId), async (tx) => {
+  let finishedEarly: StoredBattle | null = null;
+  const outlawRes = await withNamedLock(userLock(userId), async (tx): Promise<BattleResponse> => {
     const now = Date.now();
     const user = await tx.missionUser.findUnique({
       where: { userId },
@@ -878,6 +1085,7 @@ export async function startBattleForUser(userId: string, body: unknown): Promise
     if (active) {
       const step = stepBattle(data, active, null, now, false);
       await afterStep(tx, userId, step, active, now);
+      finishedEarly = step.finished;
       return { ok: true, battle: step.view, events: step.events };
     }
 
@@ -926,6 +1134,8 @@ export async function startBattleForUser(userId: string, body: unknown): Promise
     );
     return { ok: true, battle: buildView(started.battle, next, null), events: started.events };
   });
+  await settleDefenderAfter(userId, finishedEarly);
+  return outlawRes;
 }
 
 /** POST /api/battle/action */
@@ -935,7 +1145,8 @@ export async function actForUser(userId: string, body: unknown): Promise<BattleR
   const action = parseAction(rec.action);
   if (!battleId || !action) throw new BattleError("invalid", 400, "잘못된 요청입니다.");
 
-  return withNamedLock(userLock(userId), async (tx) => {
+  let finished: StoredBattle | null = null;
+  const res = await withNamedLock(userLock(userId), async (tx): Promise<BattleResponse> => {
     const now = Date.now();
     const data = await loadUserData(tx, userId);
     const active = readActiveBattle(data);
@@ -947,6 +1158,7 @@ export async function actForUser(userId: string, body: unknown): Promise<BattleR
     }
     const step = stepBattle(data, active, action, now, true);
     await afterStep(tx, userId, step, active, now);
+    finished = step.finished;
     if (step.finished) {
       const r = step.view.result;
       console.log(
@@ -955,16 +1167,20 @@ export async function actForUser(userId: string, body: unknown): Promise<BattleR
     }
     return { ok: true, battle: step.view, events: step.events };
   });
+  await settleDefenderAfter(userId, finished);
+  return res;
 }
 
 /** GET /api/battle/current */
 export async function currentForUser(userId: string): Promise<BattleResponse> {
-  return withNamedLock(userLock(userId), async (tx) => {
+  let finished: StoredBattle | null = null;
+  const res = await withNamedLock(userLock(userId), async (tx): Promise<BattleResponse> => {
     const now = Date.now();
     const data = await loadUserData(tx, userId);
     const active = readActiveBattle(data);
     const cur = currentBattle(data, now);
     if (cur.changed) await saveUserData(tx, userId, cur.data);
+    finished = cur.finished;
     if (cur.finished) {
       await resolveOutlawAfterBattle(tx, userId, cur.finished, now);
     } else if (active) {
@@ -972,6 +1188,8 @@ export async function currentForUser(userId: string): Promise<BattleResponse> {
     }
     return { ok: true, battle: cur.view, events: cur.events };
   });
+  await settleDefenderAfter(userId, finished);
+  return res;
 }
 
 /** 지휘관 선택창 목록에 쓰는 순수 계산 (영주 + 부대). */

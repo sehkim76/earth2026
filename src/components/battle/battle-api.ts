@@ -22,6 +22,8 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   no_battle: "진행 중인 전투가 없습니다.",
   battle_over: "이미 끝난 전투입니다.",
   outlaw_busy: "다른 영주가 이 무법자와 싸우고 있습니다.",
+  target_injured: "상대가 부상 중이라 공격할 수 없습니다.",
+  target_unavailable: "지금은 이 상대를 공격할 수 없습니다 (성에 주둔 중이거나 위치 확인 불가).",
   location_stale: "위치 확인 중입니다. 잠시 뒤 다시 시도하세요.",
   invalid: "잘못된 요청입니다.",
   battle_failed: "전투 처리 중 오류가 발생했습니다.",

@@ -937,7 +937,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
         </div>
 
         <div className={styles.midline}>
-          <div className={styles.logLine}>{hint ?? battle.log ?? `${view.target.name} 토벌전`}</div>
+          <div className={styles.logLine}>{hint ?? battle.log ?? `${view.target.name} ${view.target.type === "outlaw" ? "토벌전" : "공격전"}`}</div>
           <button
             type="button"
             className={`${styles.endTurn} ${isMyTurn(view) && !hasAnyMove(view) ? styles.endTurnGlow : ""}`}

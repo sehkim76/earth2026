@@ -29,7 +29,10 @@ export interface PublicSide {
 
 /** 전투 대상 (지도 위 상대). 2단계는 무법자만. */
 export interface BattleTargetInfo {
-  type: "outlaw" | "castle";
+  /** unit = 다른 영주의 부대, lord = 다른 영주 (수비는 서버 AI 대리) */
+  type: "outlaw" | "castle" | "unit" | "lord";
+  /** 대상의 주인 userId (unit·lord) */
+  ownerId?: string;
   id: string;
   name: string;
   lat: number;
@@ -89,8 +92,11 @@ export interface PublicBattleView {
 // 오류: { ok: false, code: string, message?: string } (HTTP 4xx)
 
 export interface StartBattleRequest {
-  targetType: "outlaw";
+  targetType: "outlaw" | "unit" | "lord";
+  /** 무법자 id / 부대 id / "lord" */
   targetId: string;
+  /** unit·lord 대상의 주인 userId */
+  targetOwnerId?: string;
   /** "lord" 또는 부대 id */
   commanderId: string;
 }

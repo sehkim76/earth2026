@@ -39,7 +39,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
-  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
+  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
   onUnitMarkerSelectionHandled: () => void;
   targetMarkerUrl: string | null;
@@ -595,6 +595,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             selected: false as const,
             moving: !!moveTarget && moveTarget.endsAt > Date.now(),
             injured: typeof row.injuredUntil === "number" && row.injuredUntil > Date.now(),
+            ownerId: typeof row.ownerId === "string" ? row.ownerId : undefined,
+            ownerName: typeof row.ownerNickname === "string" ? row.ownerNickname : undefined,
             moveTarget,
           };
         });

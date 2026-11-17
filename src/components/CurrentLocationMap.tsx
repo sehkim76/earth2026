@@ -309,6 +309,8 @@ type MarkerPanel = {
   title: string;
   lines: string[];
   wildId?: number;
+  /** 다른 영주의 부대·영주 (공격 버튼) */
+  pvpTarget?: { type: "unit" | "lord"; ownerId: string; targetId: string; name: string };
   eventKey?: string;
   isProximity?: boolean;
   lat?: number;
@@ -1833,7 +1835,7 @@ export default function CurrentLocationMap({
   }, [location?.lat, location?.lon, location?.accuracy, playerLocation?.lat, playerLocation?.lon, placementBusy]);
   const [lordSelected, setLordSelected] = useState(false);
   const [unitMarks, setUnitMarks] = useState<
-    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; moveTarget: UnitMoveTargetMark | null }[]
+    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; moveTarget: UnitMoveTargetMark | null }[]
   >([]);
   const unitMarksRef = useRef<typeof unitMarks>([]);
   useEffect(() => {
@@ -6528,6 +6530,30 @@ interface OtherUnitMoveAnim {
             }
 
             const marker = L.marker(position, { icon: markerVisual.icon }).addTo(layer);
+            if (territoryEnabledRef.current) {
+              // 영토전: 다른 영주를 탭하면 정보 패널 + 공격 버튼.
+              const ownerId = player.userId;
+              marker.on("click", () => {
+                const ll = marker.getLatLng();
+                const raw = marker.getTooltip()?.getContent();
+                const label = typeof raw === "string" ? raw : player.nickname || "영주";
+                const injured = label.endsWith(" · 부상");
+                const name = label.replace(/ · 부상$/, "");
+                const me = getPlayerLocation();
+                const dist = me ? Math.round(calculateDistance(me.lat, me.lon, ll.lat, ll.lng)) : null;
+                showMarkerPanel({
+                  title: `영주 ${name}`,
+                  lines: [
+                    `영주: ${name}`,
+                    `상태: ${injured ? "부상 중" : "활동 중"}`,
+                    ...(dist !== null ? [`거리: 약 ${dist}m (영주)`] : []),
+                  ],
+                  pvpTarget: { type: "lord", ownerId, targetId: "lord", name: `영주 ${name}` },
+                  lat: ll.lat,
+                  lon: ll.lng,
+                });
+              });
+            }
             marker.bindTooltip(player.nickname || "PLAYER", {
               permanent: true,
               direction: "bottom",
@@ -6938,9 +6964,35 @@ interface OtherUnitMoveAnim {
       });
       // 무법자: 탭하면 정보 패널 (15m 인접 시 공격 버튼).
       const isNeutralMark = mark.id.startsWith("neutral-");
-      const marker = L.marker([mark.lat, mark.lon], { icon, interactive: mark.mine || isNeutralMark }).addTo(unitLayerRef.current);
+      const isEnemyUnitMark = !mark.mine && !isNeutralMark && !!mark.ownerId;
+      const marker = L.marker([mark.lat, mark.lon], { icon, interactive: mark.mine || isNeutralMark || isEnemyUnitMark }).addTo(unitLayerRef.current);
       if (mark.mine) {
         marker.on("click", () => handleUnitMarkerClick(mark.id));
+      } else if (isEnemyUnitMark) {
+        // 다른 영주의 부대: 탭하면 정보 패널 + 공격 버튼.
+        marker.on("click", () => {
+          const fresh = unitMarksRef.current.find((m) => m.id === mark.id) ?? mark;
+          const ownerId = fresh.ownerId;
+          if (!ownerId) {
+            return;
+          }
+          applyHostileInstant(marker, mark.id);
+          const pos = getTrackTargetPosition(mark.id) ?? { lat: fresh.lat, lon: fresh.lon };
+          const me = getPlayerLocation();
+          const dist = me ? Math.round(calculateDistance(me.lat, me.lon, pos.lat, pos.lon)) : null;
+          showMarkerPanel({
+            title: fresh.ownerName ? `${fresh.ownerName}의 ${fresh.name}` : fresh.name,
+            lines: [
+              `부대: ${fresh.name}`,
+              `주인: ${fresh.ownerName || "다른 영주"}`,
+              `상태: ${fresh.injured ? "부상 중" : fresh.moving ? "이동 중" : "대기 중"}`,
+              ...(dist !== null ? [`거리: 약 ${dist}m (영주)`] : []),
+            ],
+            pvpTarget: { type: "unit", ownerId, targetId: mark.id, name: fresh.name },
+            lat: pos.lat,
+            lon: pos.lon,
+          });
+        });
       } else if (isNeutralMark) {
         marker.on("click", () => {
           const wildId = Number.parseInt(mark.id.slice("neutral-".length), 10);
@@ -8841,6 +8893,7 @@ const isMapPerfEnabled = (): boolean => {
                   // 중립성·무법자 정보창은 하단 가운데, 나머지는 화면 중앙.
                   const isBottomEntry =
                     markerPanel.wildId !== undefined ||
+                    markerPanel.pvpTarget !== undefined ||
                     (markerPanel.eventKey !== undefined && isNeutralEventKey(markerPanel.eventKey));
                   return isBottomEntry
                     ? "pointer-events-auto fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-1/2 z-[1200] mx-auto w-max min-w-[35%] max-w-[92%] -translate-x-1/2 overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#1e293b_0%,#0f172a_55%,#020617_100%)] shadow-[0_20px_50px_rgba(0,0,0,0.55)]"
@@ -8919,12 +8972,26 @@ const isMapPerfEnabled = (): boolean => {
                 onClick={() => {
                   const wildId = markerPanel.wildId;
                   if (wildId !== undefined) {
-                    setOutlawBattleRequest({ wildId, nonce: Date.now() });
+                    setOutlawBattleRequest({ target: { type: "outlaw", wildId }, nonce: Date.now() });
                   }
                 }}
                 className="whitespace-nowrap rounded-lg border border-red-300/60 bg-[linear-gradient(#b02c38,#5e121c)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
               >
                 토벌
+              </button>
+            ) : null}
+            {territoryEnabled && markerPanel.pvpTarget ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const t = markerPanel.pvpTarget;
+                  if (t) {
+                    setOutlawBattleRequest({ target: t, nonce: Date.now() });
+                  }
+                }}
+                className="whitespace-nowrap rounded-lg border border-red-300/60 bg-[linear-gradient(#b02c38,#5e121c)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+              >
+                공격
               </button>
             ) : null}
             <button

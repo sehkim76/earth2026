@@ -69,7 +69,18 @@ export function BattleResultPanel({ view, reduced, onConfirm }: BattleResultPane
       <div className={`${styles.resultPanel} ${victory ? styles.resultWin : draw ? "" : styles.resultLose}`}>
         <div className={styles.resultBanner}>{title}</div>
         <div className={styles.resultSub}>
-          {view.target.name} {victory ? "토벌 성공" : draw ? "결판나지 않음" : "토벌 실패"}
+          {view.target.name}{" "}
+          {view.target.type === "outlaw"
+            ? victory
+              ? "토벌 성공"
+              : draw
+                ? "결판나지 않음"
+                : "토벌 실패"
+            : victory
+              ? "격파 — 상대가 30분 부상"
+              : draw
+                ? "결판나지 않음"
+                : "공격 실패"}
         </div>
         {result ? (
           <>
