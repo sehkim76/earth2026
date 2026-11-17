@@ -8,7 +8,10 @@ import type { Action, AttackerRef, PublicBattleView, SideIndex, Soldier, TargetR
 
 import { BattleAnimator } from "@/components/battle/battle-animator";
 import type { AnimHost } from "@/components/battle/battle-animator";
-import { BattleCardBack, BattleCardFace, classVars } from "@/components/battle/BattleCardFace";
+import { BattleCardBack, BattleCardFace, CardText, classVars } from "@/components/battle/BattleCardFace";
+import { BattleHelp, readCoachOff, readHelpSeen, writeCoachOff, writeHelpSeen } from "@/components/battle/BattleHelp";
+import { describeCard, describeCommander, describePower, describeSoldier, KEYWORD_HELP } from "@/components/battle/card-help";
+import type { HelpInfo } from "@/components/battle/card-help";
 import { BattleResultPanel } from "@/components/battle/BattleResultPanel";
 import type { BattleSource } from "@/components/battle/battle-source";
 import { FxEngine } from "@/components/battle/fx";
@@ -40,6 +43,13 @@ export interface BattleSceneProps {
   /** 결과 화면에서 확인을 누름 */
   onFinished: (view: PublicBattleView) => void;
 }
+
+/** 설명 패널에 띄울 대상 */
+type InfoTarget =
+  | { kind: "hand"; iid: number }
+  | { kind: "sol"; iid: number }
+  | { kind: "cmd"; side: SideIndex }
+  | { kind: "power"; side: SideIndex };
 
 type Aim =
   | { kind: "card"; iid: number }
@@ -170,13 +180,19 @@ function SoldierToken({ sol, ready, target, selected, dim }: SoldierTokenProps) 
           <PixelArt name={def.artKey} scale={2} />
         </div>
         <div className={styles.solKw}>
-          {ranged ? <PixelArt name="ic-ranged" scale={1.5} title="원거리" /> : null}
-          {rush ? <PixelArt name="ic-rush" scale={1.5} title="기습" /> : null}
-          {def.onDeath ? <PixelArt name="ic-ondeath" scale={1.5} title="유훈" /> : null}
+          {guard ? <span className={styles.kwChip}>{KEYWORD_HELP.guard.name}</span> : null}
+          {shield ? <span className={styles.kwChip}>{KEYWORD_HELP.shield.name}</span> : null}
+          {ranged ? <span className={styles.kwChip}>{KEYWORD_HELP.ranged.name}</span> : null}
+          {rush ? <span className={styles.kwChip}>{KEYWORD_HELP.rush.name}</span> : null}
+          {def.onDeath ? <span className={styles.kwChip}>유훈</span> : null}
         </div>
         {shield ? <div className={styles.shieldBubble} aria-hidden="true" /> : null}
-        <div className={`${styles.solAtk} ${atkUp ? styles.statUp : ""}`}>{sol.attack}</div>
-        <div className={`${styles.solHp} ${hurt ? styles.statHurt : hpUp ? styles.statUp : ""}`}>{Math.max(0, sol.health)}</div>
+        <div className={`${styles.solAtk} ${atkUp ? styles.statUp : ""}`} title="공격력">
+          {sol.attack}
+        </div>
+        <div className={`${styles.solHp} ${hurt ? styles.statHurt : hpUp ? styles.statUp : ""}`} title="체력">
+          {Math.max(0, sol.health)}
+        </div>
       </div>
     </div>
   );
@@ -204,12 +220,12 @@ function CommanderBadge({ view, side, target, ready, selected }: CommanderProps)
       <div className={styles.cmdName}>
         {c.name || COMMANDER_KIND_LABEL[c.kind]} <span>Lv.{c.level}</span>
       </div>
-      <div className={`${styles.cmdHp} ${hurt ? styles.statHurt : ""}`}>
+      <div className={`${styles.cmdHp} ${hurt ? styles.statHurt : ""}`} title="지휘관 체력">
         <PixelArt name="ic-health" scale={1.25} />
         {Math.max(0, c.hp)}
       </div>
       {c.armor > 0 ? (
-        <div className={styles.cmdArmor} data-bkey={`armor-${side}`}>
+        <div className={styles.cmdArmor} data-bkey={`armor-${side}`} title="방어도 (체력보다 먼저 깎임)">
           <PixelArt name="ic-armor" scale={1.25} />
           {c.armor}
         </div>
@@ -218,8 +234,8 @@ function CommanderBadge({ view, side, target, ready, selected }: CommanderProps)
         {c.weapon ? (
           <>
             <PixelArt name={getCard(c.weapon.cardId).artKey} scale={1} />
-            <span className={styles.weaponAtk}>{c.weapon.attack}</span>
-            <span className={styles.weaponDur}>{c.weapon.durability}</span>
+            <span className={styles.weaponAtk} title="무기 공격력">{c.weapon.attack}</span>
+            <span className={styles.weaponDur} title="남은 사용 횟수">{c.weapon.durability}</span>
           </>
         ) : null}
       </div>
@@ -231,7 +247,7 @@ function ManaBar({ view, side }: { view: PublicBattleView; side: SideIndex }) {
   const sd = view.sides[side];
   const pips = Math.max(MAX_MANA, sd.maxMana, sd.mana);
   return (
-    <div className={`${styles.mana} ${side === ENEMY ? styles.manaEnemy : ""}`} data-bkey={`mana-${side}`}>
+    <div className={`${styles.mana} ${side === ENEMY ? styles.manaEnemy : styles.manaMine}`} data-bkey={`mana-${side}`}>
       <div className={styles.manaPips}>
         {Array.from({ length: pips }, (_, i) => (
           <span
@@ -241,10 +257,73 @@ function ManaBar({ view, side }: { view: PublicBattleView; side: SideIndex }) {
         ))}
       </div>
       <span className={styles.manaText}>
-        {sd.mana}/{sd.maxMana}
+        <span className={styles.manaWord}>마나</span> {sd.mana}/{sd.maxMana}
       </span>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// 설명 패널 (누른 카드·병사·지휘관을 글로 풀어 준다)
+// ---------------------------------------------------------------------------
+
+function HelpBody({ info }: { info: HelpInfo }) {
+  return (
+    <>
+      <div className={styles.infoHead}>
+        <span className={styles.infoTag}>{info.tag}</span>
+        <b>{info.title}</b>
+      </div>
+      {info.stats.length > 0 ? (
+        <div className={styles.infoStats}>
+          {info.stats.map((st) => (
+            <span key={st.label} className={st.tone === "up" ? styles.statUp : st.tone === "down" ? styles.infoDown : ""}>
+              <PixelArt name={st.icon} scale={1} />
+              {st.label} <b>{st.value}</b>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {info.text ? (
+        <div className={styles.infoText}>
+          <CardText text={info.text} />
+        </div>
+      ) : null}
+      {info.terms.map((t) => (
+        <div key={t.name} className={styles.infoTerm}>
+          <PixelArt name={t.icon} scale={1} />
+          <b>{t.name}</b>
+          <span>{t.desc}</span>
+        </div>
+      ))}
+      {info.tip ? <div className={styles.infoTip}>{info.tip}</div> : null}
+    </>
+  );
+}
+
+function infoForKey(key: string | null): InfoTarget | null {
+  if (!key) return null;
+  if (key.startsWith("hand-")) return { kind: "hand", iid: Number(key.slice(5)) };
+  if (key.startsWith("sol-")) return { kind: "sol", iid: Number(key.slice(4)) };
+  if (key === "cmd-0" || key === "armor-0" || key === "weapon-0") return { kind: "cmd", side: 0 };
+  if (key === "cmd-1" || key === "armor-1" || key === "weapon-1") return { kind: "cmd", side: 1 };
+  if (key === "power-1") return { kind: "power", side: 1 };
+  return null;
+}
+
+/** 지금 해 볼 만한 일 (처음 하는 사람 안내) */
+function coachText(v: PublicBattleView): string | null {
+  if (v.winner !== null || !isMyTurn(v)) return null;
+  const me = v.sides[PLAYER];
+  const hand = me.hand ?? [];
+  if (hand.some((c) => canPlayCard(v, c))) {
+    return `마나 ${me.mana}개가 있어요. 빛나는 카드를 위로 끌어 내세요. (누르면 설명)`;
+  }
+  if (commanderReady(v) || me.board.some((b) => soldierReady(v, b))) {
+    return "빛나는 병사를 적에게 끌어 공격하세요. 서로 공격력만큼 체력이 깎여요.";
+  }
+  if (powerUsable(v)) return "오른쪽 아래 지휘관 능력을 쓸 수 있어요.";
+  return "할 일을 다 했어요. '턴 종료'를 누르세요.";
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +404,17 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
   const [preview, setPreview] = useState<{ cardId: string; side: SideIndex } | null>(null);
   const [inspect, setInspect] = useState<string | null>(null);
   const [concedeArmed, setConcedeArmed] = useState(false);
+  const [info, setInfo] = useState<InfoTarget | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [coachOff, setCoachOff] = useState(false);
+
+  // 처음 전투면 도움말을 먼저 띄운다. 안내 문구 끄기 설정을 읽는다.
+  useEffect(() => {
+    setCoachOff(readCoachOff());
+    if (!readHelpSeen() && initial.winner === null) setHelpOpen(true);
+    // 최초 한 번만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [vw, setVw] = useState(390);
 
   // 연출기 준비
@@ -392,6 +482,11 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
     return () => window.clearTimeout(id);
   }, [view.turnDeadline, view.activeSide, view.winner, busy, refresh, source]);
 
+  // 턴이 바뀌면 설명 패널을 닫는다 (상대 턴 연출을 가리지 않게)
+  useEffect(() => {
+    setInfo(null);
+  }, [view.activeSide]);
+
   // 항복 확인 해제
   useEffect(() => {
     if (!concedeArmed) return;
@@ -412,6 +507,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
   const act = useCallback(
     (action: Action) => {
       setSel(null);
+      setInfo(null);
       // 낸 카드는 응답이 올 때까지 손패에서 숨긴다 (되돌아오는 깜빡임 방지)
       if (action.type === "playCard") setPendingIid(action.iid);
       void send(action).finally(() => setPendingIid(null));
@@ -543,7 +639,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     const t = e.target as Element;
-    if (t.closest("button")) return;
+    if (t.closest("button") || t.closest("[data-bmodal]")) return;
     if (gestureRef.current) return;
     const key = closestKey(t);
     const g: Gesture = {
@@ -619,13 +715,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
     const drag0 = g.drag;
     endGesture();
     if (busy || !isMyTurn(getView())) {
-      if (!g.moved && g.key) {
-        const cid = cardIdForKey(getView(), g.key);
-        if (cid) {
-          const def = safeCard(cid);
-          if (def) setLog(`${def.name}${def.text ? ` — ${def.text}` : ""}`);
-        }
-      }
+      if (!g.moved) setInfo(infoForKey(g.key));
       return;
     }
     if (drag0) {
@@ -649,6 +739,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
         const iid = Number(tapKey.slice(5));
         if (sel.kind === "card" && sel.iid === iid) {
           setSel(null);
+          setInfo(null);
           return;
         }
       } else {
@@ -667,8 +758,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
       const iid = Number(tapKey.slice(5));
       const card = v.sides[PLAYER].hand?.find((c) => c.iid === iid);
       if (!card) return;
-      const def = getCard(card.cardId);
-      setLog(`${def.name}${def.text ? ` — ${def.text}` : ""}`);
+      setInfo({ kind: "hand", iid });
       if (canPlayCard(v, card)) setSel({ kind: "card", iid });
       else {
         setSel(null);
@@ -677,14 +767,10 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
       return;
     }
     const atk = isMineReady(tapKey);
+    setInfo(infoForKey(tapKey));
     if (atk) {
       setSel({ kind: "attacker", attacker: atk });
       return;
-    }
-    if (tapKey) {
-      const cid = cardIdForKey(v, tapKey);
-      const def = cid ? safeCard(cid) : null;
-      if (def) setLog(`${def.name}${def.text ? ` — ${def.text}` : ""}`);
     }
     setSel(null);
   };
@@ -695,6 +781,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
   };
 
   const onPower = (): void => {
+    setInfo({ kind: "power", side: PLAYER });
     if (locked) return;
     if (!powerUsable(view)) {
       showToast(view.sides[PLAYER].commander.powerUsedThisTurn ? "이번 턴에 이미 사용했습니다." : "지금은 쓸 수 없습니다.", "info");
@@ -755,6 +842,36 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
     return null;
   })();
 
+  const infoHelp: HelpInfo | null = (() => {
+    if (!info) return null;
+    if (info.kind === "hand") {
+      const card = hand.find((c) => c.iid === info.iid);
+      if (!card) return null;
+      const cost = cardCost(view, PLAYER, card);
+      const d = describeCard(card.cardId, cost);
+      if (!d) return null;
+      let tip: string;
+      if (!isMyTurn(view)) tip = "내 턴에 낼 수 있습니다.";
+      else if (cost > me.mana) tip = `마나가 부족합니다. (필요 ${cost} · 남은 마나 ${me.mana})`;
+      else if (!canPlayCard(view, card)) tip = getCard(card.cardId).type === "soldier" ? "필드가 가득 찼습니다 (최대 5)." : "지금은 쓸 대상이 없습니다.";
+      else if ((cardTargets(view, card) ?? []).length > 0) tip = "빛나는 대상을 누르거나 그 위로 끌어 놓으세요.";
+      else tip = getCard(card.cardId).type === "soldier" ? "위로 끌어 필드에 놓거나, 내 필드를 누르세요." : "위로 끌어 놓거나, 필드를 누르면 사용됩니다.";
+      return { ...d, tip };
+    }
+    if (info.kind === "sol") {
+      for (const side of [PLAYER, ENEMY] as const) {
+        const b = view.sides[side].board.find((x) => x.iid === info.iid);
+        if (b) return describeSoldier(b, side === PLAYER, isMyTurn(view));
+      }
+      return null;
+    }
+    if (info.kind === "cmd") return describeCommander(view.sides[info.side].commander, info.side === PLAYER);
+    return describePower(view.sides[info.side].commander, info.side === PLAYER);
+  })();
+  // 적을 겨누는 중이면 설명을 내 쪽에, 아니면 적 쪽 위에 띄워 대상을 가리지 않는다
+  const infoLow = [...targetKeys].some((k) => k === "cmd-1" || foe.board.some((b) => `sol-${b.iid}` === k));
+  const coach = !coachOff && !sel && !drag && !infoHelp ? coachText(view) : null;
+
   const rootStyle = { "--hand-w": `${handCardW}px` } as CSSProperties;
 
   return (
@@ -798,7 +915,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
           </div>
           <div className={styles.deckPile} data-bkey="deck-1" title="적 덱">
             <PixelArt name="ic-deck" scale={1.5} />
-            <span>{foe.deckCount}</span>
+            <span>덱 {foe.deckCount}</span>
           </div>
           <CommanderBadge view={view} side={ENEMY} target={targetKeys.has("cmd-1")} ready={false} selected={false} />
           <div className={styles.enemyRight}>
@@ -847,7 +964,7 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
           <div className={styles.myLeft}>
             <div className={styles.deckPile} data-bkey="deck-0" title="내 덱">
               <PixelArt name="ic-deck" scale={1.5} />
-              <span>{me.deckCount}</span>
+              <span>덱 {me.deckCount}</span>
             </div>
             <ManaBar view={view} side={PLAYER} />
           </div>
@@ -908,6 +1025,14 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
             );
           })}
         </div>
+
+        {inspect ? null : infoHelp ? (
+          <div className={`${styles.info} ${infoLow ? styles.infoLow : ""}`} aria-live="polite">
+            <HelpBody info={infoHelp} />
+          </div>
+        ) : coach ? (
+          <div className={`${styles.coach} ${styles.infoLow}`}>{coach}</div>
+        ) : null}
       </div>
 
       {/* 끌기 중인 카드 */}
@@ -943,11 +1068,22 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
           <div className={styles.preview}>
             <BattleCardFace cardId={inspect} width={Math.min(190, Math.round(vw * 0.48))} />
           </div>
+          {(() => {
+            const d = describeCard(inspect);
+            return d ? (
+              <div className={styles.inspectHelp}>
+                <HelpBody info={{ ...d, stats: [] }} />
+              </div>
+            ) : null;
+          })()}
         </div>
       ) : null}
 
       {/* 상단 버튼 */}
       <div className={styles.topButtons}>
+        <button type="button" className={`${styles.smallBtn} ${styles.helpBtn}`} onClick={() => setHelpOpen(true)}>
+          ? 도움말
+        </button>
         {onExit ? (
           <button type="button" className={styles.smallBtn} onClick={onExit}>
             지도로
@@ -966,6 +1102,20 @@ export function BattleScene({ initial, source, onExit, onFinished }: BattleScene
         <div key={battle.toast.id} className={`${styles.toast} ${battle.toast.tone === "info" ? styles.toastInfo : ""}`} role="status">
           {battle.toast.text}
         </div>
+      ) : null}
+
+      {helpOpen ? (
+        <BattleHelp
+          coachOff={coachOff}
+          onCoachChange={(off) => {
+            setCoachOff(off);
+            writeCoachOff(off);
+          }}
+          onClose={() => {
+            setHelpOpen(false);
+            writeHelpSeen();
+          }}
+        />
       ) : null}
 
       {finished ? <BattleResultPanel view={view} reduced={reduced} onConfirm={() => onFinished(view)} /> : null}

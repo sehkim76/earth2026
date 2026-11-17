@@ -82,7 +82,7 @@ export function heroPower(kind: CommanderKind, level: number): HeroPowerDef {
       const hp = 1 + Math.ceil(tier / 2);
       return {
         name: "지휘",
-        text: `아군 병사 하나에게 +${atk}/+${hp}.`,
+        text: `아군 병사 하나에게 공격력 +${atk}, 체력 +${hp}.`,
         cost: HERO_POWER_COST,
         targetFilter: "friendlySoldier",
         effects: [{ kind: "buff", attack: atk, health: hp, target: "chosen" }],
@@ -141,7 +141,7 @@ export function heroPower(kind: CommanderKind, level: number): HeroPowerDef {
       const effects: Effect[] = [{ kind: "summon", cardId: "outlaw_thug", count: 1 }];
       return {
         name: "패거리 호출",
-        text: "무법자 졸개(1/1)를 소환한다.",
+        text: "무법자 졸개(공격력 1·체력 1)를 불러낸다.",
         cost: HERO_POWER_COST,
         effects,
         needsBoardSpace: true,

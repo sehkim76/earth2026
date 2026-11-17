@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 
 import type { CardClass, CardDef } from "@/lib/battle";
 
+import { cardBadges } from "@/components/battle/card-help";
 import { PixelArt } from "@/components/battle/PixelArt";
 import { safeCard } from "@/components/battle/view-rules";
 import styles from "@/components/battle/battle.module.css";
@@ -37,7 +38,7 @@ export function classVars(cls: CardClass): CSSProperties {
 }
 
 /** 카드 문구에서 키워드(수호·기습·결계·원거리·출진·유훈)를 굵게 */
-function CardText({ text }: { text: string }) {
+export function CardText({ text }: { text: string }) {
   const parts = text.split(/(수호|기습|결계|원거리|출진:|유훈:)/g).filter((p) => p.length > 0);
   return (
     <>
@@ -67,6 +68,7 @@ export function BattleCardFace({ cardId, width, cost, compact, className }: Batt
   const artH = h * (compact ? 0.5 : 0.4);
   const artScale = Math.max(1, Math.round((artH / 32) * 4) / 4);
   const shownCost = cost ?? def.cost;
+  const badges = cardBadges(def);
   return (
     <div
       className={`${styles.card} ${compact ? styles.cardCompact : ""} ${className ?? ""}`}
@@ -81,25 +83,43 @@ export function BattleCardFace({ cardId, width, cost, compact, className }: Batt
         {!compact ? (
           <div className={styles.cardText}>
             <span>
-              <CardText text={def.text} />
+              {def.text ? <CardText text={def.text} /> : <i className={styles.cardPlain}>특수 능력 없는 기본 병사</i>}
             </span>
           </div>
         ) : null}
         <div className={styles.cardType}>
-          {TYPE_LABEL[def.type]} · {CLASS_LABEL[def.cardClass]}
+          {compact && badges.length > 0 ? badges.join("·") : `${TYPE_LABEL[def.type]} · ${CLASS_LABEL[def.cardClass]}`}
         </div>
       </div>
-      <div className={`${styles.costSeal} ${shownCost < def.cost ? styles.costDown : ""}`}>{shownCost}</div>
+      <div className={`${styles.costSeal} ${shownCost < def.cost ? styles.costDown : ""}`} title="마나 비용">
+        {shownCost}
+      </div>
+      {!compact ? (
+        <>
+          <span className={`${styles.statCap} ${styles.capCost}`}>마나</span>
+          {def.type !== "tactic" ? <span className={`${styles.statCap} ${styles.capAtk}`}>공격력</span> : null}
+          {def.type === "soldier" ? <span className={`${styles.statCap} ${styles.capRight}`}>체력</span> : null}
+          {def.type === "equipment" ? <span className={`${styles.statCap} ${styles.capRight}`}>횟수</span> : null}
+        </>
+      ) : null}
       {def.type === "soldier" ? (
         <>
-          <div className={styles.cardAtk}>{def.attack ?? 0}</div>
-          <div className={styles.cardHp}>{def.health ?? 0}</div>
+          <div className={styles.cardAtk} title="공격력">
+            {def.attack ?? 0}
+          </div>
+          <div className={styles.cardHp} title="체력">
+            {def.health ?? 0}
+          </div>
         </>
       ) : null}
       {def.type === "equipment" ? (
         <>
-          <div className={styles.cardAtk}>{def.attack ?? 0}</div>
-          <div className={styles.cardDur}>{def.durability ?? 0}</div>
+          <div className={styles.cardAtk} title="공격력">
+            {def.attack ?? 0}
+          </div>
+          <div className={styles.cardDur} title="사용 횟수">
+            {def.durability ?? 0}
+          </div>
         </>
       ) : null}
     </div>

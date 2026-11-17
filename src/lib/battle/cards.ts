@@ -69,7 +69,7 @@ const CARD_LIST: CardDef[] = [
     health: 3,
     keywords: [],
     onDeath: [{ kind: "summon", cardId: "militia", count: 2 }],
-    text: "유훈: 민병(1/1) 2기를 소환한다.",
+    text: "유훈: 민병(공격력 1·체력 1) 2기를 불러낸다.",
     artKey: "soldier-conscriptor",
   },
   {
@@ -94,7 +94,7 @@ const CARD_LIST: CardDef[] = [
     health: 5,
     keywords: [],
     onPlay: [{ kind: "buff", attack: 1, health: 1, target: "otherFriendlySoldiers" }],
-    text: "출진: 다른 아군 병사 모두 +1/+1.",
+    text: "출진: 다른 아군 병사 모두 공격력 +1, 체력 +1.",
     artKey: "soldier-veteran-centurion",
   },
   {
@@ -135,7 +135,7 @@ const CARD_LIST: CardDef[] = [
       { kind: "buff", attack: 1, health: 2, target: "chosen" },
       { kind: "giveKeyword", keyword: "guard", target: "chosen" },
     ],
-    text: "아군 병사 하나에게 +1/+2와 수호를 준다.",
+    text: "아군 병사 하나에게 공격력 +1, 체력 +2와 수호를 준다.",
     artKey: "tactic-pike-wall",
   },
   {
@@ -147,7 +147,7 @@ const CARD_LIST: CardDef[] = [
     attack: 3,
     durability: 2,
     keywords: [],
-    text: "지휘관 공격력 3, 내구도 2.",
+    text: "내 지휘관이 무기를 든다: 공격력 3, 2번 공격 가능.",
     artKey: "equip-battle-axe",
   },
   {
@@ -244,7 +244,7 @@ const CARD_LIST: CardDef[] = [
       { kind: "buff", attack: 2, health: 1, target: "chosen" },
       { kind: "giveKeyword", keyword: "rush", target: "chosen" },
     ],
-    text: "아군 병사 하나에게 +2/+1과 기습을 준다.",
+    text: "아군 병사 하나에게 공격력 +2, 체력 +1과 기습을 준다.",
     artKey: "tactic-spur-on",
   },
   {
@@ -256,7 +256,7 @@ const CARD_LIST: CardDef[] = [
     attack: 2,
     durability: 2,
     keywords: [],
-    text: "지휘관 공격력 2, 내구도 2.",
+    text: "내 지휘관이 무기를 든다: 공격력 2, 2번 공격 가능.",
     artKey: "equip-cavalry-lance",
   },
   {
