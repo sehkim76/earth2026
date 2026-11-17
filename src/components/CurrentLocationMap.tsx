@@ -305,6 +305,10 @@ type CurrentLocationMapProps = {
   missionKey?: string;
 };
 
+/** Leaflet 지도가 중심·줌을 받아 좌표 변환을 할 수 있는 상태인가 (_loaded 는 setView 후 true). */
+const isLeafletMapLoaded = (map: unknown): boolean =>
+  !!map && (map as { _loaded?: unknown })._loaded === true;
+
 type MarkerPanel = {
   title: string;
   lines: string[];
@@ -2090,6 +2094,8 @@ interface OtherUnitMoveAnim {
   const [unitMoveDestination, setUnitMoveDestination] = useState<{ lat: number; lon: number } | null>(null);
   const unitMoveDestinationLayerRef = useRef<LayerGroup | null>(null);
   // 목적지 지정 중 출발점 → 화면 중앙(역삼각형) 빨간 점선
+  // 지도 load 전에 마커 묶기를 건너뛰었으면 load 후 다시 실행하기 위한 값
+  const [poiLoadRetry, setPoiLoadRetry] = useState(0);
   const [moveAimOrigin, setMoveAimOrigin] = useState<{ lat: number; lon: number } | null>(null);
   const [moveTargetCenter, setMoveTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
 
@@ -6069,6 +6075,10 @@ interface OtherUnitMoveAnim {
     }
 
     const updateEdgeIndicators = () => {
+      // 지도 중심·줌이 정해지기 전에는 좌표 변환이 예외를 던진다 ("Set map center and zoom first").
+      if (!isLeafletMapLoaded(map)) {
+        return;
+      }
       const size = map.getSize();
       const width = size.x;
       const height = size.y;
@@ -6687,6 +6697,9 @@ interface OtherUnitMoveAnim {
     try {
       size = map.getSize();
     } catch {
+      return null;
+    }
+    if (!isLeafletMapLoaded(map)) {
       return null;
     }
     const cx = size.x / 2;
@@ -7547,6 +7560,9 @@ const isMapPerfEnabled = (): boolean => {
       dashArray: "6 5",
     }).addTo(map);
     const update = (): void => {
+      if (!isLeafletMapLoaded(map)) {
+        return;
+      }
       const c = map.getCenter();
       const lock = findTrackTargetAtCenter();
       const end: [number, number] = lock ? [lock.lat, lock.lon] : [c.lat, c.lng];
@@ -7770,6 +7786,14 @@ const isMapPerfEnabled = (): boolean => {
     if (!map) {
       // console.warn("[CurrentLocationMap] skip clustering: map not ready");
       return;
+    }
+    if (!isLeafletMapLoaded(map)) {
+      // 중심·줌이 정해지면(load) 다시 그린다.
+      const retry = (): void => setPoiLoadRetry((n) => n + 1);
+      map.once("load", retry);
+      return () => {
+        map.off("load", retry);
+      };
     }
 
     if (!poiIcon) {
@@ -8094,7 +8118,7 @@ const isMapPerfEnabled = (): boolean => {
     //   addedCount,
     //   layerCount: pointsLayerRef.current?.getLayers().length ?? 0,
     // });
-  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, territoryEnabled, placeCastleAt, castleKindMap, castleDamagedKeys]);
+  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, territoryEnabled, placeCastleAt, castleKindMap, castleDamagedKeys, poiLoadRetry]);
 
   // 축성 위치 지정: 위성 지도 클릭으로 확정 단계 진입.
   useEffect(() => {
