@@ -3,8 +3,8 @@ import "leaflet/dist/leaflet.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ARMission Web",
-  description: "AR Mission Platform",
+  title: "Tribes",
+  description: "Tribes — 위치 기반 영토 전쟁 게임",
 };
 
 // viewport-fit=cover가 없으면 iOS에서 safe-area inset이 0이 되어 하단 UI가 잘린다.
