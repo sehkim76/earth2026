@@ -13,6 +13,8 @@ import {
   snapToNearestWalkableLocation,
 } from "@/lib/walkable-client";
 
+import { CommanderInfoCard } from "@/components/territory/CommanderInfoCard";
+
 export interface TerritoryCastlePoint {
   eventKey: string;
   lat: number;
@@ -2869,6 +2871,14 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>닫기</button>
               </div>
             </div>
+            {selectedUnit ? (
+              <CommanderInfoCard
+                commanderId={isLordSelected ? "lord" : selectedUnit}
+                lordClass={myClass}
+                moving={isLordSelected ? lordActive : isSelectedUnitMoving}
+                refreshKey={props.neutralRefreshNonce}
+              />
+            ) : null}
             {isLordSelected && lordActive ? (
               <div aria-live="polite" className="text-xs font-bold text-[#354b3c]">
                 <p className="mb-1 truncate">

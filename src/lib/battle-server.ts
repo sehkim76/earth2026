@@ -978,6 +978,19 @@ export async function currentForUser(userId: string): Promise<BattleResponse> {
 export function listCommanders(data: JsonObject, nickname: string | null, now: number): CommanderListItem[] {
   const progress = readCommanders(data);
   const lordInjured = isFiniteNumber(data.lordInjuredUntil) && data.lordInjuredUntil > now ? data.lordInjuredUntil : null;
+  // 선택 창 정보 표시용 경험치·전적
+  const extra = (id: string): Pick<CommanderListItem, "xp" | "levelXpStart" | "nextLevelXp" | "wins" | "battles"> => {
+    const p = progress[id];
+    const xp = p?.xp ?? 0;
+    const level = levelFromXp(xp);
+    return {
+      xp,
+      levelXpStart: xpForLevel(level),
+      nextLevelXp: level >= MAX_LEVEL ? null : xpForLevel(level + 1),
+      wins: p?.wins ?? 0,
+      battles: p?.battles ?? 0,
+    };
+  };
   const out: CommanderListItem[] = [
     {
       id: "lord",
@@ -987,6 +1000,7 @@ export function listCommanders(data: JsonObject, nickname: string | null, now: n
       state: "field",
       injuredUntil: lordInjured,
       available: lordInjured === null,
+      ...extra("lord"),
     },
   ];
   for (const unit of loadUnits(data)) {
@@ -1000,6 +1014,7 @@ export function listCommanders(data: JsonObject, nickname: string | null, now: n
       state: unit.state,
       injuredUntil: injured,
       available: unit.state === "field" && injured === null,
+      ...extra(unit.id),
     });
   }
   return out;

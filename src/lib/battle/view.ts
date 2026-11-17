@@ -164,6 +164,13 @@ export interface CommanderListItem {
   injuredUntil: number | null;
   /** 지금 출전할 수 있는지 (부상·상태 기준. 거리는 시작 시 서버가 확인) */
   available: boolean;
+  /** 누적 경험치 / 현재 레벨 시작 경험치 / 다음 레벨 경험치 (최대 레벨이면 null) */
+  xp?: number;
+  levelXpStart?: number;
+  nextLevelXp?: number | null;
+  /** 카드 전투 전적 */
+  wins?: number;
+  battles?: number;
 }
 
 export interface CommandersResponse {
