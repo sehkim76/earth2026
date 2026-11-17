@@ -94,33 +94,24 @@ export function BattleCardFace({ cardId, width, cost, compact, className }: Batt
       <div className={`${styles.costSeal} ${shownCost < def.cost ? styles.costDown : ""}`} title="마나 비용">
         {shownCost}
       </div>
-      {!compact ? (
-        <>
-          <span className={`${styles.statCap} ${styles.capCost}`}>마나</span>
-          {def.type !== "tactic" ? <span className={`${styles.statCap} ${styles.capAtk}`}>공격력</span> : null}
-          {def.type === "soldier" ? <span className={`${styles.statCap} ${styles.capRight}`}>체력</span> : null}
-          {def.type === "equipment" ? <span className={`${styles.statCap} ${styles.capRight}`}>횟수</span> : null}
-        </>
+      {!compact ? <span className={`${styles.statCap} ${styles.capCost}`}>마나</span> : null}
+      {def.type !== "tactic" ? (
+        <div className={`${styles.statGroup} ${styles.statLeft}`} title="공격력">
+          <span className={styles.statLbl}>ATK</span>
+          <div className={styles.cardAtk}>{def.attack ?? 0}</div>
+        </div>
       ) : null}
       {def.type === "soldier" ? (
-        <>
-          <div className={styles.cardAtk} title="공격력">
-            {def.attack ?? 0}
-          </div>
-          <div className={styles.cardHp} title="체력">
-            {def.health ?? 0}
-          </div>
-        </>
+        <div className={`${styles.statGroup} ${styles.statRight}`} title="체력">
+          <span className={styles.statLbl}>HP</span>
+          <div className={styles.cardHp}>{def.health ?? 0}</div>
+        </div>
       ) : null}
       {def.type === "equipment" ? (
-        <>
-          <div className={styles.cardAtk} title="공격력">
-            {def.attack ?? 0}
-          </div>
-          <div className={styles.cardDur} title="사용 횟수">
-            {def.durability ?? 0}
-          </div>
-        </>
+        <div className={`${styles.statGroup} ${styles.statRight}`} title="사용 횟수">
+          <span className={styles.statLbl}>횟수</span>
+          <div className={styles.cardDur}>{def.durability ?? 0}</div>
+        </div>
       ) : null}
     </div>
   );

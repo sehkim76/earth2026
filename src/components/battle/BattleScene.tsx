@@ -187,11 +187,13 @@ function SoldierToken({ sol, ready, target, selected, dim }: SoldierTokenProps) 
           {def.onDeath ? <span className={styles.kwChip}>유훈</span> : null}
         </div>
         {shield ? <div className={styles.shieldBubble} aria-hidden="true" /> : null}
-        <div className={`${styles.solAtk} ${atkUp ? styles.statUp : ""}`} title="공격력">
-          {sol.attack}
+        <div className={`${styles.solStat} ${styles.solStatL}`} title="공격력">
+          <span className={styles.statLbl}>ATK</span>
+          <div className={`${styles.solAtk} ${atkUp ? styles.statUp : ""}`}>{sol.attack}</div>
         </div>
-        <div className={`${styles.solHp} ${hurt ? styles.statHurt : hpUp ? styles.statUp : ""}`} title="체력">
-          {Math.max(0, sol.health)}
+        <div className={`${styles.solStat} ${styles.solStatR}`} title="체력">
+          <span className={styles.statLbl}>HP</span>
+          <div className={`${styles.solHp} ${hurt ? styles.statHurt : hpUp ? styles.statUp : ""}`}>{Math.max(0, sol.health)}</div>
         </div>
       </div>
     </div>
