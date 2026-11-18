@@ -1300,7 +1300,12 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   // 무법자 공격 버튼은 15m 안에서 나오므로 그보다 가깝게 붙는다.
   const CHASE_NEAR_M = 10;
   const CHASE_SETTLE_M = 6;
-  const chaseRef = useRef(new Map<string, { targetId: string; name: string; destLat: number; destLon: number }>());
+  // 창을 다시 켠 직후엔 지도 표시·길찾기 자료가 늦게 따라올 수 있어, 한 번 놓치거나 길찾기에 실패해도
+  // 바로 끝내지 않고 몇 번 더 시도한다 (CHASE_GIVE_UP 회 연속이면 끝낸다).
+  const CHASE_GIVE_UP = 4;
+  const chaseRef = useRef(
+    new Map<string, { targetId: string; name: string; destLat: number; destLon: number; misses: number; fails: number }>(),
+  );
   const chaseReroutingRef = useRef(new Set<string>());
   const [chaseNames, setChaseNames] = useState<Record<string, string>>({});
   const syncChaseNames = (): void => {
@@ -1317,7 +1322,14 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       }
       return;
     }
-    chaseRef.current.set(commanderId, { targetId: target.id, name: target.name, destLat: target.lat, destLon: target.lon });
+    chaseRef.current.set(commanderId, {
+      targetId: target.id,
+      name: target.name,
+      destLat: target.lat,
+      destLon: target.lon,
+      misses: 0,
+      fails: 0,
+    });
     syncChaseNames();
     flash(`${target.name} 추적을 시작합니다. 목적지가 대상을 따라갑니다.`);
   }
@@ -1345,9 +1357,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         }
         const tpos = getPos?.(entry.targetId) ?? null;
         if (!tpos) {
-          endChase(cid, `${entry.name}이(가) 보이지 않아 추적을 끝냈습니다.`);
+          entry.misses += 1;
+          if (entry.misses >= CHASE_GIVE_UP) {
+            endChase(cid, `${entry.name}이(가) 보이지 않아 추적을 끝냈습니다.`);
+          }
           continue;
         }
+        entry.misses = 0;
         let cur: { lat: number; lon: number } | null;
         let moving: boolean;
         if (cid === LORD_UNIT_ID) {
@@ -1371,6 +1387,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         if (meters(cur, tpos) < CHASE_NEAR_M || drift < (moving ? CHASE_REROUTE_M : CHASE_SETTLE_M)) {
           continue;
         }
+        const prevDest = { lat: entry.destLat, lon: entry.destLon };
         entry.destLat = tpos.lat;
         entry.destLon = tpos.lon;
         chaseReroutingRef.current.add(cid);
@@ -1378,7 +1395,20 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         void (async () => {
           try {
             if (cid === LORD_UNIT_ID) {
-              await moveLordToCenter({ dest: tpos, quiet: true });
+              const result = await moveLordToCenter({ dest: tpos, quiet: true });
+              if (result === "ok") {
+                entry.fails = 0;
+              } else {
+                // 다음 순번에 다시 시도하도록 목적지를 되돌린다 (기존 이동·경로는 그대로 유지).
+                entry.destLat = prevDest.lat;
+                entry.destLon = prevDest.lon;
+                if (result === "fail") {
+                  entry.fails += 1;
+                  if (entry.fails >= CHASE_GIVE_UP) {
+                    endChase(cid, "길이 막혀 추적을 멈췄습니다.");
+                  }
+                }
+              }
             } else {
               if (movingUnitIdsRef.current.has(cid)) {
                 await stopUnitMovement(cid);
@@ -1390,7 +1420,33 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               }
               const unit = unitsRef.current.find((u) => u.id === cid);
               const start = unit ? { lat: unit.lat, lon: unit.lon } : from;
-              await moveUnitGradually(cid, start.lat, start.lon, tpos.lat, tpos.lon, undefined, true);
+              // 행군 전체를 기다리지 않는다: 새 경로가 등록되면(경로 캐시) 바로 다음 추적 순번을 받는다.
+              routeCacheRef.current.delete(cid);
+              let settled = false;
+              const marching = moveUnitGradually(cid, start.lat, start.lon, tpos.lat, tpos.lon, undefined, true).finally(() => {
+                settled = true;
+              });
+              const waitUntil = Date.now() + 15_000;
+              while (!settled && !routeCacheRef.current.has(cid) && Date.now() < waitUntil) {
+                await new Promise<void>((resolve) => window.setTimeout(resolve, 200));
+              }
+              if (!settled) {
+                entry.fails = 0;
+                void marching;
+                return;
+              }
+              // 길찾기 실패 등으로 대상 근처에 못 갔으면 다음 순번에 다시 시도한다.
+              const after = unitsRef.current.find((u) => u.id === cid);
+              if (chaseRef.current.has(cid) && after && meters(after, tpos) > 15) {
+                entry.destLat = prevDest.lat;
+                entry.destLon = prevDest.lon;
+                entry.fails += 1;
+                if (entry.fails >= CHASE_GIVE_UP) {
+                  endChase(cid, "길이 막혀 추적을 멈췄습니다.");
+                }
+              } else {
+                entry.fails = 0;
+              }
             }
           } finally {
             chaseReroutingRef.current.delete(cid);
@@ -1460,20 +1516,26 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     return out;
   };
-  const moveLordToCenter = async (opts?: { dest?: { lat: number; lon: number }; quiet?: boolean }): Promise<void> => {
+  /** "ok" 새 이동 등록, "fail" 길찾기 실패, "skip" 다른 작업 중이라 건너뜀 */
+  const moveLordToCenter = async (
+    opts?: { dest?: { lat: number; lon: number }; quiet?: boolean },
+  ): Promise<"ok" | "fail" | "skip"> => {
     const quiet = opts?.quiet === true;
     const center = opts?.dest ?? getMapCenter();
     const from = props.getPlayerLocation() ?? getMapCenter();
     if (!center || !from) {
-      flash("지도를 움직여 목적지를 가운데에 두세요.");
-      return;
+      if (!quiet) {
+        flash("지도를 움직여 목적지를 가운데에 두세요.");
+      }
+      return "skip";
     }
     if (busy) {
-      return;
+      return "skip";
     }
     setBusy(true);
     setFindingPathUnitId(LORD_UNIT_ID);
-    if (!quiet || selectedUnitRef.current === LORD_UNIT_ID) {
+    // 추적 재계산(quiet)은 새 경로를 찾을 때까지 지금 경로를 그대로 보여 준다.
+    if (!quiet) {
       onMovePath(null);
       onMoveDestination(center);
     }
@@ -1516,7 +1578,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           setSelectedUnit(LORD_UNIT_ID);
           setSheet("move");
         }
-        return;
+        return "ok";
       }
       // 부대와 동일한 클라이언트 길찾기 (이동가능영역 그래프).
       let path: Array<{ lat: number; lon: number }> | null = null;
@@ -1562,14 +1624,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       }
       if (!path) {
         if (quiet) {
-          endChase(LORD_UNIT_ID, "길이 막혀 추적을 멈췄습니다.");
-          return;
+          return "fail";
         }
         setActionDialog({
           title: "영주를 이동할 수 없습니다",
           message: "길이 막혔습니다. 이동가능 영역으로 연결된 목적지를 선택해 주세요.",
         });
-        return;
+        return "fail";
       }
       const startedAt = Date.now();
       const order: UnitMoveTarget = {
@@ -1602,8 +1663,12 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         setSheet("move");
       }
       setMoveNow(Date.now());
+      return "ok";
     } catch (error) {
-      setActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
+      if (!quiet) {
+        setActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
+      }
+      return "fail";
     } finally {
       setBusy(false);
       setFindingPathUnitId((current) => (current === LORD_UNIT_ID ? null : current));
