@@ -900,3 +900,17 @@
 @media (prefers-reduced-motion: reduce) {
   .siege-gauge--hot .siege-gauge__bar { animation: none; }
 }
+
+/* 무법자 이름표 난이도 (내 추천 편성 모의전 예상 승률: 쉬움 ≥70%, 보통 ≥40%, 어려움) */
+.unit-pin.unit-pin-outlaw-easy > .unit-pin-label {
+  background: rgba(22, 101, 52, 0.92);
+  box-shadow: 0 0 0 1.5px #4ade80;
+}
+.unit-pin.unit-pin-outlaw-even > .unit-pin-label {
+  background: rgba(133, 77, 14, 0.92);
+  box-shadow: 0 0 0 1.5px #facc15;
+}
+.unit-pin.unit-pin-outlaw-hard > .unit-pin-label {
+  background: rgba(153, 27, 27, 0.92);
+  box-shadow: 0 0 0 1.5px #f87171;
+}

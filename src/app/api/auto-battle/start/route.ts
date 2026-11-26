@@ -23,7 +23,6 @@ import { recordBattleResult } from "@/lib/records";
 import {
   attackerSkillKind,
   buildAttackerFormation,
-  effectiveOutlawTier,
   formationFromList,
   neutralGarrisonFormation,
   outlawFormation,
@@ -210,7 +209,8 @@ export async function POST(request: Request) {
         const pos = outlawPositionAt(row, now);
         const dist = distM(atk.leadPos.lat, atk.leadPos.lon, pos.lat, pos.lon);
         if (dist > BATTLE_PROXIMITY_M) throw new BattleError("too_far", 400, tooFarMessage(dist));
-        const tier = effectiveOutlawTier(outlawTierForId(row.id), atk.resolved[0].level);
+        // 지도에 보이는 등급 그대로 싸운다 (견습 보정 없음, 2026-11-27).
+        const tier = outlawTierForId(row.id);
         defenderName = `${OUTLAW_TIER_LABEL[tier]}`;
         defenderTier = tier;
         defender = outlawFormation(tier, defenderName);

@@ -5,21 +5,22 @@ import { createPortal } from "react-dom";
 
 import {
   COMMANDER_KIND_LABEL,
-  NOVICE_COMMANDER_MAX_LEVEL,
   OUTLAW_TIER_LABEL,
   OUTLAW_TIER_STARS,
-  effectiveOutlawTier,
   outlawTierForId,
 } from "@/lib/battle";
 import type { CommandersResponse } from "@/lib/battle";
 import {
+  OUTLAW_AUTO_ADVICE,
+  OUTLAW_AUTO_LEVEL,
   counterBonusOf,
   outlawFormation,
-  resolveAutoBattle,
   unitStats,
   type AutoFormation,
   type AutoUnitKind,
 } from "@/lib/auto-battle";
+
+import { estimateWinRate } from "@/lib/auto-battle-estimate";
 
 import { startAutoBattle, type AutoBattleStartResult } from "@/components/battle/auto-battle-api";
 import { AutoBattleScene, autoSkillName, skillEffectText } from "@/components/battle/AutoBattleScene";
@@ -194,8 +195,8 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
   const skillKind: AutoUnitKind | null =
     skillPick && pickedKinds.includes(skillPick) ? skillPick : (lead?.kind ?? null);
 
-  // 상대 편성: 무법자는 서버와 같은 함수로 미리 본다 (선두 레벨에 따라 등급 보정).
-  const tier = isOutlaw ? effectiveOutlawTier(baseTier, lead?.level ?? 1) : null;
+  // 상대 편성: 무법자는 서버와 같은 함수로 미리 본다.
+  const tier = isOutlaw ? baseTier : null;
   const enemy: AutoFormation | null = tier !== null ? outlawFormation(tier, OUTLAW_TIER_LABEL[tier]) : null;
   const enemyKinds = enemy ? enemy.filter((s): s is NonNullable<typeof s> => s !== null).map((s) => s.kind) : [];
 
@@ -206,18 +207,7 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
   const formationKey = formation.map((f) => (f ? `${f.kind}${f.level}` : "-")).join(",");
   const winRate = useMemo(() => {
     if (!enemy || filled === 0 || !skillKind) return null;
-    let wins = 0;
-    for (let i = 0; i < SIM_RUNS; i++) {
-      const r = resolveAutoBattle({
-        seed: (i * 2654435761) >>> 0,
-        attacker: formation,
-        defender: enemy,
-        attackerSkillTick: skillTick,
-        attackerSkillKind: skillKind,
-      });
-      if (r.winner === 0) wins++;
-    }
-    return Math.round((wins / SIM_RUNS) * 100);
+    return estimateWinRate(formation, enemy, { runs: SIM_RUNS, skillKind, skillTick });
     // formationKey가 편성 내용을 대신한다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formationKey, tier, skillKind, skillTick, filled]);
@@ -381,7 +371,7 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
                 {OUTLAW_TIER_LABEL[baseTier]} <span className="text-amber-300">{OUTLAW_TIER_STARS[baseTier]}</span> 토벌 — 편성
               </p>
               <p className="mt-0.5 text-sm text-amber-100/70">
-                60초 자동전투. 패배해도 보상이 일부 남고 선두만 30분 부상. 선두가 Lv.{NOVICE_COMMANDER_MAX_LEVEL} 이하면 한 단계 약한 상대와 붙습니다.
+                Lv.{OUTLAW_AUTO_LEVEL[baseTier]} · 권장 {OUTLAW_AUTO_ADVICE[baseTier]}. 패배해도 보상이 일부 남고 선두만 30분 부상.
               </p>
             </>
           ) : (
@@ -399,7 +389,7 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
           {/* 상대 편성 미리보기 */}
           <div className="mb-2 rounded-lg border border-red-300/25 bg-red-950/30 p-2">
             <p className="mb-1 flex items-center justify-between text-xs font-bold text-red-200">
-              <span>상대 편성{tier !== null ? ` — ${OUTLAW_TIER_LABEL[tier]}${tier < baseTier ? " (보정)" : ""}` : ""}</span>
+              <span>상대 편성{tier !== null ? ` — ${OUTLAW_TIER_LABEL[tier]} Lv.${OUTLAW_AUTO_LEVEL[tier]}` : ""}</span>
               {winRate !== null ? (
                 <span className={winRate >= 70 ? "text-emerald-300" : winRate >= 40 ? "text-amber-300" : "text-red-300"}>
                   예상 승률 {winRate}%

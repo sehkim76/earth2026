@@ -59,6 +59,8 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 };
 
 import { territoryOwnerColor } from "@/lib/territory-colors";
+import { OUTLAW_AUTO_ADVICE, OUTLAW_AUTO_LEVEL } from "@/lib/auto-battle";
+import { difficultyOf } from "@/lib/auto-battle-estimate";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
@@ -812,10 +814,22 @@ const GPS_ACCURACY_TIER_TEXT_CLASS: Record<GpsAccuracyTier, string> = {
   나쁨: "text-rose-300",
 };
 
-/** 무법자 패널의 등급 줄 (토벌 전투 상대 난이도, 서버와 같은 계산). */
-const outlawTierLine = (wildId: number): string => {
+/** 무법자 패널의 등급·권장 전력·예상 승률 줄 (서버와 같은 등급 계산). */
+const outlawTierLines = (wildId: number, winRate: number | null | undefined): string[] => {
   const tier = outlawTierForId(wildId);
-  return `등급: ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]}`;
+  const diff = difficultyOf(winRate ?? null);
+  return [
+    `등급: ${OUTLAW_TIER_LABEL[tier]} ${OUTLAW_TIER_STARS[tier]} · Lv.${OUTLAW_AUTO_LEVEL[tier]}`,
+    `권장: ${OUTLAW_AUTO_ADVICE[tier]}`,
+    ...(typeof winRate === "number"
+      ? [`예상 승률: ${winRate}% (${diff === "easy" ? "쉬움" : diff === "even" ? "보통" : "어려움"})`]
+      : []),
+  ];
+};
+/** 무법자 이름표 난이도 클래스 */
+const outlawDiffClass = (winRate: number | null | undefined): string => {
+  const d = difficultyOf(winRate ?? null);
+  return d ? `unit-pin-outlaw-${d}` : "";
 };
 
 /** 코드 생성 중립성 마커 prefix (DB Row 없이 사용). */
@@ -1909,7 +1923,7 @@ export default function CurrentLocationMap({
   }, [location?.lat, location?.lon, location?.accuracy, playerLocation?.lat, playerLocation?.lon, placementBusy]);
   const [lordSelected, setLordSelected] = useState(false);
   const [unitMarks, setUnitMarks] = useState<
-    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; moveTarget: UnitMoveTargetMark | null }[]
+    { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; outlawTier?: 1 | 2 | 3; outlawWinRate?: number | null; moveTarget: UnitMoveTargetMark | null }[]
   >([]);
   const unitMarksRef = useRef<typeof unitMarks>([]);
   useEffect(() => {
@@ -5504,7 +5518,7 @@ interface OtherUnitMoveAnim {
           const proxDist = Math.max(0, Math.round(calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon)));
           nearestMarker = {
             title: `무법자 #${wildId}`,
-            lines: [`이름: 무법자 #${wildId}`, outlawTierLine(wildId), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
+            lines: [`이름: 무법자 #${wildId}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
             wildId,
             lat: wildPos.lat,
             lon: wildPos.lon,
@@ -7043,12 +7057,18 @@ interface OtherUnitMoveAnim {
           pin.classList.toggle("unit-pin-enemy", !mark.mine);
           pin.classList.toggle("unit-pin-selected", mark.selected);
           pin.classList.toggle("unit-injured", mark.injured === true);
+          if (mark.id.startsWith("neutral-")) {
+            const want = outlawDiffClass(mark.outlawWinRate);
+            for (const c of ["unit-pin-outlaw-easy", "unit-pin-outlaw-even", "unit-pin-outlaw-hard"]) {
+              pin.classList.toggle(c, c === want);
+            }
+          }
         }
         continue;
       }
       const icon = L.divIcon({
         className: "map-unit-marker",
-        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
+        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""}${mark.id.startsWith("neutral-") && outlawDiffClass(mark.outlawWinRate) ? ` ${outlawDiffClass(mark.outlawWinRate)}` : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
         iconSize: [72, 68],
         iconAnchor: [36, 26],
       });
@@ -7134,7 +7154,7 @@ interface OtherUnitMoveAnim {
             title: `무법자 #${wildId}`,
             lines: [
               `이름: 무법자 #${wildId}`,
-              outlawTierLine(wildId),
+              ...outlawTierLines(wildId, freshMark.outlawWinRate),
               "상태: 배회 중",
               ...(tapDist !== null ? [`거리: 약 ${tapDist}m (플레이어)`] : []),
             ],

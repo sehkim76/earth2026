@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
 import { territoryOwnerColor } from "@/lib/territory-colors";
+import { OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
+import { estimateWinRate, recommendFormation, type EstimateCommander } from "@/lib/auto-battle-estimate";
+import { outlawTierForId } from "@/lib/battle/outlaw";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -40,7 +43,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
-  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
+  onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; outlawTier?: 1 | 2 | 3; outlawWinRate?: number | null; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
   onUnitMarkerSelectionHandled: () => void;
   targetMarkerUrl: string | null;
@@ -772,10 +775,61 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   // 이미 반영한 것보다 먼저 보낸 요청의 응답은 버린다 (옛 위치로 되돌아가는 순간이동 방지).
   const neutralReqSeqRef = useRef(0);
   const neutralAppliedSeqRef = useRef(0);
+  // 무법자 등급별 예상 승률 (내 가용 지휘관 추천 편성으로 모의전). 지도 이름표 색에 쓴다.
+  const [outlawWinRates, setOutlawWinRates] = useState<Record<1 | 2 | 3, number | null> | null>(null);
+  const outlawWinRatesRef = useRef(outlawWinRates);
+  useEffect(() => {
+    outlawWinRatesRef.current = outlawWinRates;
+  }, [outlawWinRates]);
+  useEffect(() => {
+    let alive = true;
+    const load = async (): Promise<void> => {
+      if (document.hidden) {
+        return;
+      }
+      try {
+        const res = await fetch("/api/battle/commanders", { credentials: "include", cache: "no-store" });
+        const body = (await res.json()) as {
+          ok?: boolean;
+          serverNow?: number;
+          commanders?: Array<{ name: string; kind: string; level: number; available: boolean; injuredUntil: number | null }>;
+        };
+        if (!alive || !body.ok || !Array.isArray(body.commanders)) {
+          return;
+        }
+        const kinds: readonly string[] = ["lord", "infantry", "archer", "cavalry", "mage"];
+        const avail: EstimateCommander[] = body.commanders
+          .filter((c) => c.available && (c.injuredUntil === null || c.injuredUntil <= (body.serverNow ?? Date.now())))
+          .map((c) => ({
+            kind: (kinds.includes(c.kind) ? c.kind : "infantry") as EstimateCommander["kind"],
+            name: c.name,
+            level: c.level,
+          }));
+        const mine = recommendFormation(avail);
+        const next = { 1: null, 2: null, 3: null } as Record<1 | 2 | 3, number | null>;
+        for (const tier of [1, 2, 3] as const) {
+          next[tier] = estimateWinRate(mine, outlawFormation(tier, "무법자"), { runs: 80 });
+        }
+        setOutlawWinRates(next);
+      } catch {
+        // 계산 실패 시 색 없이 레벨만 표시
+      }
+    };
+    void load();
+    const id = window.setInterval(() => void load(), 60_000);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
     rows.map((row) => ({
       id: `neutral-${row.id}`,
-      name: "무법자",
+      name: `무법자 Lv.${OUTLAW_AUTO_LEVEL[outlawTierForId(row.id)]}`,
+      outlawTier: outlawTierForId(row.id),
+      outlawWinRate: outlawWinRatesRef.current?.[outlawTierForId(row.id)] ?? null,
       lat: row.lat,
       lon: row.lon,
       mine: false as const,
@@ -1181,7 +1235,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         pendingMarksEmitRef.current = null;
       }
     };
-  }, [units, otherUnitMarks, neutralUnits, movingUnitIds, selectedUnit, sheet, onUnitMarks, injuryTick]);
+  }, [units, otherUnitMarks, neutralUnits, movingUnitIds, selectedUnit, sheet, onUnitMarks, injuryTick, outlawWinRates]);
 
   // 마지막 선택 우선: 성이 새로 열리면 시트를 닫는다 (상태는 유지).
   const prevCastleKeyRef = useRef<string | null>(null);

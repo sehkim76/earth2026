@@ -238,38 +238,45 @@ export function resolveAutoBattle(opts: AutoBattleOptions): AutoBattleResult {
     const defAlive = def.some((u) => u.alive);
     if (!atkAlive || !defAlive) break;
 
-    for (const side of [0, 1] as const) {
+    // 양측이 칸 순서대로 한 기씩 번갈아 공격한다. 턴마다 먼저 치는 쪽을 바꿔 선공 편향을 없앤다.
+    const firstSide: 0 | 1 = tick % 2 === 0 ? 0 : 1;
+    const order: Array<[0 | 1, number]> = [];
+    for (let idx = 0; idx < 5; idx++) {
+      order.push([firstSide, idx], [firstSide === 0 ? 1 : 0, idx]);
+    }
+    for (const [side, idx] of order) {
       const self = side === 0 ? atk : def;
       const foe = side === 0 ? def : atk;
-      for (let idx = 0; idx < 5; idx++) {
-        const unit = self[idx];
-        if (!unit || !unit.alive) continue;
-        const r = rngNext(rng);
-        rng = r.state;
-        const targetIdx = pickTarget(foe, r.value);
-        if (targetIdx < 0) break;
-        const target = foe[targetIdx];
-        const bonus = counterBonusOf(unit.kind, target.kind);
-        const damage = bonus ? Math.round(unit.atk * 1.3) : unit.atk;
-        target.hp -= damage;
-        let killed = false;
-        if (target.hp <= 0) {
-          target.hp = 0;
-          target.alive = false;
-          killed = true;
-        }
-        events.push({
-          tick,
-          attackerSide: side,
-          attackerIdx: idx,
-          targetIdx,
-          damage,
-          counterBonus: bonus,
-          targetHpAfter: target.hp,
-          killed,
-        });
-        if (!foe.some((u) => u.alive)) break;
+      const unit = self[idx];
+      if (!unit || !unit.alive) continue;
+      const r = rngNext(rng);
+      rng = r.state;
+      const targetIdx = pickTarget(foe, r.value);
+      if (targetIdx < 0) break;
+      const target = foe[targetIdx];
+      const bonus = counterBonusOf(unit.kind, target.kind);
+      // 피해 편차 ±25% (승패가 0%/100%로 굳지 않게)
+      const roll = rngNext(rng);
+      rng = roll.state;
+      const base = bonus ? unit.atk * 1.3 : unit.atk;
+      const damage = Math.max(1, Math.round(base * (0.75 + roll.value * 0.5)));
+      target.hp -= damage;
+      let killed = false;
+      if (target.hp <= 0) {
+        target.hp = 0;
+        target.alive = false;
+        killed = true;
       }
+      events.push({
+        tick,
+        attackerSide: side,
+        attackerIdx: idx,
+        targetIdx,
+        damage,
+        counterBonus: bonus,
+        targetHpAfter: target.hp,
+        killed,
+      });
       if (!foe.some((u) => u.alive)) break;
     }
   }
@@ -309,33 +316,41 @@ export function validateFormation(formation: unknown): AutoFormation | null {
 
 // ── 서버가 쓰는 고정 수비 편성 (클라 미리보기도 같은 함수를 쓴다) ──
 
-/** 무법자 티어 → 수비 편성 (2 / 3 / 5기). */
+/** 무법자 등급별 표시 레벨 (지도 이름표·패널) */
+export const OUTLAW_AUTO_LEVEL: Readonly<Record<1 | 2 | 3, number>> = { 1: 1, 2: 2, 3: 3 };
+
+/** 무법자 등급별 권장 전력 (AI 대전 기준, 2026-11-27 조정) */
+export const OUTLAW_AUTO_ADVICE: Readonly<Record<1 | 2 | 3, string>> = {
+  1: "영주 혼자도 충분",
+  2: "영주 + 부대 1기 이상",
+  3: "영주 Lv.3 + 부대 3기(Lv.2) 이상",
+};
+
+/**
+ * 무법자 등급 → 수비 편성.
+ * 모의전(2026-11-27): 떠돌이는 영주 Lv.1 혼자 100%, 패거리는 영주+부대 1기 99%(영주 혼자 1%),
+ * 두목은 영주 Lv.3+부대 Lv.2 3기 95%(영주 Lv.2+부대 2기 1%).
+ */
 export function outlawFormation(tier: 1 | 2 | 3, label: string): AutoFormation {
-  const troops: AutoFormation =
-    tier === 1
-      ? [
-          { kind: "infantry", name: `${label} 졸개`, level: 1 },
-          { kind: "archer", name: `${label} 궁수`, level: 1 },
-          null,
-          null,
-          null,
-        ]
-      : tier === 2
-        ? [
-            { kind: "infantry", name: `${label} 졸개`, level: 2 },
-            { kind: "archer", name: `${label} 궁수`, level: 1 },
-            null,
-            { kind: "cavalry", name: `${label} 기수`, level: 2 },
-            null,
-          ]
-        : [
-            { kind: "lord", name: label, level: 2 },
-            { kind: "infantry", name: `${label} 친위`, level: 2 },
-            { kind: "archer", name: `${label} 궁수`, level: 2 },
-            { kind: "cavalry", name: `${label} 기수`, level: 2 },
-            { kind: "mage", name: `${label} 주술사`, level: 1 },
-          ];
-  return troops;
+  if (tier === 1) {
+    return [{ kind: "infantry", name: `${label} 졸개`, level: 1 }, null, null, null, null];
+  }
+  if (tier === 2) {
+    return [
+      { kind: "infantry", name: `${label} 졸개`, level: 2 },
+      null,
+      null,
+      { kind: "archer", name: `${label} 궁수`, level: 1 },
+      null,
+    ];
+  }
+  return [
+    { kind: "lord", name: label, level: 2 },
+    { kind: "infantry", name: `${label} 친위`, level: 2 },
+    { kind: "cavalry", name: `${label} 기수`, level: 2 },
+    { kind: "archer", name: `${label} 궁수`, level: 2 },
+    null,
+  ];
 }
 
 /** 무주 성 기본 수비대 (성급별). */
