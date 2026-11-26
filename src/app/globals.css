@@ -852,3 +852,51 @@
     animation: none;
   }
 }
+
+/* 영토전: 성 위 공성 게이지 */
+.map-siege-gauge {
+  background: none;
+  border: none;
+  pointer-events: none;
+}
+.siege-gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 76px;
+}
+.siege-gauge__bar {
+  width: 64px;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+}
+.siege-gauge__fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f97316, #ef4444);
+  transition: width 0.6s ease;
+}
+.siege-gauge--mine .siege-gauge__fill {
+  background: linear-gradient(90deg, #facc15, #fde047);
+}
+.siege-gauge__text {
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000, 0 0 3px #000;
+}
+.siege-gauge--hot .siege-gauge__bar {
+  animation: siege-gauge-pulse 1.2s ease-in-out infinite;
+}
+@keyframes siege-gauge-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50% { box-shadow: 0 0 6px 2px rgba(239, 68, 68, 0.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .siege-gauge--hot .siege-gauge__bar { animation: none; }
+}

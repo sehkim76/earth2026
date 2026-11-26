@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
+import { territoryOwnerColor } from "@/lib/territory-colors";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -160,6 +161,7 @@ type Sheet = null | "castles" | "units" | "move" | "build" | "manage" | "rank";
 interface RankUserRow {
   userId: string;
   nickname: string;
+  nationId?: string | null;
   nationName: string | null;
   wins: number;
   losses: number;
@@ -175,6 +177,69 @@ interface RankNationRow {
   losses: number;
   outlawWins: number;
   conquests: number;
+}
+
+interface RankEntry {
+  key: string;
+  name: string;
+  sub: string | null;
+  colorKey: string;
+  wins: number;
+  losses: number;
+  conquests: number;
+  outlawWins: number;
+  mine: boolean;
+}
+
+const RANK_MEDAL: Readonly<Record<number, string>> = {
+  1: "bg-[linear-gradient(135deg,#fde68a,#d4a017)] text-[#4a3300] ring-2 ring-[#f5d76e]",
+  2: "bg-[linear-gradient(135deg,#f1f5f9,#a8b3c2)] text-[#2d3748] ring-2 ring-[#d6dde6]",
+  3: "bg-[linear-gradient(135deg,#f3c39a,#b7703a)] text-[#3d1f05] ring-2 ring-[#e0a774]",
+};
+
+/** 랭킹 한 줄: 순위 메달, 영토 색, 이름·소속, 승수, 승률 막대, 점령·토벌 */
+function RankRow({ entry, rank, showOutlaw }: { entry: RankEntry; rank: number; showOutlaw: boolean }) {
+  const games = entry.wins + entry.losses;
+  const rate = games > 0 ? Math.round((entry.wins / games) * 100) : 0;
+  return (
+    <li
+      className={`flex list-none items-center gap-2 rounded-xl border px-2 py-1.5 ${
+        entry.mine ? "border-[#c9852a] bg-[#fff1cf] shadow-[0_0_0_1px_#e7c26a]" : "border-[#8e7954]/35 bg-[#fffaf0]"
+      }`}
+    >
+      <span
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-black tabular-nums ${
+          RANK_MEDAL[rank] ?? "bg-[#e5dac3] text-[#26352d]"
+        }`}
+      >
+        {rank}
+      </span>
+      <span
+        aria-hidden="true"
+        className="h-7 w-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: territoryOwnerColor(entry.colorKey) }}
+      />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-1">
+          <span className="truncate text-sm font-black text-slate-900">{entry.name}</span>
+          {entry.mine ? <span className="shrink-0 rounded bg-[#263b31] px-1 text-[9px] font-black text-[#fff4d8]">나</span> : null}
+          {entry.sub ? <span className="shrink-0 truncate text-[11px] font-bold text-slate-500">{entry.sub}</span> : null}
+        </span>
+        <span className="mt-0.5 flex items-center gap-1.5">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#d1c5aa]" title={`승률 ${rate}%`}>
+            <span className="block h-full rounded-full bg-[linear-gradient(90deg,#4f7a4a,#8fbf6a)]" style={{ width: `${rate}%` }} />
+          </span>
+          <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-500">
+            {entry.wins}승 {entry.losses}패{games > 0 ? ` · ${rate}%` : ""}
+          </span>
+        </span>
+      </span>
+      <span className="flex shrink-0 flex-col items-end leading-tight">
+        <span className="text-[11px] font-black text-[#7a5a1e]">점령 {entry.conquests}</span>
+        {showOutlaw ? <span className="text-[10px] font-bold text-slate-500">토벌 {entry.outlawWins}</span> : null}
+      </span>
+    </li>
+  );
 }
 
 /** 부대 목록에 표시되는 영주(플레이어) 가상 ID. 서버 부대가 아니라 이동 지시용이다. */
@@ -381,21 +446,42 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   );
   const [sheet, setSheet] = useState<Sheet>(null);
   const [rankScope, setRankScope] = useState<"user" | "nation">("user");
-  const [rankRows, setRankRows] = useState<{ users: RankUserRow[]; nations: RankNationRow[] } | null>(null);
+  const [rankRows, setRankRows] = useState<{
+    users: RankUserRow[];
+    nations: RankNationRow[];
+    meUser: { rank: number; row: RankUserRow } | null;
+    meNation: { rank: number; row: RankNationRow } | null;
+    myUserId: string | null;
+    myNationId: string | null;
+    seasonId: number | null;
+  } | null>(null);
   const [rankLoading, setRankLoading] = useState(false);
 
   const refreshRank = useCallback(async (scope: "user" | "nation") => {
     setRankLoading(true);
     try {
-      const data = await callApi<{ rows: RankUserRow[] & RankNationRow[] }>(
-        `/api/rankings?scope=${scope}&limit=20`,
-      );
+      const data = await callApi<{
+        rows: unknown[];
+        seasonId?: number;
+        myUserId?: string;
+        myNationId?: string | null;
+        me?: { rank: number; row: unknown } | null;
+      }>(`/api/rankings?scope=${scope}&limit=20`);
       setRankRows((prev) => ({
-        users: scope === "user" ? (data.rows as unknown as RankUserRow[]) : (prev?.users ?? []),
-        nations: scope === "nation" ? (data.rows as unknown as RankNationRow[]) : (prev?.nations ?? []),
+        users: scope === "user" ? (data.rows as RankUserRow[]) : (prev?.users ?? []),
+        nations: scope === "nation" ? (data.rows as RankNationRow[]) : (prev?.nations ?? []),
+        meUser: scope === "user" ? ((data.me as { rank: number; row: RankUserRow } | null | undefined) ?? null) : (prev?.meUser ?? null),
+        meNation:
+          scope === "nation" ? ((data.me as { rank: number; row: RankNationRow } | null | undefined) ?? null) : (prev?.meNation ?? null),
+        myUserId: data.myUserId ?? prev?.myUserId ?? null,
+        myNationId: data.myNationId !== undefined ? data.myNationId : (prev?.myNationId ?? null),
+        seasonId: data.seasonId ?? prev?.seasonId ?? null,
       }));
     } catch {
-      setRankRows((prev) => prev ?? { users: [], nations: [] });
+      setRankRows(
+        (prev) =>
+          prev ?? { users: [], nations: [], meUser: null, meNation: null, myUserId: null, myNationId: null, seasonId: null },
+      );
     } finally {
       setRankLoading(false);
     }
@@ -3426,42 +3512,97 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               </button>
             ))}
           </div>
-          {rankLoading ? (
+          {rankLoading && !rankRows ? (
             <p className="py-3 text-center text-sm text-slate-500">불러오는 중…</p>
-          ) : rankScope === "user" ? (
-            (rankRows?.users ?? []).length === 0 ? (
-              <p className="py-3 text-center text-sm text-slate-500">아직 전적이 없습니다. 전투에서 첫 승리를 노리세요.</p>
-            ) : (
-              <ul className="flex flex-col gap-1">
-                {(rankRows?.users ?? []).map((r, i) => (
-                  <li key={r.userId} className="flex items-center justify-between rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] px-3 py-1.5 text-sm">
-                    <span className="min-w-0 truncate font-black text-slate-900">
-                      {i + 1}. {r.nickname}
-                      {r.nationName ? <span className="font-bold text-slate-500"> · {r.nationName}</span> : null}
-                    </span>
-                    <span className="shrink-0 text-xs font-bold text-slate-600">
-                      {r.wins}승 {r.losses}패 · 점령 {r.conquests} · 토벌 {r.outlawWins}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )
-          ) : (rankRows?.nations ?? []).length === 0 ? (
-            <p className="py-3 text-center text-sm text-slate-500">아직 전적이 없습니다.</p>
           ) : (
-            <ul className="flex flex-col gap-1">
-              {(rankRows?.nations ?? []).map((r, i) => (
-                <li key={r.nationId} className="flex items-center justify-between rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] px-3 py-1.5 text-sm">
-                  <span className="min-w-0 truncate font-black text-slate-900">
-                    {i + 1}. {r.nationName}
-                    <span className="font-bold text-slate-500"> · {r.memberCount}명</span>
-                  </span>
-                  <span className="shrink-0 text-xs font-bold text-slate-600">
-                    {r.wins}승 {r.losses}패 · 점령 {r.conquests}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            (() => {
+              const isUser = rankScope === "user";
+              const list: RankEntry[] = isUser
+                ? (rankRows?.users ?? []).map((r) => ({
+                    key: r.userId,
+                    name: r.nickname || "무명",
+                    sub: r.nationName ?? null,
+                    colorKey: r.nationId ?? r.userId,
+                    wins: r.wins,
+                    losses: r.losses,
+                    conquests: r.conquests,
+                    outlawWins: r.outlawWins,
+                    mine: r.userId === rankRows?.myUserId,
+                  }))
+                : (rankRows?.nations ?? []).map((r) => ({
+                    key: r.nationId,
+                    name: r.nationName,
+                    sub: `${r.memberCount}명`,
+                    colorKey: r.nationId,
+                    wins: r.wins,
+                    losses: r.losses,
+                    conquests: r.conquests,
+                    outlawWins: r.outlawWins,
+                    mine: r.nationId === rankRows?.myNationId,
+                  }));
+              const meRaw = isUser ? rankRows?.meUser : rankRows?.meNation;
+              const meInList = list.some((e) => e.mine);
+              const meEntry: RankEntry | null =
+                meRaw && !meInList
+                  ? isUser
+                    ? (() => {
+                        const r = meRaw.row as RankUserRow;
+                        return {
+                          key: r.userId,
+                          name: r.nickname || "나",
+                          sub: r.nationName ?? null,
+                          colorKey: r.nationId ?? r.userId,
+                          wins: r.wins,
+                          losses: r.losses,
+                          conquests: r.conquests,
+                          outlawWins: r.outlawWins,
+                          mine: true,
+                        };
+                      })()
+                    : (() => {
+                        const r = meRaw.row as RankNationRow;
+                        return {
+                          key: r.nationId,
+                          name: r.nationName,
+                          sub: `${r.memberCount}명`,
+                          colorKey: r.nationId,
+                          wins: r.wins,
+                          losses: r.losses,
+                          conquests: r.conquests,
+                          outlawWins: r.outlawWins,
+                          mine: true,
+                        };
+                      })()
+                  : null;
+              if (list.length === 0) {
+                return (
+                  <p className="py-3 text-center text-sm text-slate-500">
+                    아직 전적이 없습니다. 무법자 토벌이나 공성으로 첫 승리를 노리세요.
+                  </p>
+                );
+              }
+              return (
+                <>
+                  {rankRows?.seasonId ? (
+                    <p className="mb-1 text-center text-[11px] font-bold text-slate-500">
+                      시즌 {rankRows.seasonId} · 승리 순, 같으면 점령 순 · 색은 지도 영토 색
+                    </p>
+                  ) : null}
+                  <ul className={`flex max-h-[46vh] flex-col gap-1 overflow-y-auto ${rankLoading ? "opacity-60" : ""}`}>
+                    {list.map((e, i) => (
+                      <RankRow key={e.key} entry={e} rank={i + 1} showOutlaw={isUser} />
+                    ))}
+                  </ul>
+                  {meEntry && meRaw ? (
+                    <div className="mt-1.5 border-t border-dashed border-[#8e7954]/50 pt-1.5">
+                      <ul>
+                        <RankRow entry={meEntry} rank={meRaw.rank} showOutlaw={isUser} />
+                      </ul>
+                    </div>
+                  ) : null}
+                </>
+              );
+            })()
           )}
         </div>
       ) : null}

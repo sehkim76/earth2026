@@ -58,6 +58,7 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
   return loaded;
 };
 
+import { territoryOwnerColor } from "@/lib/territory-colors";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
@@ -608,13 +609,47 @@ const getSavedZoomForStyle = (cacheKey: string, style: MapStyle): number | null 
   }
 };
 
-/** 소유자별 영토 색 (userId 해시 → hue). */
-const territoryOwnerColor = (ownerId: string): string => {
-  let h = 0;
-  for (let i = 0; i < ownerId.length; i += 1) {
-    h = (h * 31 + ownerId.charCodeAt(i)) >>> 0;
-  }
-  return `hsl(${h % 360}, 70%, 45%)`;
+type TerritoryRelation = "mine" | "alliance" | "nap" | "war" | "none";
+const isTerritoryRelation = (v: unknown): v is TerritoryRelation =>
+  v === "mine" || v === "alliance" || v === "nap" || v === "war" || v === "none";
+interface TerritoryDongOwner {
+  ownerId: string;
+  nickname: string;
+  /** 색 기준 (국가 id, 국가가 없으면 영주 id) */
+  colorKey: string;
+  /** 범례 이름 (정식 국가명, 1인 국가는 영주 닉네임) */
+  label: string;
+  relation: TerritoryRelation;
+}
+/** 관계별 테두리 색 (없음/중립은 기본 경계선) */
+const TERRITORY_RELATION_STROKE: Readonly<Record<TerritoryRelation, string | null>> = {
+  mine: "#fde047",
+  alliance: "#60a5fa",
+  nap: "#a7f3d0",
+  war: "#ef4444",
+  none: null,
+};
+const TERRITORY_RELATION_LABEL: Readonly<Record<TerritoryRelation, string | null>> = {
+  mine: "우리",
+  alliance: "동맹",
+  nap: "불가침",
+  war: "전쟁",
+  none: null,
+};
+/** 영토 동 채우기: 국가 색 + 관계 테두리 (전쟁은 점선) */
+const territoryFillStyle = (
+  own: TerritoryDongOwner,
+  strokeColor: string,
+  strokeWeight: number,
+): import("leaflet").PathOptions => {
+  const relStroke = TERRITORY_RELATION_STROKE[own.relation];
+  return {
+    color: relStroke ?? strokeColor,
+    weight: relStroke ? Math.max(strokeWeight, 2.5) : strokeWeight,
+    dashArray: own.relation === "war" ? "6 4" : undefined,
+    fillColor: territoryOwnerColor(own.colorKey),
+    fillOpacity: own.relation === "mine" ? 0.42 : 0.35,
+  };
 };
 const CLUSTER_DISTANCE_PX = 80;
 
@@ -1363,6 +1398,15 @@ export default function CurrentLocationMap({
     ownerNickname: string;
     dong: string;
     mine: boolean;
+    /** 성 주인의 국가 (없으면 null) */
+    nationId: string | null;
+    nationName: string | null;
+    nationSolo: boolean;
+    /** 나와의 관계 */
+    relation: TerritoryRelation;
+    /** 이 성에 쌓인 공성 게이지 최대값 / 우리 국가 게이지 */
+    siegeGauge: number;
+    mySiegeGauge: number;
   }
   const [territoryCastles, setTerritoryCastles] = useState<TerritoryOwnedCastle[]>([]);
   // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성). 같은 /api/castles/list 폴링에서 파생한다.
@@ -1420,13 +1464,22 @@ export default function CurrentLocationMap({
             ownerNickname: typeof row.ownerNickname === "string" ? row.ownerNickname : "",
             dong: row.dong,
             mine: row.mine === true,
+            nationId: typeof row.nationId === "string" ? row.nationId : null,
+            nationName: typeof row.nationName === "string" ? row.nationName : null,
+            nationSolo: row.nationSolo !== false,
+            relation: isTerritoryRelation(row.relation) ? row.relation : row.mine === true ? "mine" : "none",
+            siegeGauge: typeof row.siegeGauge === "number" ? row.siegeGauge : 0,
+            mySiegeGauge: typeof row.mySiegeGauge === "number" ? row.mySiegeGauge : 0,
           });
         }
         if (cancelled) {
           return;
         }
         const sig = JSON.stringify(
-          next.map((c) => [c.castleKey, c.kind, c.name, c.owner, c.ownerNickname, c.dong, c.mine]),
+          next.map((c) => [
+            c.castleKey, c.kind, c.name, c.owner, c.ownerNickname, c.dong, c.mine,
+            c.nationId, c.nationName, c.relation, c.siegeGauge, c.mySiegeGauge,
+          ]),
         );
         if (sig !== territoryCastlesSigRef.current) {
           territoryCastlesSigRef.current = sig;
@@ -1468,15 +1521,23 @@ export default function CurrentLocationMap({
   }, [territoryEnabled]);
 
   // 동 → 소유자 (영주성 우선). 범례용 소유자 집계.
+  // 색은 국가 단위 (국가가 없거나 1인 국가면 영주 단위와 같다).
   const ownedDongMap = useMemo(() => {
-    const map = new Map<string, { ownerId: string; nickname: string }>();
+    const map = new Map<string, TerritoryDongOwner>();
     for (const castle of territoryCastles) {
       if (!castle.owner || !castle.dong) {
         continue;
       }
       const prev = map.get(castle.dong);
       if (!prev || castle.kind === "lord") {
-        map.set(castle.dong, { ownerId: castle.owner, nickname: castle.ownerNickname });
+        const nationLabel = castle.nationName && !castle.nationSolo ? castle.nationName : null;
+        map.set(castle.dong, {
+          ownerId: castle.owner,
+          nickname: castle.ownerNickname,
+          colorKey: castle.nationId ?? castle.owner,
+          label: nationLabel ?? (castle.ownerNickname || "무명"),
+          relation: castle.relation,
+        });
       }
     }
     return map;
@@ -1502,19 +1563,27 @@ export default function CurrentLocationMap({
     return map;
   }, [territoryCastles]);
   const territoryLegend = useMemo(() => {
-    const byOwner = new Map<string, { nickname: string; dongs: Set<string> }>();
-    ownedDongMap.forEach(({ ownerId, nickname }, dong) => {
-      let entry = byOwner.get(ownerId);
+    const byKey = new Map<string, { label: string; relation: TerritoryRelation; dongs: Set<string> }>();
+    ownedDongMap.forEach(({ colorKey, label, relation }, dong) => {
+      let entry = byKey.get(colorKey);
       if (!entry) {
-        entry = { nickname, dongs: new Set<string>() };
-        byOwner.set(ownerId, entry);
+        entry = { label, relation, dongs: new Set<string>() };
+        byKey.set(colorKey, entry);
       }
       entry.dongs.add(dong);
     });
-    return [...byOwner.entries()]
-      .map(([ownerId, entry]) => ({ ownerId, nickname: entry.nickname, count: entry.dongs.size }))
-      .sort((a, b) => b.count - a.count);
+    return [...byKey.entries()]
+      .map(([colorKey, entry]) => ({ colorKey, label: entry.label, relation: entry.relation, count: entry.dongs.size }))
+      .sort((a, b) => (a.relation === "mine" ? -1 : b.relation === "mine" ? 1 : b.count - a.count));
   }, [ownedDongMap]);
+  // 공성 게이지가 쌓인 성 (지도 게이지 표시용)
+  const siegeCastles = useMemo(
+    () =>
+      territoryCastles
+        .filter((c) => c.siegeGauge > 0)
+        .map((c) => ({ castleKey: c.castleKey.trim(), gauge: c.siegeGauge, mine: c.mySiegeGauge })),
+    [territoryCastles],
+  );
   const [castlePlacement, setCastlePlacement] = useState<CastlePlacement | null>(null);
   const [placementBusy, setPlacementBusy] = useState(false);
   const [placementNotice, setPlacementNotice] = useState<{ id: number; message: string } | null>(null);
@@ -7599,6 +7668,59 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, [territoryEnabled, isMapReady, aimOriginLat, aimOriginLon, findTrackTargetAtCenter]);
 
+  // 영토전: 공성 게이지가 쌓인 성 위에 게이지 막대 (성 마커가 보이는 확대 15 이상)
+  const siegeGaugeLayerRef = useRef<LayerGroup | null>(null);
+  useEffect(() => {
+    if (!territoryEnabled || !isMapReady) {
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) {
+      return;
+    }
+    if (!siegeGaugeLayerRef.current) {
+      siegeGaugeLayerRef.current = L.layerGroup().addTo(map);
+    }
+    const layer = siegeGaugeLayerRef.current;
+    if (!map.hasLayer(layer)) {
+      layer.addTo(map);
+    }
+    layer.clearLayers();
+    if (zoomLevel < 15 || siegeCastles.length === 0) {
+      return;
+    }
+    const posByKey = new Map<string, { lat: number; lon: number }>();
+    for (const p of renderablePoiPoints) {
+      const key = (p.eventKey ?? "").trim();
+      if (key) posByKey.set(key, { lat: p.lat, lon: p.lon });
+    }
+    for (const sg of siegeCastles) {
+      const pos = posByKey.get(sg.castleKey);
+      if (!pos) {
+        continue;
+      }
+      const pct = Math.max(0, Math.min(100, Math.round(sg.gauge)));
+      const mine = sg.mine > 0;
+      const label = mine ? `우리 공성 ${Math.round(sg.mine)}%` : `공성 ${pct}%`;
+      const fillPct = mine ? Math.max(0, Math.min(100, Math.round(sg.mine))) : pct;
+      const icon = L.divIcon({
+        className: "map-siege-gauge",
+        html: `<div class="map-rotation-upright"><div class="siege-gauge${mine ? " siege-gauge--mine" : ""}${fillPct >= 75 ? " siege-gauge--hot" : ""}"><div class="siege-gauge__bar"><div class="siege-gauge__fill" style="width:${fillPct}%"></div></div><span class="siege-gauge__text">${label}</span></div></div>`,
+        iconSize: [76, 22],
+        iconAnchor: [38, 52],
+      });
+      L.marker([pos.lat, pos.lon], { icon, interactive: false, keyboard: false, zIndexOffset: 500 }).addTo(layer);
+    }
+  }, [territoryEnabled, isMapReady, zoomLevel, siegeCastles, renderablePoiPoints]);
+  useEffect(
+    () => () => {
+      siegeGaugeLayerRef.current?.remove();
+      siegeGaugeLayerRef.current = null;
+    },
+    [],
+  );
+
   // 영토전: 부대 이동 목적지 역삼각형 마커 (지시 후 유지)
   useEffect(() => {
     if (!territoryEnabled || !isMapReady) {
@@ -8336,15 +8458,10 @@ const isMapPerfEnabled = (): boolean => {
       if (territoryEnabled && adminLevel === "dong" && code) {
         const own = ownedDongMapRef.current.get(code);
         if (own) {
-          return {
-            color: s.strokeColor,
-            weight: s.strokeWeight,
-            fillColor: territoryOwnerColor(own.ownerId),
-            fillOpacity: 0.35,
-          };
+          return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
         }
       }
-      return { color: s.strokeColor, weight: s.strokeWeight, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
+      return { color: s.strokeColor, weight: s.strokeWeight, dashArray: undefined, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
     };
     // 3,500여 개 동 폴리곤을 SVG DOM 대신 단일 canvas로 그린다 (전용 pane, 오버레이 아래).
     if (!map.getPane(ADMIN_LEAFLET_PANE)) {
@@ -8430,15 +8547,10 @@ const isMapPerfEnabled = (): boolean => {
       if (territoryEnabled && adminLevel === "dong" && code) {
         const own = ownedDongMap.get(code);
         if (own) {
-          return {
-            color: s.strokeColor,
-            weight: s.strokeWeight,
-            fillColor: territoryOwnerColor(own.ownerId),
-            fillOpacity: 0.35,
-          };
+          return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
         }
       }
-      return { color: s.strokeColor, weight: s.strokeWeight, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
+      return { color: s.strokeColor, weight: s.strokeWeight, dashArray: undefined, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
     });
   }, [selectedAdminCode, hoveredAdminCode, adminLevel, ownedDongMap, territoryEnabled]);
 
@@ -8894,21 +9006,32 @@ const isMapPerfEnabled = (): boolean => {
       {territoryEnabled && territoryLegend.length > 0 ? (
         <div
           className={cn(
-            "pointer-events-auto absolute left-3 z-[1205] flex max-h-28 w-40 flex-col gap-0.5 overflow-y-auto rounded-md border border-white/20 bg-black/60 px-2 py-1.5 shadow-lg backdrop-blur-sm",
+            "pointer-events-auto absolute left-3 z-[1205] flex max-h-28 w-44 flex-col gap-0.5 overflow-y-auto rounded-md border border-white/20 bg-black/60 px-2 py-1.5 shadow-lg backdrop-blur-sm",
             selectedAdminCode ? "top-[9.75rem]" : "top-[7rem]",
           )}
           aria-label="영토 범례"
         >
           {territoryLegend.map((entry) => (
-            <div key={entry.ownerId} className="flex items-center gap-1.5">
+            <div key={entry.colorKey} className="flex items-center gap-1.5">
               <span
                 aria-hidden="true"
                 className="inline-block h-3 w-3 shrink-0 rounded-sm"
-                style={{ backgroundColor: territoryOwnerColor(entry.ownerId) }}
+                style={{
+                  backgroundColor: territoryOwnerColor(entry.colorKey),
+                  boxShadow: TERRITORY_RELATION_STROKE[entry.relation]
+                    ? `0 0 0 1.5px ${TERRITORY_RELATION_STROKE[entry.relation]}`
+                    : undefined,
+                }}
               />
-              <span className="truncate text-[11px] font-bold text-white/90">
-                {entry.nickname || "무명"}
-              </span>
+              <span className="min-w-0 truncate text-[11px] font-bold text-white/90">{entry.label}</span>
+              {TERRITORY_RELATION_LABEL[entry.relation] ? (
+                <span
+                  className="shrink-0 rounded px-1 text-[9px] font-black leading-tight text-black"
+                  style={{ backgroundColor: TERRITORY_RELATION_STROKE[entry.relation] ?? "#ddd" }}
+                >
+                  {TERRITORY_RELATION_LABEL[entry.relation]}
+                </span>
+              ) : null}
               <span className="ml-auto text-[11px] tabular-nums text-white/60">
                 {entry.count}
               </span>

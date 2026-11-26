@@ -60,6 +60,56 @@ export async function GET() {
           })
         : [];
     const nickById = new Map(nickRows.map((row) => [row.userId, row.nickname ?? ""]));
+
+    // 국가·외교·공성 게이지 (지도 국가별 색칠·게이지 표시용). 실패해도 성 목록은 낸다.
+    type Relation = "mine" | "alliance" | "nap" | "war" | "none";
+    const nationByUser = new Map<string, { id: string; name: string; solo: boolean }>();
+    const relationByNation = new Map<string, Relation>();
+    const siegeByCastle = new Map<string, { gauge: number; mine: number }>();
+    let myNationId: string | null = null;
+    try {
+      const seasonFilter = { missionKey: ctx.missionKey, seasonId: currentSeasonId() };
+      const memberRows = await prisma.territoryNationMember.findMany({
+        where: { userId: { in: [...ownerIds, userId] }, nation: seasonFilter },
+        select: { userId: true, nation: { select: { id: true, name: true, _count: { select: { members: true } } } } },
+      });
+      for (const row of memberRows) {
+        nationByUser.set(row.userId, { id: row.nation.id, name: row.nation.name, solo: row.nation._count.members <= 1 });
+      }
+      myNationId = nationByUser.get(userId)?.id ?? null;
+      if (myNationId) {
+        relationByNation.set(myNationId, "mine");
+        const now = new Date();
+        const rels = await prisma.territoryDiplomacy.findMany({
+          where: {
+            missionKey: ctx.missionKey,
+            status: "active",
+            type: { in: ["alliance", "nap", "war"] },
+            OR: [{ fromNationId: myNationId }, { toNationId: myNationId }],
+            AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+          },
+          orderBy: { createdAt: "asc" },
+          select: { fromNationId: true, toNationId: true, type: true },
+        });
+        // 최근 관계가 이전 관계를 덮는다 (canAttack과 같은 기준).
+        for (const rel of rels) {
+          const other = rel.fromNationId === myNationId ? rel.toNationId : rel.fromNationId;
+          relationByNation.set(other, rel.type as Relation);
+        }
+      }
+      const sieges = await prisma.territorySiege.findMany({
+        where: { missionKey: ctx.missionKey, gauge: { gt: 0 } },
+        select: { castleKey: true, attackerNationId: true, gauge: true },
+      });
+      for (const sg of sieges) {
+        const cur = siegeByCastle.get(sg.castleKey) ?? { gauge: 0, mine: 0 };
+        cur.gauge = Math.max(cur.gauge, sg.gauge);
+        if (myNationId && sg.attackerNationId === myNationId) cur.mine = sg.gauge;
+        siegeByCastle.set(sg.castleKey, cur);
+      }
+    } catch {
+      // 국가 정보 없이 진행
+    }
     for (const { key, meta } of parsed) {
       castles.push({
         castleKey: key,
@@ -71,10 +121,20 @@ export async function GET() {
         hp: meta.hp,
         maxHp: meta.maxHp,
         mine: meta.owner === userId,
+        nationId: meta.owner ? (nationByUser.get(meta.owner)?.id ?? null) : null,
+        nationName: meta.owner ? (nationByUser.get(meta.owner)?.name ?? null) : null,
+        nationSolo: meta.owner ? (nationByUser.get(meta.owner)?.solo ?? true) : true,
+        relation: (() => {
+          const nid = meta.owner ? nationByUser.get(meta.owner)?.id : undefined;
+          if (meta.owner === userId) return "mine";
+          return nid ? (relationByNation.get(nid) ?? "none") : "none";
+        })(),
+        siegeGauge: siegeByCastle.get(key)?.gauge ?? 0,
+        mySiegeGauge: siegeByCastle.get(key)?.mine ?? 0,
         availableForTraining: meta.owner === userId && meta.status === "active",
       });
     }
-    return NextResponse.json({ ok: true, castles });
+    return NextResponse.json({ ok: true, castles, myNationId });
   } catch {
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });
   }
