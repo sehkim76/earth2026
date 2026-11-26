@@ -26,6 +26,8 @@ import {
   type AutoUnitKind,
 } from "@/lib/auto-battle";
 import { loadUnits, withUnits } from "@/lib/units";
+
+export { outlawFormation, neutralGarrisonFormation } from "@/lib/auto-battle";
 import type { Tx } from "@/lib/territory";
 
 export interface ResolvedSlot extends AutoSlot {
@@ -97,35 +99,6 @@ export function attackerSkillKind(resolved: ResolvedSlot[], wanted?: AutoUnitKin
   return resolved[0].kind;
 }
 
-/** 무법자 티어 → 수비 편성 (2 / 3 / 5기). */
-export function outlawFormation(tier: 1 | 2 | 3, label: string): AutoFormation {
-  const troops: AutoFormation =
-    tier === 1
-      ? [
-          { kind: "infantry", name: `${label} 졸개`, level: 1 },
-          { kind: "archer", name: `${label} 궁수`, level: 1 },
-          null,
-          null,
-          null,
-        ]
-      : tier === 2
-        ? [
-            { kind: "infantry", name: `${label} 졸개`, level: 2 },
-            { kind: "archer", name: `${label} 궁수`, level: 1 },
-            null,
-            { kind: "cavalry", name: `${label} 기수`, level: 2 },
-            null,
-          ]
-        : [
-            { kind: "lord", name: label, level: 2 },
-            { kind: "infantry", name: `${label} 친위`, level: 2 },
-            { kind: "archer", name: `${label} 궁수`, level: 2 },
-            { kind: "cavalry", name: `${label} 기수`, level: 2 },
-            { kind: "mage", name: `${label} 주술사`, level: 1 },
-          ];
-  return troops;
-}
-
 /** 상대 성주 data → 수비 편성 (가용 지휘관 최대 5기) + 선두 id. */
 export function ownerFormation(
   ownerData: ReturnType<typeof toJsonObject>,
@@ -154,26 +127,6 @@ export function formationFromList(
     return { kind: toAutoKind(c.kind), name: c.name, level: c.level };
   });
   return { formation, leadId: picked[0].id };
-}
-
-/** 무주 성 기본 수비대 (성급별). */
-export function neutralGarrisonFormation(kind: "lord" | "noble"): AutoFormation {
-  if (kind === "noble") {
-    return [
-      { kind: "infantry", name: "성 수비대", level: 2 },
-      { kind: "archer", name: "성 수비대", level: 2 },
-      null,
-      { kind: "cavalry", name: "성 수비대", level: 1 },
-      null,
-    ];
-  }
-  return [
-    { kind: "lord", name: "성주 대리", level: 3 },
-    { kind: "infantry", name: "성 수비대", level: 2 },
-    { kind: "archer", name: "성 수비대", level: 2 },
-    { kind: "cavalry", name: "성 수비대", level: 2 },
-    { kind: "mage", name: "성 수비대", level: 1 },
-  ];
 }
 
 export interface AutoSettleInput {

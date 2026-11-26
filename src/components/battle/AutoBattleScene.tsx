@@ -40,7 +40,7 @@ export function autoSkillName(kind: AutoUnitKind): string {
   return "마법 작렬";
 }
 
-function skillEffectText(kind: AutoUnitKind): string {
+export function skillEffectText(kind: AutoUnitKind): string {
   if (kind === "lord") return "아군 전체 공격력 +1, 체력 +1";
   if (kind === "infantry") return "아군 전체 체력 2 회복";
   if (kind === "archer") return "적 하나에 3 피해";
