@@ -11,6 +11,7 @@ import {
 } from "@/lib/battle";
 import type { CommandersResponse } from "@/lib/battle";
 import {
+  ATTACK_RANGE_M,
   OUTLAW_AUTO_ADVICE,
   OUTLAW_AUTO_LEVEL,
   counterBonusOf,
@@ -96,6 +97,8 @@ async function loadOptions(): Promise<PickerOption[]> {
 
 interface PickerProps {
   target: AutoBattleTarget;
+  /** 선두로 세울 지휘관 (가능할 때만) */
+  leadId?: string;
   onCancel: () => void;
   onStarted: (r: AutoBattleStartResult, wildId: number | null) => void;
 }
@@ -150,7 +153,7 @@ function recommendSlots(current: Array<string | null>, avail: PickerOption[]): A
 }
 
 /** 편성 선택: 전위3+후위2 배치(누르면 선택·교체), 상성 미리보기, 스킬 종류·시점. */
-function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
+function FormationPicker({ target, leadId, onCancel, onStarted }: PickerProps) {
   const wildId = target.type === "outlaw" ? target.wildId : 0;
   const isOutlaw = target.type === "outlaw";
   const [options, setOptions] = useState<PickerOption[] | null>(null);
@@ -175,7 +178,8 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
         if (!alive) return;
         setOptions(list);
         const avail = list.filter((o) => o.available && (o.injuredUntil === null || o.injuredUntil <= Date.now()) && o.reason === null);
-        setSlots(recommendSlots([avail[0]?.id ?? null], avail));
+        const preferred = leadId && avail.some((o) => o.id === leadId) ? leadId : (avail[0]?.id ?? null);
+        setSlots(recommendSlots([preferred], avail));
       })
       .catch(() => {
         if (alive) setOptions([]);
@@ -380,7 +384,7 @@ function FormationPicker({ target, onCancel, onStarted }: PickerProps) {
                 <span className="text-red-300">{target.name}</span> 공격 — 편성
               </p>
               <p className="mt-0.5 text-sm text-amber-100/70">
-                60초 자동전투. 상대는 자기 지휘관들로 맞서며, 서버가 대신 싸웁니다. 선두가 150m 안에 있어야 합니다.
+                60초 자동전투. 상대는 자기 지휘관들로 맞서며, 서버가 대신 싸웁니다. 선두가 {ATTACK_RANGE_M}m 안에 있어야 합니다.
               </p>
             </>
           )}
@@ -631,6 +635,7 @@ export function AutoBattleHost({ enabled, outlawRequest, onOutlawRequestDone, ca
         <FormationPicker
           key={active?.nonce ?? JSON.stringify(target)}
           target={target}
+          leadId={outlawRequest?.leadId}
           onCancel={() => {
             onOutlawRequestDone();
             onCastleRequestDone();

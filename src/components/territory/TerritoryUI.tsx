@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
 import { territoryOwnerColor } from "@/lib/territory-colors";
-import { OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
+import type { BattleTargetRequest } from "@/components/battle/BattleHost";
+import { ATTACK_RANGE_M, OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
 import { estimateWinRate, recommendFormation, type EstimateCommander } from "@/lib/auto-battle-estimate";
 import { outlawTierForId } from "@/lib/battle/outlaw";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
@@ -24,6 +25,15 @@ export interface TerritoryCastlePoint {
   lat: number;
   lon: number;
   label: string;
+}
+
+/** 지도에서 보낸 공격 요청 (다가간 뒤 전투) */
+export interface AttackApproachRequest {
+  target: BattleTargetRequest;
+  /** 추적 대상 id (getTrackTargetPosition 키) */
+  trackId: string;
+  name: string;
+  nonce: number;
 }
 
 export interface TrackTarget {
@@ -57,6 +67,11 @@ interface TerritoryUIProps {
   findTrackTargetAtCenter?: () => TrackTarget | null;
   /** 추적 대상의 현재 위치. 사라졌으면 null. */
   getTrackTargetPosition?: (targetId: string) => { lat: number; lon: number } | null;
+  /** 공격 요청: 가까운 지휘관이 대상에게 다가간 뒤 전투를 연다 (지도 패널 「토벌」·「공격」). */
+  attackApproach?: AttackApproachRequest | null;
+  onAttackApproachHandled?: () => void;
+  /** 공격 거리 안에 들어왔다: 편성 창을 연다. leadId는 "lord" 또는 부대 id. */
+  onAttackReady?: (target: BattleTargetRequest, leadId: string) => void;
   /** 지도에서 선택된 행정구역 코드 (축성 동 자동 지정용). */
   dongCode: string | null;
   /** 플레이어가 위치한 동 코드 (중립 부대 스폰·조회 기준). */
@@ -797,6 +812,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       setHealingLord(false);
     }
   };
+  const lordInjuredUntilRef = useRef<number | null>(null);
   const [outlawWinRates, setOutlawWinRates] = useState<Record<1 | 2 | 3, number | null> | null>(null);
   const outlawWinRatesRef = useRef(outlawWinRates);
   useEffect(() => {
@@ -818,6 +834,11 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         if (!alive || !body.ok || !Array.isArray(body.commanders)) {
           return;
         }
+        const lordRow = body.commanders.find((c) => c.kind === "lord");
+        lordInjuredUntilRef.current =
+          lordRow && typeof lordRow.injuredUntil === "number"
+            ? lordRow.injuredUntil + (Date.now() - (body.serverNow ?? Date.now()))
+            : null;
         const kinds: readonly string[] = ["lord", "infantry", "archer", "cavalry", "mage"];
         const avail: EstimateCommander[] = body.commanders
           .filter((c) => c.available && (c.injuredUntil === null || c.injuredUntil <= (body.serverNow ?? Date.now())))
@@ -1674,6 +1695,116 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     const id = window.setInterval(() => chaseTickRef.current(), 3000);
     return () => window.clearInterval(id);
   }, []);
+
+  // ── 다가가서 공격: 공격 거리 밖이면 가장 가까운 지휘관이 대상을 추적 이동하고,
+  // ATTACK_RANGE_M 안에 들어오면 멈춘 뒤 편성 창을 연다. 추적을 풀거나 이동을 멈추면 취소된다.
+  // 서버 판정 여유가 있지만 위치 기록 지연을 고려해 조금 더 안쪽에서 멈춘다.
+  const ATTACK_TRIGGER_M = ATTACK_RANGE_M - 4;
+  const attackIntentRef = useRef(new Map<string, AttackApproachRequest>());
+  const meterDist = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number =>
+    Math.hypot((b.lon - a.lon) * 111320 * Math.cos((a.lat * Math.PI) / 180), (b.lat - a.lat) * 110540);
+  const commanderPos = (cid: string): { lat: number; lon: number } | null => {
+    if (cid === LORD_UNIT_ID) {
+      return props.getPlayerLocation();
+    }
+    const u = unitsRef.current.find((x) => x.id === cid);
+    return u ? { lat: u.lat, lon: u.lon } : null;
+  };
+  const readyToAttack = async (cid: string, req: AttackApproachRequest): Promise<void> => {
+    attackIntentRef.current.delete(cid);
+    endChase(cid);
+    if (cid === LORD_UNIT_ID) {
+      if (props.lordMoveTarget && props.lordMoveTarget.endsAt > Date.now()) {
+        stopLordMovement();
+      }
+    } else if (movingUnitIdsRef.current.has(cid)) {
+      await stopUnitMovement(cid);
+    }
+    props.onAttackReady?.(req.target, cid === LORD_UNIT_ID ? "lord" : cid);
+  };
+  const beginAttackApproach = (req: AttackApproachRequest): void => {
+    const tpos = props.getTrackTargetPosition?.(req.trackId) ?? null;
+    if (!tpos) {
+      flash(`${req.name}을(를) 찾을 수 없습니다.`);
+      return;
+    }
+    const now = Date.now();
+    const candidates: Array<{ id: string; pos: { lat: number; lon: number } }> = [];
+    const lordPos = props.getPlayerLocation();
+    if (lordPos && !(lordInjuredUntilRef.current !== null && lordInjuredUntilRef.current > now)) {
+      candidates.push({ id: LORD_UNIT_ID, pos: lordPos });
+    }
+    for (const u of unitsRef.current) {
+      if (u.state !== "field" || (typeof u.injuredUntil === "number" && u.injuredUntil > now)) {
+        continue;
+      }
+      candidates.push({ id: u.id, pos: { lat: u.lat, lon: u.lon } });
+    }
+    if (candidates.length === 0) {
+      flash("출전할 수 있는 지휘관이 없습니다 (모두 부상·훈련·주둔 중).");
+      return;
+    }
+    // 지금 선택한 지휘관이 있으면 그 지휘관, 아니면 가장 가까운 지휘관이 간다.
+    const picked =
+      candidates.find((c) => c.id === selectedUnitRef.current) ??
+      candidates.reduce((best, c) => (meterDist(c.pos, tpos) < meterDist(best.pos, tpos) ? c : best));
+    // 같은 지휘관의 이전 공격 요청은 새 요청으로 바꾼다.
+    attackIntentRef.current.delete(picked.id);
+    if (meterDist(picked.pos, tpos) <= ATTACK_TRIGGER_M) {
+      void readyToAttack(picked.id, req);
+      return;
+    }
+    attackIntentRef.current.set(picked.id, req);
+    const label = picked.id === LORD_UNIT_ID ? "영주" : (unitsRef.current.find((u) => u.id === picked.id)?.name ?? "부대");
+    if (picked.id === LORD_UNIT_ID) {
+      void moveLordToCenter({ dest: tpos });
+    } else {
+      const unitId = picked.id;
+      void (async () => {
+        // 이미 이동 중이면 멈춘 뒤 새로 출발한다 (이동 중엔 새 이동 지시가 무시된다).
+        if (movingUnitIdsRef.current.has(unitId)) {
+          await stopUnitMovement(unitId);
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 150));
+        }
+        const from = commanderPos(unitId) ?? picked.pos;
+        await moveUnitGradually(unitId, from.lat, from.lon, tpos.lat, tpos.lon);
+      })();
+    }
+    startChase(picked.id, { id: req.trackId, name: req.name, lat: tpos.lat, lon: tpos.lon });
+    flash(`${label}이(가) ${req.name}에게 다가갑니다. ${ATTACK_RANGE_M}m 안에 들어가면 전투를 시작합니다.`);
+  };
+  const attackCheckRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    attackCheckRef.current = (): void => {
+      for (const [cid, req] of [...attackIntentRef.current]) {
+        // 추적이 풀렸으면(이동 중지·추적 해제·대상 놓침) 공격도 취소
+        if (!chaseRef.current.has(cid)) {
+          attackIntentRef.current.delete(cid);
+          continue;
+        }
+        const tpos = props.getTrackTargetPosition?.(req.trackId) ?? null;
+        const cur = commanderPos(cid);
+        if (tpos && cur && meterDist(cur, tpos) <= ATTACK_TRIGGER_M) {
+          void readyToAttack(cid, req);
+        }
+      }
+    };
+  });
+  useEffect(() => {
+    const id = window.setInterval(() => attackCheckRef.current(), 600);
+    return () => window.clearInterval(id);
+  }, []);
+  const attackApproachNonce = props.attackApproach?.nonce ?? null;
+  useEffect(() => {
+    const req = props.attackApproach;
+    if (!req) {
+      return;
+    }
+    props.onAttackApproachHandled?.();
+    beginAttackApproach(req);
+    // 요청(nonce)마다 한 번만 처리한다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attackApproachNonce]);
 
   const isLordSelected = selectedUnit === LORD_UNIT_ID;
 

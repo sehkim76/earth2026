@@ -17,7 +17,13 @@ import {
   toJsonObject,
 } from "@/lib/battle-server";
 import { levelFromXp } from "@/lib/battle";
-import { resolveAutoBattle, type AutoFormation, type AutoUnitKind } from "@/lib/auto-battle";
+import {
+  ATTACK_RANGE_M,
+  ATTACK_RANGE_SLACK_M,
+  resolveAutoBattle,
+  type AutoFormation,
+  type AutoUnitKind,
+} from "@/lib/auto-battle";
 import { loadUnits } from "@/lib/units";
 import { recordBattleResult } from "@/lib/records";
 import {
@@ -88,8 +94,8 @@ function distM(lat1: number, lon1: number, lat2: number, lon2: number): number {
   return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(a)));
 }
 
-function tooFarMessage(d: number): string {
-  return `대상과 너무 멉니다 (${Math.round(d)}m, 최대 ${BATTLE_PROXIMITY_M}m).`;
+function tooFarMessage(d: number, max = BATTLE_PROXIMITY_M): string {
+  return `대상과 너무 멉니다 (${Math.round(d)}m, 최대 ${max}m).`;
 }
 
 /** 대인전 수비 측 확인 (락 없이 읽기 — 스냅샷). */
@@ -208,7 +214,9 @@ export async function POST(request: Request) {
         }
         const pos = outlawPositionAt(row, now);
         const dist = distM(atk.leadPos.lat, atk.leadPos.lon, pos.lat, pos.lon);
-        if (dist > BATTLE_PROXIMITY_M) throw new BattleError("too_far", 400, tooFarMessage(dist));
+        if (dist > ATTACK_RANGE_M + ATTACK_RANGE_SLACK_M) {
+          throw new BattleError("too_far", 400, tooFarMessage(dist, ATTACK_RANGE_M));
+        }
         // 지도에 보이는 등급 그대로 싸운다 (견습 보정 없음, 2026-11-27).
         const tier = outlawTierForId(row.id);
         defenderName = `${OUTLAW_TIER_LABEL[tier]}`;
@@ -261,7 +269,9 @@ export async function POST(request: Request) {
       if (target.type === "unit" || target.type === "lord") {
         const snap = await resolveDefenderSnapshot(userId, target.targetOwnerId, target.targetId, now);
         const dist = distM(atk.leadPos.lat, atk.leadPos.lon, snap.defender.lat, snap.defender.lon);
-        if (dist > BATTLE_PROXIMITY_M) throw new BattleError("too_far", 400, tooFarMessage(dist));
+        if (dist > ATTACK_RANGE_M + ATTACK_RANGE_SLACK_M) {
+          throw new BattleError("too_far", 400, tooFarMessage(dist, ATTACK_RANGE_M));
+        }
         const ownerNation = await tx.territoryNationMember.findFirst({
           where: { userId: target.targetOwnerId, nation: { missionKey: ctx.missionKey } },
           select: { nationId: true },

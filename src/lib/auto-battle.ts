@@ -2,6 +2,11 @@
 // 규칙: 전위 3 + 후위 2, 자동 진행, 지휘관 스킬 1회 타이밍 개입.
 // 순수 함수 + JSON 직렬화 가능. React/Next/Prisma import 금지.
 
+/** 무법자·상대 부대·영주 공격 가능 거리 (m). 멀면 지도에서 먼저 다가간 뒤 전투한다. */
+export const ATTACK_RANGE_M = 20;
+/** 서버 판정 여유 (영주 위치 기록 주기·이동 보간 오차) */
+export const ATTACK_RANGE_SLACK_M = 10;
+
 export type AutoUnitKind = "lord" | "infantry" | "archer" | "cavalry" | "mage";
 
 export interface AutoSlot {

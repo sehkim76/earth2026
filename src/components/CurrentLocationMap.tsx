@@ -112,7 +112,7 @@ import {
 } from "@/lib/walkable-overlay";
 import TerritoryDash from "@/components/territory/TerritoryDash";
 import TerritoryStartPicker, { type TerritoryStart } from "@/components/TerritoryStartPicker";
-import type { CastleBuildDraft } from "@/components/territory/TerritoryUI";
+import type { AttackApproachRequest, CastleBuildDraft } from "@/components/territory/TerritoryUI";
 
 // MapLibre globe renderer structural types. The runtime loads
 // `maplibre-gl` via a variable dynamic import so this file still
@@ -2301,6 +2301,9 @@ interface OtherUnitMoveAnim {
   const [outlawBattleRequest, setOutlawBattleRequest] = useState<OutlawBattleRequest | null>(null);
   const battleWildRef = useRef<number | null>(null);
   const clearOutlawBattleRequest = useCallback(() => setOutlawBattleRequest(null), []);
+  // 「토벌」·「공격」: 공격 거리 밖이면 지휘관이 먼저 다가간다 (TerritoryUI가 처리 후 onAttackReady).
+  const [attackApproach, setAttackApproach] = useState<AttackApproachRequest | null>(null);
+  const clearAttackApproach = useCallback(() => setAttackApproach(null), []);
   // 성 공성(오토배틀) 요청 + 전투 후 성 상세 갱신.
   const [castleBattleRequest, setCastleBattleRequest] = useState<CastleBattleRequest | null>(null);
   const clearCastleBattleRequest = useCallback(() => setCastleBattleRequest(null), []);
@@ -6735,6 +6738,28 @@ interface OtherUnitMoveAnim {
     }
     return { lat: current.lat, lon: current.lon };
   }, []);
+  // 공격 거리 안에 들어왔다: 영주가 선두면 서버 위치 판정을 위해 현재 위치를 바로 기록한 뒤 편성 창을 연다.
+  const handleAttackReady = useCallback(
+    (target: OutlawBattleRequest["target"], leadId: string): void => {
+      // 무법자 패널은 열어 둔다: 열린 동안 서버가 무법자를 멈춰 두어 편성하는 사이 멀어지지 않는다.
+      const open = (): void => {
+        setOutlawBattleRequest({ target, nonce: Date.now(), leadId });
+      };
+      const pos = leadId === "lord" ? getPlayerLocation() : null;
+      if (!pos) {
+        open();
+        return;
+      }
+      void fetch("/api/player-location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lat: pos.lat, lon: pos.lon, source: "gps", accuracy: null }),
+      })
+        .catch(() => undefined)
+        .finally(open);
+    },
+    [getPlayerLocation],
+  );
 
   // 추적 대상(무법자·남의 부대·남의 영주)의 현재 위치. 이동 중이면 애니메이션과 같은 수식으로 계산한다
   // (화면 밖 마커는 위치 갱신을 건너뛰므로 마커 좌표만 믿지 않는다).
@@ -9147,7 +9172,12 @@ const isMapPerfEnabled = (): boolean => {
                 onClick={() => {
                   const wildId = markerPanel.wildId;
                   if (wildId !== undefined) {
-                    setOutlawBattleRequest({ target: { type: "outlaw", wildId }, nonce: Date.now() });
+                    setAttackApproach({
+                      target: { type: "outlaw", wildId },
+                      trackId: `neutral-${wildId}`,
+                      name: "무법자",
+                      nonce: Date.now(),
+                    });
                   }
                 }}
                 className="whitespace-nowrap rounded-lg border border-red-300/60 bg-[linear-gradient(#b02c38,#5e121c)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
@@ -9161,7 +9191,12 @@ const isMapPerfEnabled = (): boolean => {
                 onClick={() => {
                   const t = markerPanel.pvpTarget;
                   if (t) {
-                    setOutlawBattleRequest({ target: t, nonce: Date.now() });
+                    setAttackApproach({
+                      target: t,
+                      trackId: t.type === "lord" ? `player:${t.ownerId}` : t.targetId,
+                      name: t.name,
+                      nonce: Date.now(),
+                    });
                   }
                 }}
                 className="whitespace-nowrap rounded-lg border border-red-300/60 bg-[linear-gradient(#b02c38,#5e121c)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
@@ -9772,6 +9807,9 @@ const isMapPerfEnabled = (): boolean => {
           onMoveAimOrigin={setMoveAimOrigin}
           findTrackTargetAtCenter={findTrackTargetAtCenter}
           getTrackTargetPosition={getTrackTargetPosition}
+          attackApproach={attackApproach}
+          onAttackApproachHandled={clearAttackApproach}
+          onAttackReady={handleAttackReady}
           onLordSelectedChange={setLordSelected}
           onCastleBattle={(castleKey, name) =>
             setCastleBattleRequest({ target: { type: "castle", castleKey, name }, nonce: Date.now() })

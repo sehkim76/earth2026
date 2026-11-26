@@ -26,6 +26,8 @@ export type BattleTargetRequest =
 export interface OutlawBattleRequest {
   target: BattleTargetRequest;
   nonce: number;
+  /** 선두로 세울 지휘관 ("lord" 또는 부대 id) — 지도에서 다가간 지휘관 */
+  leadId?: string;
 }
 
 interface BattleHostProps {
