@@ -85,6 +85,10 @@ interface TerritoryUIProps {
   markerDialogOpen: boolean;
   /** 영주 선택 상태 변경 알림 (플레이어 마커 선택 테두리용). */
   onLordSelectedChange?: (selected: boolean) => void;
+  /** 성 공성 전투 진입 (오토배틀). */
+  onCastleBattle?: (castleKey: string, name: string) => void;
+  /** 값이 바뀌면 열린 성 상세 정보를 다시 조회한다 (전투 결과 반영용). */
+  castleRefreshNonce?: number;
 }
 
 interface UnitInfo {
@@ -151,7 +155,27 @@ interface CastleDetail {
   cooldownSec: number;
 }
 
-type Sheet = null | "castles" | "units" | "move" | "build" | "manage";
+type Sheet = null | "castles" | "units" | "move" | "build" | "manage" | "rank";
+
+interface RankUserRow {
+  userId: string;
+  nickname: string;
+  nationName: string | null;
+  wins: number;
+  losses: number;
+  outlawWins: number;
+  conquests: number;
+}
+
+interface RankNationRow {
+  nationId: string;
+  nationName: string;
+  memberCount: number;
+  wins: number;
+  losses: number;
+  outlawWins: number;
+  conquests: number;
+}
 
 /** 부대 목록에 표시되는 영주(플레이어) 가상 ID. 서버 부대가 아니라 이동 지시용이다. */
 export const LORD_UNIT_ID = "__lord__";
@@ -356,6 +380,26 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     [onMovePath, onMoveDestination],
   );
   const [sheet, setSheet] = useState<Sheet>(null);
+  const [rankScope, setRankScope] = useState<"user" | "nation">("user");
+  const [rankRows, setRankRows] = useState<{ users: RankUserRow[]; nations: RankNationRow[] } | null>(null);
+  const [rankLoading, setRankLoading] = useState(false);
+
+  const refreshRank = useCallback(async (scope: "user" | "nation") => {
+    setRankLoading(true);
+    try {
+      const data = await callApi<{ rows: RankUserRow[] & RankNationRow[] }>(
+        `/api/rankings?scope=${scope}&limit=20`,
+      );
+      setRankRows((prev) => ({
+        users: scope === "user" ? (data.rows as unknown as RankUserRow[]) : (prev?.users ?? []),
+        nations: scope === "nation" ? (data.rows as unknown as RankNationRow[]) : (prev?.nations ?? []),
+      }));
+    } catch {
+      setRankRows((prev) => prev ?? { users: [], nations: [] });
+    } finally {
+      setRankLoading(false);
+    }
+  }, []);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionDialog, setActionDialog] = useState<{ title: string; message: string } | null>(null);
   const [scoutResult, setScoutResult] = useState<{
@@ -1089,6 +1133,16 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       setDetail(null);
     }
   }, [castleKey, refreshDetail]);
+
+  // 전투 종료 후 성 상세 갱신 (게이지·점령 반영).
+  const lastCastleRefreshRef = useRef(0);
+  useEffect(() => {
+    const nonce = props.castleRefreshNonce ?? 0;
+    if (castleKey && nonce !== 0 && nonce !== lastCastleRefreshRef.current) {
+      lastCastleRefreshRef.current = nonce;
+      void refreshDetail(castleKey);
+    }
+  }, [castleKey, props.castleRefreshNonce, refreshDetail]);
 
   // 성 다이얼로그가 열리면 지도 중앙을 해당 성으로 이동시킨다 (열릴 때 1회만).
   const pannedCastleKeyRef = useRef<string | null>(null);
@@ -3225,7 +3279,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           </div>
         </>
       ) : sheet !== null || castleKey ? null : (
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-20 z-[1100] mx-auto grid w-auto max-w-md grid-cols-2 gap-1 rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 p-1.5">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-20 z-[1100] mx-auto grid w-auto max-w-md grid-cols-3 gap-1 rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 p-1.5">
           <button
             type="button"
             onClick={() => {
@@ -3269,6 +3323,18 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           >
             <TerritoryActionIcon name="harvest" />
             수확
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setRankScope("user");
+              void refreshRank("user");
+              setSheet("rank");
+              onCloseCastle();
+            }}
+            className={`${buttonOriginal} flex items-center justify-center gap-2`}
+          >
+            랭킹
           </button>
         </div>
       )}
@@ -3334,6 +3400,69 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               </ul>
             );
           })()}
+        </div>
+      ) : null}
+
+      {sheet === "rank" ? (
+        <div className={sheetStyle}>
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-base font-black text-slate-900">시즌 랭킹</p>
+            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+              닫기
+            </button>
+          </div>
+          <div className="mb-1.5 flex gap-1">
+            {(["user", "nation"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setRankScope(s);
+                  void refreshRank(s);
+                }}
+                className={`flex-1 rounded-xl px-3 py-1 text-sm font-black ${rankScope === s ? "bg-[#263b31] text-[#fff4d8]" : "border border-[#8e7954]/55 bg-[#e5dac3] text-[#26352d]"}`}
+              >
+                {s === "user" ? "개인" : "국가"}
+              </button>
+            ))}
+          </div>
+          {rankLoading ? (
+            <p className="py-3 text-center text-sm text-slate-500">불러오는 중…</p>
+          ) : rankScope === "user" ? (
+            (rankRows?.users ?? []).length === 0 ? (
+              <p className="py-3 text-center text-sm text-slate-500">아직 전적이 없습니다. 전투에서 첫 승리를 노리세요.</p>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {(rankRows?.users ?? []).map((r, i) => (
+                  <li key={r.userId} className="flex items-center justify-between rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] px-3 py-1.5 text-sm">
+                    <span className="min-w-0 truncate font-black text-slate-900">
+                      {i + 1}. {r.nickname}
+                      {r.nationName ? <span className="font-bold text-slate-500"> · {r.nationName}</span> : null}
+                    </span>
+                    <span className="shrink-0 text-xs font-bold text-slate-600">
+                      {r.wins}승 {r.losses}패 · 점령 {r.conquests} · 토벌 {r.outlawWins}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (rankRows?.nations ?? []).length === 0 ? (
+            <p className="py-3 text-center text-sm text-slate-500">아직 전적이 없습니다.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {(rankRows?.nations ?? []).map((r, i) => (
+                <li key={r.nationId} className="flex items-center justify-between rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] px-3 py-1.5 text-sm">
+                  <span className="min-w-0 truncate font-black text-slate-900">
+                    {i + 1}. {r.nationName}
+                    <span className="font-bold text-slate-500"> · {r.memberCount}명</span>
+                  </span>
+                  <span className="shrink-0 text-xs font-bold text-slate-600">
+                    {r.wins}승 {r.losses}패 · 점령 {r.conquests}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       ) : null}
 
@@ -3679,6 +3808,18 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   className={buttonGhost}
                 >
                   입성
+                </button>
+              ) : null}
+              {!detail.isOwner && detail.status === "active" ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (castleKey) props.onCastleBattle?.(castleKey, detail.name);
+                  }}
+                  className="min-h-[33px] w-full rounded-xl bg-[#7a342b] px-4 py-1 text-sm font-black tracking-wide text-[#fff4d8] active:translate-y-0.5 active:bg-[#8c4034] disabled:opacity-40"
+                >
+                  전투로 공격 (60초)
                 </button>
               ) : null}
               {detail && !detail.myMemberCastle && castleDistM !== null && !canJoinHere ? (

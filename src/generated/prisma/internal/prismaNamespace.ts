@@ -414,6 +414,11 @@ export const ModelName = {
   ProfileTable: 'ProfileTable',
   SubscriberTable: 'SubscriberTable',
   TerritoryNeutralTrail: 'TerritoryNeutralTrail',
+  TerritoryNation: 'TerritoryNation',
+  TerritoryNationMember: 'TerritoryNationMember',
+  TerritoryDiplomacy: 'TerritoryDiplomacy',
+  TerritorySiege: 'TerritorySiege',
+  TerritorySeasonRecord: 'TerritorySeasonRecord',
   TerritoryNeutralUnit: 'TerritoryNeutralUnit',
   VersionTable: 'VersionTable'
 } as const
@@ -431,7 +436,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNeutralUnit" | "versionTable"
+    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1915,6 +1920,376 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TerritoryNation: {
+      payload: Prisma.$TerritoryNationPayload<ExtArgs>
+      fields: Prisma.TerritoryNationFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryNationFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryNationFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryNationFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryNationFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryNationFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryNationCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryNationCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryNationCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryNationDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        update: {
+          args: Prisma.TerritoryNationUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryNationDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryNationUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryNationUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryNationUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryNationAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryNation>
+        }
+        groupBy: {
+          args: Prisma.TerritoryNationGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryNationGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryNationCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryNationCountAggregateOutputType> | number
+        }
+      }
+    }
+    TerritoryNationMember: {
+      payload: Prisma.$TerritoryNationMemberPayload<ExtArgs>
+      fields: Prisma.TerritoryNationMemberFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryNationMemberFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryNationMemberFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryNationMemberFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryNationMemberFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryNationMemberFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryNationMemberCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryNationMemberCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryNationMemberCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryNationMemberDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        update: {
+          args: Prisma.TerritoryNationMemberUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryNationMemberDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryNationMemberUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryNationMemberUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryNationMemberUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryNationMemberPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryNationMemberAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryNationMember>
+        }
+        groupBy: {
+          args: Prisma.TerritoryNationMemberGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryNationMemberGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryNationMemberCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryNationMemberCountAggregateOutputType> | number
+        }
+      }
+    }
+    TerritoryDiplomacy: {
+      payload: Prisma.$TerritoryDiplomacyPayload<ExtArgs>
+      fields: Prisma.TerritoryDiplomacyFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryDiplomacyFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryDiplomacyFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryDiplomacyFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryDiplomacyFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryDiplomacyFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryDiplomacyCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryDiplomacyCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryDiplomacyCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryDiplomacyDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        update: {
+          args: Prisma.TerritoryDiplomacyUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryDiplomacyDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryDiplomacyUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryDiplomacyUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryDiplomacyUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDiplomacyPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryDiplomacyAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryDiplomacy>
+        }
+        groupBy: {
+          args: Prisma.TerritoryDiplomacyGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDiplomacyGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryDiplomacyCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDiplomacyCountAggregateOutputType> | number
+        }
+      }
+    }
+    TerritorySiege: {
+      payload: Prisma.$TerritorySiegePayload<ExtArgs>
+      fields: Prisma.TerritorySiegeFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritorySiegeFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritorySiegeFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        findFirst: {
+          args: Prisma.TerritorySiegeFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritorySiegeFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        findMany: {
+          args: Prisma.TerritorySiegeFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>[]
+        }
+        create: {
+          args: Prisma.TerritorySiegeCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        createMany: {
+          args: Prisma.TerritorySiegeCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritorySiegeCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>[]
+        }
+        delete: {
+          args: Prisma.TerritorySiegeDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        update: {
+          args: Prisma.TerritorySiegeUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritorySiegeDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritorySiegeUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritorySiegeUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritorySiegeUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySiegePayload>
+        }
+        aggregate: {
+          args: Prisma.TerritorySiegeAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritorySiege>
+        }
+        groupBy: {
+          args: Prisma.TerritorySiegeGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritorySiegeGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritorySiegeCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritorySiegeCountAggregateOutputType> | number
+        }
+      }
+    }
+    TerritorySeasonRecord: {
+      payload: Prisma.$TerritorySeasonRecordPayload<ExtArgs>
+      fields: Prisma.TerritorySeasonRecordFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritorySeasonRecordFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritorySeasonRecordFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritorySeasonRecordFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritorySeasonRecordFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        findMany: {
+          args: Prisma.TerritorySeasonRecordFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>[]
+        }
+        create: {
+          args: Prisma.TerritorySeasonRecordCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        createMany: {
+          args: Prisma.TerritorySeasonRecordCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritorySeasonRecordCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritorySeasonRecordDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        update: {
+          args: Prisma.TerritorySeasonRecordUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritorySeasonRecordDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritorySeasonRecordUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritorySeasonRecordUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritorySeasonRecordUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritorySeasonRecordPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritorySeasonRecordAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritorySeasonRecord>
+        }
+        groupBy: {
+          args: Prisma.TerritorySeasonRecordGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritorySeasonRecordGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritorySeasonRecordCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritorySeasonRecordCountAggregateOutputType> | number
+        }
+      }
+    }
     TerritoryNeutralUnit: {
       payload: Prisma.$TerritoryNeutralUnitPayload<ExtArgs>
       fields: Prisma.TerritoryNeutralUnitFieldRefs
@@ -2379,6 +2754,72 @@ export const TerritoryNeutralTrailScalarFieldEnum = {
 export type TerritoryNeutralTrailScalarFieldEnum = (typeof TerritoryNeutralTrailScalarFieldEnum)[keyof typeof TerritoryNeutralTrailScalarFieldEnum]
 
 
+export const TerritoryNationScalarFieldEnum = {
+  id: 'id',
+  missionKey: 'missionKey',
+  name: 'name',
+  leaderUserId: 'leaderUserId',
+  seasonId: 'seasonId',
+  createdAt: 'createdAt'
+} as const
+
+export type TerritoryNationScalarFieldEnum = (typeof TerritoryNationScalarFieldEnum)[keyof typeof TerritoryNationScalarFieldEnum]
+
+
+export const TerritoryNationMemberScalarFieldEnum = {
+  id: 'id',
+  nationId: 'nationId',
+  userId: 'userId',
+  role: 'role',
+  joinedAt: 'joinedAt'
+} as const
+
+export type TerritoryNationMemberScalarFieldEnum = (typeof TerritoryNationMemberScalarFieldEnum)[keyof typeof TerritoryNationMemberScalarFieldEnum]
+
+
+export const TerritoryDiplomacyScalarFieldEnum = {
+  id: 'id',
+  missionKey: 'missionKey',
+  fromNationId: 'fromNationId',
+  toNationId: 'toNationId',
+  type: 'type',
+  status: 'status',
+  payload: 'payload',
+  createdAt: 'createdAt',
+  expiresAt: 'expiresAt',
+  decidedAt: 'decidedAt'
+} as const
+
+export type TerritoryDiplomacyScalarFieldEnum = (typeof TerritoryDiplomacyScalarFieldEnum)[keyof typeof TerritoryDiplomacyScalarFieldEnum]
+
+
+export const TerritorySiegeScalarFieldEnum = {
+  id: 'id',
+  missionKey: 'missionKey',
+  castleKey: 'castleKey',
+  attackerNationId: 'attackerNationId',
+  gauge: 'gauge',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TerritorySiegeScalarFieldEnum = (typeof TerritorySiegeScalarFieldEnum)[keyof typeof TerritorySiegeScalarFieldEnum]
+
+
+export const TerritorySeasonRecordScalarFieldEnum = {
+  id: 'id',
+  missionKey: 'missionKey',
+  seasonId: 'seasonId',
+  userId: 'userId',
+  wins: 'wins',
+  losses: 'losses',
+  outlawWins: 'outlawWins',
+  conquests: 'conquests',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TerritorySeasonRecordScalarFieldEnum = (typeof TerritorySeasonRecordScalarFieldEnum)[keyof typeof TerritorySeasonRecordScalarFieldEnum]
+
+
 export const TerritoryNeutralUnitScalarFieldEnum = {
   id: 'id',
   dong: 'dong',
@@ -2666,6 +3107,11 @@ export type GlobalOmitConfig = {
   profileTable?: Prisma.ProfileTableOmit
   subscriberTable?: Prisma.SubscriberTableOmit
   territoryNeutralTrail?: Prisma.TerritoryNeutralTrailOmit
+  territoryNation?: Prisma.TerritoryNationOmit
+  territoryNationMember?: Prisma.TerritoryNationMemberOmit
+  territoryDiplomacy?: Prisma.TerritoryDiplomacyOmit
+  territorySiege?: Prisma.TerritorySiegeOmit
+  territorySeasonRecord?: Prisma.TerritorySeasonRecordOmit
   territoryNeutralUnit?: Prisma.TerritoryNeutralUnitOmit
   versionTable?: Prisma.VersionTableOmit
 }

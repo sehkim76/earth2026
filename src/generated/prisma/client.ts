@@ -45,10 +45,6 @@ path.join(process.cwd(), "src/generated/prisma/libquery_engine-debian-openssl-3.
 path.join(__dirname, "libquery_engine-rhel-openssl-3.0.x.so.node")
 path.join(process.cwd(), "src/generated/prisma/libquery_engine-rhel-openssl-3.0.x.so.node")
 
-// file annotations for bundling tools to include these files
-path.join(__dirname, "libquery_engine-linux-arm64-openssl-3.0.x.so.node")
-path.join(process.cwd(), "src/generated/prisma/libquery_engine-linux-arm64-openssl-3.0.x.so.node")
-
 /**
  * Model ARMissionEvent
  * 
@@ -149,6 +145,31 @@ export type SubscriberTable = Prisma.SubscriberTableModel
  * 무법자 발자국 (동별 100m 셀 방문 횟수 — 분산 배회용).
  */
 export type TerritoryNeutralTrail = Prisma.TerritoryNeutralTrailModel
+/**
+ * Model TerritoryNation
+ * 국가(길드) — 솔로도 1인 국가로 동등 주체. 점령 권한 동일, 효율만 차등.
+ */
+export type TerritoryNation = Prisma.TerritoryNationModel
+/**
+ * Model TerritoryNationMember
+ * 국가 구성원 (1인 국가 포함).
+ */
+export type TerritoryNationMember = Prisma.TerritoryNationMemberModel
+/**
+ * Model TerritoryDiplomacy
+ * 국가 간 외교 (불가침/동맹/조공·할양/선전포고). 비동기 제안→수락.
+ */
+export type TerritoryDiplomacy = Prisma.TerritoryDiplomacyModel
+/**
+ * Model TerritorySiege
+ * 공성 게이지 — 개인/길드 누적. 솔로 1승 +25%, 국가원 1승 +15% 합산.
+ */
+export type TerritorySiege = Prisma.TerritorySiegeModel
+/**
+ * Model TerritorySeasonRecord
+ * 시즌 전적 (개인 단위 기록, 국가 랭킹은 구성원 합산).
+ */
+export type TerritorySeasonRecord = Prisma.TerritorySeasonRecordModel
 /**
  * Model TerritoryNeutralUnit
  * 영토전 중립 부대 (동별 최대 5기, 5분마다 1기 스폰, 동 영역 배회).

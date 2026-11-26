@@ -256,6 +256,85 @@ model TerritoryNeutralTrail {
   @@index([dong], map: "neutral_trail_dong")
 }
 
+/// 국가(길드) — 솔로도 1인 국가로 동등 주체. 점령 권한 동일, 효율만 차등.
+model TerritoryNation {
+  id           String   @id @default(cuid())
+  missionKey   String   @db.VarChar(255)
+  name         String   @db.VarChar(30)
+  leaderUserId String   @db.VarChar(255)
+  seasonId     Int      @default(1)
+  createdAt    DateTime @default(now()) @db.Timestamp(0)
+  members      TerritoryNationMember[]
+  sentDiplomacy     TerritoryDiplomacy[] @relation("DiplomacyFrom")
+  receivedDiplomacy TerritoryDiplomacy[] @relation("DiplomacyTo")
+
+  @@index([missionKey, seasonId], map: "nation_mission_season")
+  @@index([leaderUserId], map: "nation_leader")
+}
+
+/// 국가 구성원 (1인 국가 포함).
+model TerritoryNationMember {
+  id       String   @id @default(cuid())
+  nationId String
+  nation   TerritoryNation @relation(fields: [nationId], references: [id], onDelete: Cascade)
+  userId   String   @db.VarChar(255)
+  role     String   @db.VarChar(16) @default("member")
+  joinedAt DateTime @default(now()) @db.Timestamp(0)
+
+  @@unique([nationId, userId], map: "nation_member_unique")
+  @@index([userId], map: "nation_member_user")
+  @@index([nationId], map: "nation_member_nation")
+}
+
+/// 국가 간 외교 (불가침/동맹/조공·할양/선전포고). 비동기 제안→수락.
+model TerritoryDiplomacy {
+  id           String   @id @default(cuid())
+  missionKey   String   @db.VarChar(255)
+  fromNationId String
+  fromNation   TerritoryNation @relation("DiplomacyFrom", fields: [fromNationId], references: [id], onDelete: Cascade)
+  toNationId   String
+  toNation     TerritoryNation @relation("DiplomacyTo", fields: [toNationId], references: [id], onDelete: Cascade)
+  type         String   @db.VarChar(16)
+  status       String   @db.VarChar(16) @default("pending")
+  payload      String?  @db.Text
+  createdAt    DateTime @default(now()) @db.Timestamp(0)
+  expiresAt    DateTime? @db.Timestamp(0)
+  decidedAt    DateTime? @db.Timestamp(0)
+
+  @@index([missionKey, status], map: "diplomacy_mission_status")
+  @@index([fromNationId], map: "diplomacy_from")
+  @@index([toNationId], map: "diplomacy_to")
+}
+
+/// 공성 게이지 — 개인/길드 누적. 솔로 1승 +25%, 국가원 1승 +15% 합산.
+model TerritorySiege {
+  id               String   @id @default(cuid())
+  missionKey       String   @db.VarChar(255)
+  castleKey        String   @db.VarChar(255)
+  attackerNationId String   @db.VarChar(255)
+  gauge            Int      @default(0)
+  updatedAt        DateTime @default(now()) @db.Timestamp(0)
+
+  @@unique([missionKey, castleKey, attackerNationId], map: "siege_unique")
+  @@index([missionKey, castleKey], map: "siege_castle")
+}
+
+/// 시즌 전적 (개인 단위 기록, 국가 랭킹은 구성원 합산).
+model TerritorySeasonRecord {
+  id         String   @id @default(cuid())
+  missionKey String   @db.VarChar(255)
+  seasonId   Int      @default(1)
+  userId     String   @db.VarChar(255)
+  wins       Int      @default(0)
+  losses     Int      @default(0)
+  outlawWins Int      @default(0)
+  conquests  Int      @default(0)
+  updatedAt  DateTime @default(now()) @db.Timestamp(0)
+
+  @@unique([missionKey, seasonId, userId], map: "season_record_unique")
+  @@index([missionKey, seasonId, wins], map: "season_record_rank")
+}
+
 /// 영토전 중립 부대 (동별 최대 5기, 5분마다 1기 스폰, 동 영역 배회).
 model TerritoryNeutralUnit {
   id           Int    @id @default(autoincrement())

@@ -61,7 +61,8 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
-import { BattleHost } from "@/components/battle/BattleHost";
+import { AutoBattleHost } from "@/components/battle/AutoBattleHost";
+import type { CastleBattleRequest } from "@/components/battle/AutoBattleHost";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
 import { serverNow } from "@/lib/server-clock";
 import {
@@ -2217,6 +2218,10 @@ interface OtherUnitMoveAnim {
   const [outlawBattleRequest, setOutlawBattleRequest] = useState<OutlawBattleRequest | null>(null);
   const battleWildRef = useRef<number | null>(null);
   const clearOutlawBattleRequest = useCallback(() => setOutlawBattleRequest(null), []);
+  // 성 공성(오토배틀) 요청 + 전투 후 성 상세 갱신.
+  const [castleBattleRequest, setCastleBattleRequest] = useState<CastleBattleRequest | null>(null);
+  const clearCastleBattleRequest = useCallback(() => setCastleBattleRequest(null), []);
+  const [castleRefreshNonce, setCastleRefreshNonce] = useState(0);
   useEffect(() => {
     if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocationRef.current) {
       return;
@@ -9581,10 +9586,12 @@ const isMapPerfEnabled = (): boolean => {
           onClose={() => setStartPickerOpen(false)}
         />
       ) : null}
-      <BattleHost
+      <AutoBattleHost
         enabled={territoryEnabled}
         outlawRequest={outlawBattleRequest}
         onOutlawRequestDone={clearOutlawBattleRequest}
+        castleRequest={castleBattleRequest}
+        onCastleRequestDone={clearCastleBattleRequest}
         onBattleStarted={(wildId) => {
           battleWildRef.current = wildId;
           closeMarkerPanel();
@@ -9594,6 +9601,8 @@ const isMapPerfEnabled = (): boolean => {
           setNeutralRefreshNonce((n) => n + 1);
           // 전투 결과(부상·승리 수)를 반영한다.
           setTerritoryMeNonce((n) => n + 1);
+          // 공성 게이지·점령 결과를 성 상세에 반영한다.
+          setCastleRefreshNonce((n) => n + 1);
         }}
       />
       {territoryEnabled ? (
@@ -9621,6 +9630,10 @@ const isMapPerfEnabled = (): boolean => {
           findTrackTargetAtCenter={findTrackTargetAtCenter}
           getTrackTargetPosition={getTrackTargetPosition}
           onLordSelectedChange={setLordSelected}
+          onCastleBattle={(castleKey, name) =>
+            setCastleBattleRequest({ target: { type: "castle", castleKey, name }, nonce: Date.now() })
+          }
+          castleRefreshNonce={castleRefreshNonce}
           markerDialogOpen={territoryEnabled && markerPanel !== null}
           dongCode={selectedAdminCode}
           playerDongCode={playerDongCode}

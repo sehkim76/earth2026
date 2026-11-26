@@ -5,6 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prismadb";
 import { levelFromXp } from "@/lib/battle/commanders";
+import { recordConquest } from "@/lib/records";
 import {
   UNIT_GARRISON_COOLDOWN_BONUS_SEC,
   loadUnits,
@@ -625,7 +626,9 @@ export async function getSiegeCooldownRemainingSecTx(
   }
   const castle = await loadCastle(client, castleKey, missionKey);
   const garrison = castle ? await countGarrisoned(client, castle.meta.owner, castleKey) : 0;
-  const total = SIEGE_COOLDOWN_SEC + garrison * UNIT_GARRISON_COOLDOWN_BONUS_SEC;
+  // 원군 1슬롯: 동맹 원군도 주둔 1명분 쿨다운 연장을 준다.
+  const reinforced = castle ? await countReinforced(client, missionKey, castleKey) : 0;
+  const total = SIEGE_COOLDOWN_SEC + (garrison + reinforced) * UNIT_GARRISON_COOLDOWN_BONUS_SEC;
   const elapsed = Math.floor((Date.now() - last.scoredate.getTime()) / 1000);
   return Math.max(0, total - elapsed);
 }
@@ -806,9 +809,159 @@ export async function applyCastleDamage(
     });
     return { hp: nextHp, maxHp: meta.maxHp, conquered: false, prevOwner: castle.meta.owner };
   }
+  return conquerCastle(tx, missionKey, castle, attackerId);
+}
 
+/** 원군 기록 파싱 (동맹 payload JSON). */
+function parseReinforcements(raw: string | null | undefined): Array<{ castleKey: string; unitId: string; lenderUserId: string }> {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as { reinforcements?: unknown };
+    if (!Array.isArray(v?.reinforcements)) return [];
+    return v.reinforcements
+      .filter(
+        (r): r is { castleKey: string; unitId: string; lenderUserId: string } =>
+          typeof r === "object" &&
+          r !== null &&
+          typeof (r as { castleKey?: unknown }).castleKey === "string" &&
+          typeof (r as { unitId?: unknown }).unitId === "string" &&
+          typeof (r as { lenderUserId?: unknown }).lenderUserId === "string",
+      )
+      .map((r) => ({ castleKey: r.castleKey, unitId: r.unitId, lenderUserId: r.lenderUserId }));
+  } catch {
+    return [];
+  }
+}
+
+/** 정복·할양 시 해당 성의 원군을 본거지로 귀환시키고 기록을 지운다. */
+async function returnReinforcedUnitsHome(tx: Tx, missionKey: string, castleKey: string): Promise<void> {
+  const rows = await tx.territoryDiplomacy.findMany({
+    where: { missionKey, type: "alliance", status: "active" },
+    select: { id: true, payload: true },
+  });
+  for (const row of rows) {
+    const all = parseReinforcements(row.payload);
+    const mine = all.filter((r) => r.castleKey === castleKey);
+    if (mine.length === 0) continue;
+    const rest = all.filter((r) => r.castleKey !== castleKey);
+    for (const rec of mine) {
+      const lender = await tx.missionUser.findUnique({
+        where: { userId: rec.lenderUserId },
+        select: { data: true },
+      });
+      const units = loadUnits(lender?.data);
+      let changed = false;
+      const next = units.map((u) => {
+        if (u.id === rec.unitId && u.state === "garrisoned" && u.castleKey === castleKey) {
+          changed = true;
+          return { ...u, state: "field" as const, castleKey: null, lat: u.hq.lat, lon: u.hq.lon, lastMoveAt: Date.now() };
+        }
+        return u;
+      });
+      if (changed) {
+        await tx.missionUser.update({
+          where: { userId: rec.lenderUserId },
+          data: { data: withUnits(lender?.data, next) },
+        });
+      }
+    }
+    await tx.territoryDiplomacy.update({
+      where: { id: row.id },
+      data: { payload: JSON.stringify({ reinforcements: rest }).slice(0, 2000) },
+    });
+  }
+}
+
+/** 동맹 해체·파기 시 원군 전원 귀환 + 기록 초기화. 파기 페널티와 함께 호출. */
+export async function clearAllianceReinforcements(tx: Tx, allianceId: string): Promise<void> {
+  const row = await tx.territoryDiplomacy.findUnique({ where: { id: allianceId }, select: { payload: true } });
+  if (!row) return;
+  const all = parseReinforcements(row.payload);
+  for (const rec of all) {
+    const lender = await tx.missionUser.findUnique({
+      where: { userId: rec.lenderUserId },
+      select: { data: true },
+    });
+    const units = loadUnits(lender?.data);
+    let changed = false;
+    const next = units.map((u) => {
+      if (u.id === rec.unitId && u.state === "garrisoned" && u.castleKey === rec.castleKey) {
+        changed = true;
+        return { ...u, state: "field" as const, castleKey: null, lat: u.hq.lat, lon: u.hq.lon, lastMoveAt: Date.now() };
+      }
+      return u;
+    });
+    if (changed) {
+      await tx.missionUser.update({
+        where: { userId: rec.lenderUserId },
+        data: { data: withUnits(lender?.data, next) },
+      });
+    }
+  }
+  await tx.territoryDiplomacy.update({
+    where: { id: allianceId },
+    data: { payload: JSON.stringify({ reinforcements: [] }).slice(0, 2000) },
+  });
+}
+
+/** 해당 성의 원군 목록 (활성 동맹 한정). 수비 편성 합류용. */
+export interface ReinforcementRecord {
+  allianceId: string;
+  castleKey: string;
+  unitId: string;
+  lenderUserId: string;
+}
+
+export async function listReinforcements(
+  db: Tx | typeof prisma,
+  missionKey: string,
+  castleKey: string,
+): Promise<ReinforcementRecord[]> {
+  const rows = await (db as typeof prisma).territoryDiplomacy.findMany({
+    where: { missionKey, type: "alliance", status: "active" },
+    select: { id: true, payload: true },
+  });
+  const out: ReinforcementRecord[] = [];
+  for (const row of rows) {
+    for (const r of parseReinforcements(row.payload)) {
+      if (r.castleKey === castleKey) out.push({ allianceId: row.id, ...r });
+    }
+  }
+  return out;
+}
+
+/** 해당 성에 주둔 중인 원군 수 (공성 쿨다운 가산용). */
+export async function countReinforced(db: Tx | typeof prisma, missionKey: string, castleKey: string): Promise<number> {
+  const rows = await (db as typeof prisma).territoryDiplomacy.findMany({
+    where: { missionKey, type: "alliance", status: "active" },
+    select: { payload: true },
+  });
+  let count = 0;
+  for (const row of rows) {
+    count += parseReinforcements(row.payload).filter((r) => r.castleKey === castleKey).length;
+  }
+  return count;
+}
+
+/** 해당 성의 모든 공성 게이지 초기화 (정복·시즌 리셋용). */
+export async function clearSiegeGauges(tx: Tx, missionKey: string, castleKey: string): Promise<void> {
+  await tx.territorySiege.deleteMany({ where: { missionKey, castleKey } });
+}
+
+/**
+ * 성 정복/할양 본체. 소유권 이전 + 주둔 귀환 + 영향력 배분 + 계급 정산을 수행한다.
+ * - 게이지 100 도달, 조공 할양, 기존 HP 공성 모두 이 경로로 수렴한다.
+ * - skipShare: 조공처럼 영향력을 별도 이전했을 때 20% 추가 징수를 생략한다.
+ */
+export async function conquerCastle(
+  tx: Tx,
+  missionKey: string,
+  castle: LoadedCastle,
+  attackerId: string,
+  opts?: { skipShare?: boolean },
+): Promise<CastleDamageResult> {
   const prevOwner = castle.meta.owner;
-  if (prevOwner && prevOwner !== attackerId) {
+  if (!opts?.skipShare && prevOwner && prevOwner !== attackerId) {
     const defenderInfluence = await getInfluence(tx, prevOwner);
     const share = Math.floor(defenderInfluence * CONQUEST_INFLUENCE_SHARE);
     if (share > 0 && (await spendInfluence(tx, prevOwner, share))) {
@@ -848,6 +1001,9 @@ export async function applyCastleDamage(
       data: { classId: "knight" },
     });
   }
+  await returnReinforcedUnitsHome(tx, missionKey, castle.castleKey);
+  // 시즌 전적: 정복 1회 (HP 공성·게이지·조공 공통).
+  await recordConquest(tx, missionKey, currentSeasonId(), attackerId);
 
   const attackerClass = await getUserClass(tx, attackerId);
   const granted: CastleClass =
