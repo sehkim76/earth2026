@@ -862,6 +862,29 @@ async function saveUserData(tx: Tx, userId: string, data: JsonObject): Promise<v
   await tx.missionUser.update({ where: { userId }, data: { data } });
 }
 
+/**
+ * 영주 부상 치료: lordInjuredUntil 을 지운다. 오토배틀 정산과 겹치지 않게 같은 잠금을 쓴다.
+ * 부상 중이 아니었으면 false.
+ */
+export async function healLordForUser(userId: string): Promise<boolean> {
+  return withNamedLock(`autobattle:${userId}`, async (tx) => {
+    const data = await loadUserData(tx, userId);
+    const until = data.lordInjuredUntil;
+    if (typeof until !== "number" || until <= Date.now()) {
+      if ("lordInjuredUntil" in data) {
+        const { lordInjuredUntil: _drop, ...rest } = data;
+        void _drop;
+        await saveUserData(tx, userId, rest);
+      }
+      return false;
+    }
+    const { lordInjuredUntil: _drop, ...rest } = data;
+    void _drop;
+    await saveUserData(tx, userId, rest);
+    return true;
+  });
+}
+
 /** 무법자를 현재 위치에 고정하고 전투 표식을 남긴다 (neutral 락 안에서 호출). */
 async function holdOutlawTx(tx: Tx, row: OutlawRowLike, userId: string, battleId: string, now: number): Promise<void> {
   const pos = outlawPositionAt(row, now);

@@ -776,6 +776,27 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const neutralReqSeqRef = useRef(0);
   const neutralAppliedSeqRef = useRef(0);
   // 무법자 등급별 예상 승률 (내 가용 지휘관 추천 편성으로 모의전). 지도 이름표 색에 쓴다.
+  // 영주 부상 치료 (시작지점 버튼 위)
+  const [healingLord, setHealingLord] = useState(false);
+  const [commandersNonce, setCommandersNonce] = useState(0);
+  const healLord = async (): Promise<void> => {
+    if (healingLord) return;
+    setHealingLord(true);
+    try {
+      const res = await fetch("/api/battle/heal-lord", { method: "POST", credentials: "include", cache: "no-store" });
+      const body = (await res.json().catch(() => null)) as { ok?: boolean; healed?: boolean; message?: string } | null;
+      if (!res.ok || !body?.ok) {
+        flash(body?.message ?? "영주를 치료하지 못했습니다.");
+        return;
+      }
+      flash(body.healed ? "영주의 부상을 치료했습니다. 다시 출전할 수 있습니다." : "영주는 부상 중이 아닙니다.");
+      setCommandersNonce((n) => n + 1);
+    } catch {
+      flash("영주를 치료하지 못했습니다.");
+    } finally {
+      setHealingLord(false);
+    }
+  };
   const [outlawWinRates, setOutlawWinRates] = useState<Record<1 | 2 | 3, number | null> | null>(null);
   const outlawWinRatesRef = useRef(outlawWinRates);
   useEffect(() => {
@@ -823,7 +844,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", load);
     };
-  }, []);
+  }, [commandersNonce]);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
     rows.map((row) => ({
       id: `neutral-${row.id}`,
@@ -3307,7 +3328,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                 commanderId={isLordSelected ? "lord" : selectedUnit}
                 lordClass={myClass}
                 moving={isLordSelected ? lordActive : isSelectedUnitMoving}
-                refreshKey={props.neutralRefreshNonce}
+                refreshKey={(props.neutralRefreshNonce ?? 0) + commandersNonce * 100000}
               />
             ) : null}
             {isLordSelected && lordActive ? (
@@ -3480,6 +3501,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       )}
 
       <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] right-3 z-[1100] flex w-[4.25rem] flex-col gap-1.5">
+        <button
+          type="button"
+          disabled={healingLord}
+          onClick={() => void healLord()}
+          title="영주 부상을 바로 치료합니다"
+          className={`${buttonGhost} w-full px-1 text-xs leading-tight disabled:opacity-50`}
+        >
+          {healingLord ? "치료 중…" : "영주 치료"}
+        </button>
         {props.territoryStart ? (
           <button
             type="button"
