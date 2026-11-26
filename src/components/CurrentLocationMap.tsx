@@ -2304,6 +2304,8 @@ interface OtherUnitMoveAnim {
   // 「토벌」·「공격」: 공격 거리 밖이면 지휘관이 먼저 다가간다 (TerritoryUI가 처리 후 onAttackReady).
   const [attackApproach, setAttackApproach] = useState<AttackApproachRequest | null>(null);
   const clearAttackApproach = useCallback(() => setAttackApproach(null), []);
+  // 추적(추적 이동·토벌 이동) 중인 대상 id. 추적 중인 무법자는 패널이 열려 있어도 멈추지 않는다.
+  const [chasedTrackIds, setChasedTrackIds] = useState<string[]>([]);
   // 성 공성(오토배틀) 요청 + 전투 후 성 상세 갱신.
   const [castleBattleRequest, setCastleBattleRequest] = useState<CastleBattleRequest | null>(null);
   const clearCastleBattleRequest = useCallback(() => setCastleBattleRequest(null), []);
@@ -3495,8 +3497,14 @@ interface OtherUnitMoveAnim {
   // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL(서버 300초) 만료 후 자동 재개된다.
   // 백그라운드 탭은 타이머가 1분 단위로 몰려 실행되므로 30초마다 연장하고,
   // 탭이 다시 보이는 즉시 연장해 TTL이 중간에 풀리지 않게 한다.
+  // 멈추는 대상: 편성 창이 열린 무법자, 또는 패널이 열렸지만 추적 중이 아닌 무법자.
+  const panelWildId = markerPanel?.wildId;
+  const pickerWildId = outlawBattleRequest?.target.type === "outlaw" ? outlawBattleRequest.target.wildId : undefined;
+  const holdWildId =
+    pickerWildId ??
+    (panelWildId !== undefined && !chasedTrackIds.includes(`neutral-${panelWildId}`) ? panelWildId : undefined);
   useEffect(() => {
-    const wildId = markerPanel?.wildId;
+    const wildId = holdWildId;
     if (!territoryEnabled || wildId === undefined || !Number.isFinite(wildId)) {
       return;
     }
@@ -3536,7 +3544,7 @@ interface OtherUnitMoveAnim {
         hold(false);
       }
     };
-  }, [territoryEnabled, markerPanel?.wildId]);
+  }, [territoryEnabled, holdWildId]);
 
   // 패널이 열린 비소유 개체(무법자·중립성·적성) 마커에 적색 테두리를 표시한다.
   // 소유 개체(아군 부대·아성)는 기존 선택 표시를 그대로 둔다.
@@ -9808,6 +9816,7 @@ const isMapPerfEnabled = (): boolean => {
           findTrackTargetAtCenter={findTrackTargetAtCenter}
           getTrackTargetPosition={getTrackTargetPosition}
           attackApproach={attackApproach}
+          onChaseTargetsChange={setChasedTrackIds}
           onAttackApproachHandled={clearAttackApproach}
           onAttackReady={handleAttackReady}
           onLordSelectedChange={setLordSelected}

@@ -67,6 +67,8 @@ interface TerritoryUIProps {
   findTrackTargetAtCenter?: () => TrackTarget | null;
   /** 추적 대상의 현재 위치. 사라졌으면 null. */
   getTrackTargetPosition?: (targetId: string) => { lat: number; lon: number } | null;
+  /** 추적 중인 대상 id 목록이 바뀌면 알린다 (추적 중인 무법자는 멈추지 않게). */
+  onChaseTargetsChange?: (trackIds: string[]) => void;
   /** 공격 요청: 가까운 지휘관이 대상에게 다가간 뒤 전투를 연다 (지도 패널 「토벌」·「공격」). */
   attackApproach?: AttackApproachRequest | null;
   onAttackApproachHandled?: () => void;
@@ -1546,10 +1548,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const [chaseNames, setChaseNames] = useState<Record<string, string>>({});
   const syncChaseNames = (): void => {
     const next: Record<string, string> = {};
+    const targets: string[] = [];
     chaseRef.current.forEach((entry, id) => {
       next[id] = entry.name;
+      targets.push(entry.targetId);
     });
     setChaseNames(next);
+    props.onChaseTargetsChange?.(targets);
   };
   function startChase(commanderId: string, target: TrackTarget | null): void {
     if (!target) {
