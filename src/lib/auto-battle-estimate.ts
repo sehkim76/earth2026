@@ -7,6 +7,8 @@ export interface EstimateCommander {
   kind: AutoUnitKind;
   name: string;
   level: number;
+  bonusHp?: number;
+  bonusAtk?: number;
 }
 
 const RANGED: ReadonlySet<AutoUnitKind> = new Set<AutoUnitKind>(["archer", "mage"]);
@@ -17,11 +19,11 @@ export function recommendFormation(list: EstimateCommander[]): AutoFormation {
   const lead = sorted.shift();
   const out: AutoFormation = [null, null, null, null, null];
   if (!lead) return out;
-  out[0] = { kind: lead.kind, name: lead.name, level: lead.level };
+  out[0] = { kind: lead.kind, name: lead.name, level: lead.level, bonusHp: lead.bonusHp, bonusAtk: lead.bonusAtk };
   const melee = sorted.filter((c) => !RANGED.has(c.kind));
   const ranged = sorted.filter((c) => RANGED.has(c.kind));
   const put = (idx: number, c: EstimateCommander | undefined): void => {
-    if (c) out[idx] = { kind: c.kind, name: c.name, level: c.level };
+    if (c) out[idx] = { kind: c.kind, name: c.name, level: c.level, bonusHp: c.bonusHp, bonusAtk: c.bonusAtk };
   };
   put(3, ranged.shift());
   put(4, ranged.shift());

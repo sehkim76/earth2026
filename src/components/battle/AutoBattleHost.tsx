@@ -53,6 +53,9 @@ interface AutoBattleHostProps {
 
 interface PickerOption {
   id: string;
+  bonusHp: number;
+  bonusAtk: number;
+  troopCount: number;
   name: string;
   detail: string;
   kind: AutoUnitKind;
@@ -85,6 +88,9 @@ async function loadOptions(): Promise<PickerOption[]> {
   const skew = Date.now() - payload.serverNow;
   return payload.commanders.map((c) => ({
     id: c.id,
+    bonusHp: c.bonusHp ?? 0,
+    bonusAtk: c.bonusAtk ?? 0,
+    troopCount: c.troopCount ?? 0,
     name: c.id === "lord" ? `영주 ${c.name}` : c.name,
     detail: `${COMMANDER_KIND_LABEL[c.kind]} · Lv.${c.level}`,
     kind: KIND_OF[c.kind] ?? "infantry",
@@ -206,9 +212,9 @@ function FormationPicker({ target, leadId, onCancel, onStarted }: PickerProps) {
 
   const formation: AutoFormation = slots.map((id) => {
     const o = id ? byId.get(id) : undefined;
-    return o ? { kind: o.kind, name: o.name, level: o.level } : null;
+    return o ? { kind: o.kind, name: o.name, level: o.level, bonusHp: o.bonusHp, bonusAtk: o.bonusAtk } : null;
   });
-  const formationKey = formation.map((f) => (f ? `${f.kind}${f.level}` : "-")).join(",");
+  const formationKey = formation.map((f) => (f ? `${f.kind}${f.level}+${f.bonusHp ?? 0}/${f.bonusAtk ?? 0}` : "-")).join(",");
   const winRate = useMemo(() => {
     if (!enemy || filled === 0 || !skillKind) return null;
     return estimateWinRate(formation, enemy, { runs: SIM_RUNS, skillKind, skillTick });
@@ -299,7 +305,7 @@ function FormationPicker({ target, leadId, onCancel, onStarted }: PickerProps) {
     const id = slots[idx];
     const o = id ? byId.get(id) : undefined;
     const isSel = selected === idx;
-    const stats = o ? unitStats({ kind: o.kind, name: o.name, level: o.level }) : null;
+    const stats = o ? unitStats({ kind: o.kind, name: o.name, level: o.level, bonusHp: o.bonusHp, bonusAtk: o.bonusAtk }) : null;
     const mu = o && enemy ? matchup(o.kind, enemyKinds) : null;
     return (
       <button
@@ -487,6 +493,7 @@ function FormationPicker({ target, leadId, onCancel, onStarted }: PickerProps) {
                       <span className="block truncate font-bold">{o.name}</span>
                       <span className="block text-xs text-amber-100/70">
                         {o.detail}
+                        {o.troopCount > 0 ? <span className="ml-1 text-sky-200">병력 {o.troopCount}</span> : null}
                         {mu && mu.good > 0 ? <span className="ml-1 text-emerald-300">유리 {mu.good}</span> : null}
                         {mu && mu.bad > 0 ? <span className="ml-1 text-red-300">불리 {mu.bad}</span> : null}
                       </span>
@@ -586,13 +593,19 @@ function ResultPanel({ result, onClose }: { result: AutoBattleStartResult; onClo
             <span>+{p.xpAfter - p.xpBefore} XP · {p.wins}승</span>
           </p>
         ))}
-        {result.influence > 0 ? <p className="flex justify-between text-amber-200"><span>영향력</span><span>+{result.influence}</span></p> : null}
+        {result.influence > 0 ? <p className="flex justify-between text-amber-200"><span>금</span><span>+{result.influence}</span></p> : null}
         {result.siege ? (
           <p className="flex justify-between text-amber-200">
             <span>공성 게이지</span>
             <span>
               {result.siege.gauge}%{result.siege.conquered ? " · 점령!" : ""}
             </span>
+          </p>
+        ) : null}
+        {result.troopsLost ? (
+          <p className="flex justify-between text-red-200">
+            <span>잃은 병력</span>
+            <span>-{result.troopsLost}명</span>
           </p>
         ) : null}
         {result.injuredUntil ? <p className="text-center text-sm font-semibold text-red-300">선두 부상 30분</p> : null}

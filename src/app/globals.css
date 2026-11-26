@@ -914,3 +914,57 @@
   background: rgba(153, 27, 27, 0.92);
   box-shadow: 0 0 0 1.5px #f87171;
 }
+
+/* 영주성 내정: 자원지 마커 */
+.map-resource-node,
+.map-gather-worker {
+  background: none;
+  border: none;
+}
+.res-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.55));
+}
+.res-node__label {
+  margin-top: -2px;
+  border-radius: 7px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 15px;
+  color: #fff;
+  white-space: nowrap;
+  background: rgba(15, 23, 42, 0.85);
+}
+.res-node--gold .res-node__label { box-shadow: 0 0 0 1.5px #f1c40f; }
+.res-node--stone .res-node__label { box-shadow: 0 0 0 1.5px #cfd6dc; }
+.res-node--wood .res-node__label { box-shadow: 0 0 0 1.5px #8fbf6a; }
+.res-node--iron .res-node__label { box-shadow: 0 0 0 1.5px #9fb4cc; }
+.res-node--empty { opacity: 0.4; filter: grayscale(1); }
+.res-node--busy .res-node__label::after { content: " · 채집 중"; color: #fde68a; }
+
+/* 일꾼 부대 */
+.gather-worker {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+.gather-worker__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  border: 2px solid #2b2118;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+.gather-worker__label {
+  border-radius: 6px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 14px;
+  color: #fff4d8;
+  background: rgba(38, 59, 49, 0.9);
+}

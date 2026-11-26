@@ -59,6 +59,17 @@ const loadCesium = async (): Promise<typeof import("cesium")> => {
 };
 
 import { territoryOwnerColor } from "@/lib/territory-colors";
+import {
+  RESOURCE_LABEL,
+  distanceM as cityDistanceM,
+  gatherLoad,
+  gatherPhase,
+  gatherRatePerSec,
+  nodesInBounds,
+  workerSpeedMps,
+  type ResourceKind,
+} from "@/lib/city";
+import { CITY_EVENT, cityAction, lastCityView, type CityViewData } from "@/components/city/city-client";
 import { OUTLAW_AUTO_ADVICE, OUTLAW_AUTO_LEVEL } from "@/lib/auto-battle";
 import { difficultyOf } from "@/lib/auto-battle-estimate";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
@@ -319,6 +330,8 @@ type MarkerPanel = {
   wildId?: number;
   /** 다른 영주의 부대·영주 (공격 버튼) */
   pvpTarget?: { type: "unit" | "lord"; ownerId: string; targetId: string; name: string };
+  /** 자원지 (일꾼 보내기 버튼) */
+  resourceNodeId?: string;
   eventKey?: string;
   isProximity?: boolean;
   lat?: number;
@@ -609,6 +622,14 @@ const getSavedZoomForStyle = (cacheKey: string, style: MapStyle): number | null 
   } catch {
     return null;
   }
+};
+
+/** 자원지 마커 SVG (독자 디자인) */
+const RESOURCE_NODE_SVG: Readonly<Record<ResourceKind, string>> = {
+  gold: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 20 L8 10 L13 14 L18 7 L23 20z" fill="#8a7a5e" stroke="#2b2118" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="17" r="3" fill="#f1c40f" stroke="#7a5a1e" stroke-width="1.2"/><circle cx="17" cy="15" r="2.2" fill="#f5d76e" stroke="#7a5a1e" stroke-width="1"/></svg>',
+  stone: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 21 L7 11 L13 8 L20 12 L23 21z" fill="#aab4bc" stroke="#2b2118" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 17 l4 -4 4 2" fill="none" stroke="#5b6770" stroke-width="1.3"/></svg>',
+  wood: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M13 3 L5 15 H10 L6 21 H20 L16 15 H21z" fill="#4f7a4a" stroke="#1e2e1c" stroke-width="1.5" stroke-linejoin="round"/><rect x="11.5" y="20" width="3" height="4" fill="#7a4a1f"/></svg>',
+  iron: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 20 L8 9 L14 12 L19 6 L23 20z" fill="#5b6770" stroke="#1d252b" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 16 h3 M15 14 h3" stroke="#cfd6dc" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
 type TerritoryRelation = "mine" | "alliance" | "nap" | "war" | "none";
@@ -1791,6 +1812,12 @@ export default function CurrentLocationMap({
       return null;
     }
     const order = CLASS_ORDER_LOCAL[myTerritory.klass] ?? -1;
+    // 본거지 영주성(첫 영주성)은 계급·승수 조건이 없다. 영주성이 이미 있는 동만 막는다.
+    if (castlePlacement.home) {
+      return dongCastleCounts && dongCastleCounts.lord > 0
+        ? "이 동에는 이미 영주성이 있습니다. 영주성이 없는 동으로 이동해서 세우세요."
+        : null;
+    }
     if (castlePlacement.kind === "noble") {
       if (myTerritory.klass !== "noble" && myTerritory.klass !== "lord") {
         return "귀족 이상만 귀족성을 축성할 수 있습니다.";
@@ -1873,7 +1900,7 @@ export default function CurrentLocationMap({
     const codeMessage: Record<string, string> = {
       class_ineligible: "계급 조건을 만족하지 않습니다.",
       founder_ineligible: "동 최초 영주성 창시에는 평민 이상 + 전투 승리 5회가 필요합니다.",
-      funds: "영향력이 부족합니다.",
+      funds: "금이 부족합니다.",
       limit: "축성 상한을 초과했습니다.",
       distance: "성과의 간격 조건을 만족하지 않습니다.",
       no_lord: "영주성이 없어 귀족성을 지을 수 없습니다.",
@@ -1911,7 +1938,11 @@ export default function CurrentLocationMap({
           window.location.reload();
         } else {
           const code = typeof payload?.code === "string" ? payload.code : "";
-          backToPlacement(codeMessage[code] ?? "축성에 실패했습니다. 다시 시도하세요.");
+          backToPlacement(
+            current.home && code === "limit"
+              ? "이 동에는 이미 영주성이 있습니다. 영주성이 없는 동으로 이동해서 세우세요."
+              : (codeMessage[code] ?? "축성에 실패했습니다. 다시 시도하세요."),
+          );
         }
       })
       .catch(() => {
@@ -7721,6 +7752,155 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, [territoryEnabled, isMapReady, aimOriginLat, aimOriginLon, findTrackTargetAtCenter]);
 
+  // ── 영주성 내정: 자원지 마커 + 일꾼 부대 ──
+  const [cityForMap, setCityForMap] = useState<CityViewData | null>(null);
+  const cityForMapRef = useRef<CityViewData | null>(null);
+  useEffect(() => {
+    const apply = (v: CityViewData | null): void => {
+      cityForMapRef.current = v;
+      setCityForMap(v);
+    };
+    const first = window.setTimeout(() => apply(lastCityView()), 0);
+    const on = (e: Event): void => apply((e as CustomEvent<CityViewData>).detail);
+    window.addEventListener(CITY_EVENT, on);
+    return () => {
+      window.clearTimeout(first);
+      window.removeEventListener(CITY_EVENT, on);
+    };
+  }, []);
+  const resourceLayerRef = useRef<LayerGroup | null>(null);
+  useEffect(() => {
+    if (!territoryEnabled || !isMapReady) {
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) {
+      return;
+    }
+    if (!resourceLayerRef.current) {
+      resourceLayerRef.current = L.layerGroup();
+    }
+    const layer = resourceLayerRef.current;
+    if (!map.hasLayer(layer)) {
+      layer.addTo(map);
+    }
+    const render = (): void => {
+      layer.clearLayers();
+      if (!isLeafletMapLoaded(map) || map.getZoom() < 14) {
+        return;
+      }
+      const b = map.getBounds();
+      const city = cityForMapRef.current;
+      const used = city?.state.nodeUsed ?? {};
+      const busy = new Set((city?.state.gathers ?? []).map((g) => g.nodeId));
+      for (const node of nodesInBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), serverNow(), 300)) {
+        const remain = Math.max(0, node.amount - (used[node.id] ?? 0));
+        const label = `${RESOURCE_LABEL[node.kind]} Lv.${node.level}`;
+        const icon = L.divIcon({
+          className: "map-resource-node",
+          html: `<div class="map-rotation-upright"><div class="res-node res-node--${node.kind}${remain <= 0 ? " res-node--empty" : ""}${busy.has(node.id) ? " res-node--busy" : ""}">${RESOURCE_NODE_SVG[node.kind]}<span class="res-node__label">${label}</span></div></div>`,
+          iconSize: [64, 44],
+          iconAnchor: [32, 22],
+        });
+        const marker = L.marker([node.lat, node.lon], { icon, keyboard: false });
+        marker.on("click", () => {
+          const c = cityForMapRef.current;
+          const lines = [`매장량: ${Math.floor(remain).toLocaleString("ko-KR")} / ${node.amount.toLocaleString("ko-KR")}`];
+          if (c?.home) {
+            const dist = cityDistanceM(c.home, node);
+            const load = Math.min(gatherLoad(c.state.buildings.camp), remain);
+            const travelMin = dist / workerSpeedMps(c.state) / 60;
+            const gatherMin = load / gatherRatePerSec(c.state) / 60;
+            lines.push(`영주성에서 ${(dist / 1000).toFixed(1)}km${dist > 4000 ? " (4km 초과: 보낼 수 없음)" : ""}`);
+            lines.push(`일꾼 1회: ${Math.floor(load).toLocaleString("ko-KR")} 운반 · 왕복 ${Math.ceil(travelMin * 2)}분 + 채집 ${Math.ceil(gatherMin)}분`);
+          } else {
+            lines.push("영주성을 세우면 일꾼을 보낼 수 있습니다.");
+          }
+          lines.push(`사라지기까지 ${Math.max(1, Math.ceil((node.expiresAt - serverNow()) / 60_000))}분`);
+          showMarkerPanel({
+            title: `${label} 자원지`,
+            lines,
+            resourceNodeId: remain > 0 && !busy.has(node.id) ? node.id : undefined,
+            lat: node.lat,
+            lon: node.lon,
+          });
+        });
+        marker.addTo(layer);
+      }
+    };
+    render();
+    map.on("moveend", render);
+    const id = window.setInterval(render, 60_000);
+    return () => {
+      map.off("moveend", render);
+      window.clearInterval(id);
+    };
+  }, [territoryEnabled, isMapReady, cityForMap, showMarkerPanel]);
+  // 일꾼 부대: 영주성 ↔ 자원지 점선 + 움직이는 일꾼 표시
+  const gatherLayerRef = useRef<LayerGroup | null>(null);
+  useEffect(() => {
+    if (!territoryEnabled || !isMapReady) {
+      return;
+    }
+    const map = mapInstanceRef.current;
+    const L = leafletRef.current;
+    if (!map || !L) {
+      return;
+    }
+    if (!gatherLayerRef.current) {
+      gatherLayerRef.current = L.layerGroup();
+    }
+    const layer = gatherLayerRef.current;
+    if (!map.hasLayer(layer)) {
+      layer.addTo(map);
+    }
+    layer.clearLayers();
+    const gathers = cityForMap?.state.gathers ?? [];
+    if (gathers.length === 0) {
+      return;
+    }
+    const color: Record<ResourceKind, string> = { gold: "#f1c40f", stone: "#cfd6dc", wood: "#8fbf6a", iron: "#9fb4cc" };
+    const workers = gathers.map((g) => {
+      L.polyline(
+        [
+          [g.fromLat, g.fromLon],
+          [g.lat, g.lon],
+        ],
+        { color: color[g.kind], weight: 2, dashArray: "4 6", opacity: 0.85, interactive: false },
+      ).addTo(layer);
+      const icon = L.divIcon({
+        className: "map-gather-worker",
+        html: `<div class="map-rotation-upright"><div class="gather-worker"><span class="gather-worker__dot" style="background:${color[g.kind]}"></span><span class="gather-worker__label"></span></div></div>`,
+        iconSize: [80, 22],
+        iconAnchor: [40, 11],
+      });
+      const p = gatherPhase(g, serverNow());
+      const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false }).addTo(layer);
+      return { g, marker };
+    });
+    const tick = (): void => {
+      const now = serverNow();
+      for (const { g, marker } of workers) {
+        const p = gatherPhase(g, now);
+        marker.setLatLng([p.lat, p.lon]);
+        const el = marker.getElement()?.querySelector(".gather-worker__label");
+        const text = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} 채집` : "귀환 중";
+        if (el && el.textContent !== text) el.textContent = text;
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [territoryEnabled, isMapReady, cityForMap]);
+  const sendWorkers = useCallback(async (nodeId: string): Promise<void> => {
+    const r = await cityAction({ type: "gather", nodeId });
+    setPlacementNotice({ id: Date.now(), message: r.ok ? "일꾼 부대를 보냈습니다." : r.message });
+    if (r.ok) {
+      setMarkerPanel(null);
+    }
+  }, []);
+
   // 영토전: 공성 게이지가 쌓인 성 위에 게이지 막대 (성 마커가 보이는 확대 15 이상)
   const siegeGaugeLayerRef = useRef<LayerGroup | null>(null);
   useEffect(() => {
@@ -9174,6 +9354,18 @@ const isMapPerfEnabled = (): boolean => {
                   );
                 })()
               : null}
+            {territoryEnabled && markerPanel.resourceNodeId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const id = markerPanel.resourceNodeId;
+                  if (id) void sendWorkers(id);
+                }}
+                className="whitespace-nowrap rounded-lg border border-emerald-300/60 bg-[linear-gradient(#3f7a4a,#1f4a28)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
+              >
+                일꾼 보내기
+              </button>
+            ) : null}
             {territoryEnabled && markerPanel.wildId !== undefined ? (
               <button
                 type="button"

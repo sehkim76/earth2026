@@ -420,7 +420,8 @@ export const ModelName = {
   TerritorySiege: 'TerritorySiege',
   TerritorySeasonRecord: 'TerritorySeasonRecord',
   TerritoryNeutralUnit: 'TerritoryNeutralUnit',
-  VersionTable: 'VersionTable'
+  VersionTable: 'VersionTable',
+  TerritoryCity: 'TerritoryCity'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -436,7 +437,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable"
+    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable" | "territoryCity"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2438,6 +2439,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TerritoryCity: {
+      payload: Prisma.$TerritoryCityPayload<ExtArgs>
+      fields: Prisma.TerritoryCityFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryCityFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryCityFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryCityFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryCityFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryCityFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryCityCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryCityCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryCityCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryCityDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        update: {
+          args: Prisma.TerritoryCityUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryCityDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryCityUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryCityUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryCityUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryCityPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryCityAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryCity>
+        }
+        groupBy: {
+          args: Prisma.TerritoryCityGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryCityGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryCityCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryCityCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -2853,6 +2928,16 @@ export const VersionTableScalarFieldEnum = {
 export type VersionTableScalarFieldEnum = (typeof VersionTableScalarFieldEnum)[keyof typeof VersionTableScalarFieldEnum]
 
 
+export const TerritoryCityScalarFieldEnum = {
+  userId: 'userId',
+  missionKey: 'missionKey',
+  data: 'data',
+  updatedAt: 'updatedAt'
+} as const
+
+export type TerritoryCityScalarFieldEnum = (typeof TerritoryCityScalarFieldEnum)[keyof typeof TerritoryCityScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -2867,6 +2952,13 @@ export const NullableJsonNullValueInput = {
 } as const
 
 export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
+
+
+export const JsonNullValueInput = {
+  JsonNull: JsonNull
+} as const
+
+export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
 
 
 export const QueryMode = {
@@ -3114,6 +3206,7 @@ export type GlobalOmitConfig = {
   territorySeasonRecord?: Prisma.TerritorySeasonRecordOmit
   territoryNeutralUnit?: Prisma.TerritoryNeutralUnitOmit
   versionTable?: Prisma.VersionTableOmit
+  territoryCity?: Prisma.TerritoryCityOmit
 }
 
 /* Types for Logging */

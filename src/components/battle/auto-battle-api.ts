@@ -33,6 +33,8 @@ export interface AutoBattleStartResult {
   battleId: string;
   seed: number;
   reinforced: Array<{ lenderUserId: string; unitId: string }>;
+  /** 이번 전투에서 잃은 내 병력 수 */
+  troopsLost?: number;
 }
 
 export interface AutoBattleCallResult {

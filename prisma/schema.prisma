@@ -366,3 +366,13 @@ model VersionTable {
   SubscriberCode String @db.VarChar(255)
   Description    String @db.VarChar(255)
 }
+
+/// 영주성 내정 (사용자별 건물·자원(석재·나무·철)·연구·병력·일꾼 채집). 금은 MissionUser.score.
+model TerritoryCity {
+  userId     String   @id @db.VarChar(255)
+  missionKey String   @db.VarChar(255)
+  data       Json
+  updatedAt  DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([missionKey], map: "city_mission")
+}

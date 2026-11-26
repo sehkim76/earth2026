@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prismadb";
+import { findHomeCastle } from "@/lib/city-server";
 import {
   CASTLE_MEMBER_CAP,
   CASTLE_MIN_SEPARATION_M,
@@ -100,8 +101,10 @@ export async function POST(request: Request) {
   // GPS 신선도는 검사하지 않는다 (위치는 지도 지정 + 동 영역 제한으로 통제).
 
   const klass: CastleClass = await refreshUserClass(prisma, userId, ctx.missionKey);
+  // 본거지 영주성: 영주성이 하나도 없으면 계급·승수·비용 없이 빈 동에 첫 영주성을 세운다 (2026-11-27).
+  const homeFounding = kind === "lord" && !(await findHomeCastle(prisma, userId, ctx.missionKey));
 
-  if (kind === "lord" && !classAtLeast(klass, "commoner")) {
+  if (kind === "lord" && !homeFounding && !classAtLeast(klass, "commoner")) {
     return NextResponse.json({ ok: false, code: "class_ineligible" }, { status: 403 });
   }
   if (kind === "noble" && klass !== "noble" && klass !== "lord") {
@@ -141,12 +144,12 @@ export async function POST(request: Request) {
         }
         // 창시 경로: 동 최초 영주성은 commoner+ & 전투 승리 PROMOTION_RULES.foundLordCastle.wins+ 에게 허용.
         // 이후 영주성은 기사 이상만 (창시자가 영주가 되므로 자연 충족).
-        if (kind === "lord" && lordCount === 0) {
+        if (kind === "lord" && lordCount === 0 && !homeFounding) {
           const stats = await getUserStats(tx, userId, ctx.missionKey);
           if (!(classAtLeast(klass, "commoner") && stats.wins >= PROMOTION_RULES.foundLordCastle.wins)) {
             throw new Error("founder_ineligible");
           }
-        } else if (kind === "lord" && !classAtLeast(klass, "knight")) {
+        } else if (kind === "lord" && lordCount > 0 && !classAtLeast(klass, "knight")) {
           throw new Error("class_ineligible");
         }
         if (kind === "lord" && lordCount > 0) {

@@ -114,19 +114,19 @@ export function formationFromList(
   list: ReturnType<typeof listCommanders>,
   leadFirstId?: string,
   max = 5,
-): { formation: AutoFormation; leadId: string | null } {
+): { formation: AutoFormation; leadId: string | null; ids: Array<string | null> } {
   const avail = list.filter((c) => c.available);
   const ordered = leadFirstId
     ? [...avail.filter((c) => c.id === leadFirstId), ...avail.filter((c) => c.id !== leadFirstId)]
     : avail;
   const picked = ordered.slice(0, max);
-  if (picked.length === 0) return { formation: [null, null, null, null, null], leadId: null };
+  if (picked.length === 0) return { formation: [null, null, null, null, null], leadId: null, ids: [null, null, null, null, null] };
   const formation: AutoFormation = [0, 1, 2, 3, 4].map((i) => {
     const c = picked[i];
     if (!c) return null;
     return { kind: toAutoKind(c.kind), name: c.name, level: c.level };
   });
-  return { formation, leadId: picked[0].id };
+  return { formation, leadId: picked[0].id, ids: [0, 1, 2, 3, 4].map((i) => picked[i]?.id ?? null) };
 }
 
 export interface AutoSettleInput {

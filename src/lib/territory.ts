@@ -35,7 +35,8 @@ const CLASS_ORDER: Record<CastleClass, number> = {
   lord: 4,
 };
 
-export const INFLUENCE_CAP = 5000;
+/** 금 상한 (옛 영향력 상한 5000 → 성 내정 도입으로 확대) */
+export const INFLUENCE_CAP = 200_000;
 export const LORD_CASTLE_COST = 500;
 export const NOBLE_HP_UNIT_COST = 200;
 export const TRANSFER_COST = 100;
@@ -160,7 +161,7 @@ export function haversineM(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 // ---------------------------------------------------------------------------
-// 영향력 (MissionUser.score 재활용, atomic)
+// 금 (옛 영향력, MissionUser.score 재활용, atomic). 함수 이름은 호환을 위해 유지.
 // ---------------------------------------------------------------------------
 
 export async function getInfluence(db: Tx | typeof prisma, userId: string): Promise<number> {

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 
 import type { BattleErrorResponse, CommandersResponse } from "@/lib/battle";
+import prisma from "@/lib/prismadb";
 import { BattleError, commandersForUser } from "@/lib/battle-server";
+import { troopTotal } from "@/lib/city";
+import { readTroopBonuses } from "@/lib/city-server";
 import { requireSessionUserId, resolveTerritoryContext, territoryDisabledResponse } from "@/lib/territory";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +20,18 @@ export async function GET(): Promise<NextResponse> {
     return territoryDisabledResponse();
   }
   try {
-    return NextResponse.json<CommandersResponse>(await commandersForUser(userId));
+    const res = await commandersForUser(userId);
+    // 배치 병력 보정을 붙인다 (편성 화면·지도 예상 승률)
+    try {
+      const t = await readTroopBonuses(prisma, userId);
+      res.commanders = res.commanders.map((c) => {
+        const b = t.bonus[c.id];
+        return b ? { ...c, bonusHp: b.hp, bonusAtk: b.atk, troopCount: troopTotal(t.troops[c.id]) } : c;
+      });
+    } catch {
+      // 성 데이터 없이 진행
+    }
+    return NextResponse.json<CommandersResponse>(res);
   } catch (error) {
     if (error instanceof BattleError) {
       return NextResponse.json<BattleErrorResponse>({ ok: false, code: error.code, message: error.message }, { status: error.status });

@@ -13,6 +13,9 @@ export interface AutoSlot {
   kind: AutoUnitKind;
   name: string;
   level: number;
+  /** 병력(보병·궁병·기병·마법병)이 더하는 체력·공격력 (영주성 내정) */
+  bonusHp?: number;
+  bonusAtk?: number;
 }
 
 export type AutoFormation = Array<AutoSlot | null>;
@@ -85,9 +88,11 @@ export function counterBonusOf(atk: AutoUnitKind, def: AutoUnitKind): boolean {
 export const unitStats = (slot: AutoSlot): { maxHp: number; atk: number } => {
   const base = baseStats(slot.kind);
   const lv = clampLevel(slot.level);
+  const bonusHp = typeof slot.bonusHp === "number" && Number.isFinite(slot.bonusHp) ? Math.max(0, Math.floor(slot.bonusHp)) : 0;
+  const bonusAtk = typeof slot.bonusAtk === "number" && Number.isFinite(slot.bonusAtk) ? Math.max(0, Math.floor(slot.bonusAtk)) : 0;
   return {
-    maxHp: base.hp + (lv - 1) * 2,
-    atk: base.atk + Math.floor((lv - 1) / 2),
+    maxHp: base.hp + (lv - 1) * 2 + bonusHp,
+    atk: base.atk + Math.floor((lv - 1) / 2) + bonusAtk,
   };
 };
 

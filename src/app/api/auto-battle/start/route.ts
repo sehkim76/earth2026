@@ -24,6 +24,8 @@ import {
   type AutoFormation,
   type AutoUnitKind,
 } from "@/lib/auto-battle";
+import { troopLosses, troopTotal, type TroopCounts } from "@/lib/city";
+import { applyTroopLosses, readTroopBonuses } from "@/lib/city-server";
 import { loadUnits } from "@/lib/units";
 import { recordBattleResult } from "@/lib/records";
 import {
@@ -190,6 +192,10 @@ export async function POST(request: Request) {
         },
         now,
       );
+      // 병력 보정 (영주성 내정): 지휘관별 배치 병력 → 체력·공격력
+      const myTroops = await readTroopBonuses(tx, userId);
+      const atkIds = (slots as Array<unknown>).map((v) => (typeof v === "string" && v.trim() ? v.trim() : null));
+      applyTroopBonuses(atk.formation, atkIds, myTroops.bonus);
       const skill = attackerSkillKind(atk.resolved, skillKind);
       const seed = makeBattleSeed();
       const battleId = makeBattleId();
@@ -263,6 +269,11 @@ export async function POST(request: Request) {
           defender, defenderName, defenderTier, defenderSkill, siege, influence, battleId, seed,
           defenderLead: null as null,
           reinforced: [] as Array<{ lenderUserId: string; unitId: string }>,
+          _troopLoss: {
+            atk: troopLossesFor(settled.result.remaining[0], atkIds, myTroops.troops),
+            defOwner: null as string | null,
+            def: {} as Record<string, TroopCounts>,
+          },
         };
       }
 
@@ -288,6 +299,8 @@ export async function POST(request: Request) {
           target.targetId,
         );
         defender = built.formation;
+        const ownerTroops = await readTroopBonuses(tx, target.targetOwnerId);
+        applyTroopBonuses(defender, built.ids, ownerTroops.bonus);
         const isLord = target.type === "lord";
         defenderName = isLord || !snap.ownerName ? snap.defender.name : `${snap.ownerName}의 ${snap.defender.name}`;
         if (!built.leadId) throw new BattleError("target_unavailable", 409, "상대 편성을 구성할 수 없습니다.");
@@ -315,6 +328,11 @@ export async function POST(request: Request) {
           skillKind: skill,
           defender, defenderName, defenderTier, defenderSkill, siege, influence, battleId, seed, defenderLead,
           reinforced: [] as Array<{ lenderUserId: string; unitId: string }>,
+          _troopLoss: {
+            atk: troopLossesFor(settled.result.remaining[0], atkIds, myTroops.troops),
+            defOwner: target.targetOwnerId as string | null,
+            def: troopLossesFor(settled.result.remaining[1], built.ids, ownerTroops.troops),
+          },
         };
       }
 
@@ -327,6 +345,8 @@ export async function POST(request: Request) {
       if (dist > BATTLE_PROXIMITY_M) throw new BattleError("too_far", 400, tooFarMessage(dist));
       const mine = await ensureMyNation(tx, userId, ctx.missionKey);
       let defenderLeadId: string | null = null;
+      let castleDefIds: Array<string | null> = [null, null, null, null, null];
+      let castleOwnerTroops: Record<string, TroopCounts> = {};
       const reinforcedLenders: Array<{ lenderUserId: string; unitId: string }> = [];
       if (castle.meta.owner) {
         const ownerRow = await tx.missionUser.findUnique({
@@ -337,6 +357,10 @@ export async function POST(request: Request) {
           const built = formationFromList(listCommanders(toJsonObject(ownerRow.data), ownerRow.nickname, now));
           defender = built.formation;
           defenderLeadId = built.leadId;
+          castleDefIds = built.ids;
+          const ownerTroops = await readTroopBonuses(tx, castle.meta.owner);
+          castleOwnerTroops = ownerTroops.troops;
+          applyTroopBonuses(defender, castleDefIds, ownerTroops.bonus);
           const holder = await tx.territoryNationMember.findFirst({
             where: { userId: castle.meta.owner, nation: { missionKey: ctx.missionKey } },
             select: { nationId: true },
@@ -401,9 +425,23 @@ export async function POST(request: Request) {
         defender, defenderName, defenderTier, defenderSkill, siege, influence, battleId, seed,
         defenderLead: null as null,
         reinforced: reinforcedLenders,
+        _troopLoss: {
+          atk: troopLossesFor(settled.result.remaining[0], atkIds, myTroops.troops),
+          defOwner: castle.meta.owner ?? null,
+          def: troopLossesFor(settled.result.remaining[1], castleDefIds, castleOwnerTroops),
+        },
       };
     });
 
+    const { _troopLoss: troopLoss, ...publicResult } = result;
+    // 병력 손실 반영 (전투 트랜잭션이 끝난 뒤 각자 성 잠금으로)
+    try {
+      await applyTroopLosses(userId, troopLoss.atk);
+      if (troopLoss.defOwner && troopLoss.defOwner !== userId) await applyTroopLosses(troopLoss.defOwner, troopLoss.def);
+    } catch (error) {
+      console.error(`[auto-battle] troop loss failed user=${userId}`, error);
+    }
+    const troopsLost = Object.values(troopLoss.atk).reduce((sum, t) => sum + troopTotal(t), 0);
     const defenderLead = result.defenderLead;
     const seasonId = currentSeasonId();
     try {
@@ -444,7 +482,7 @@ export async function POST(request: Request) {
         }
       }
     }
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...publicResult, troopsLost });
   } catch (error) {
     if (error instanceof BattleError) {
       return NextResponse.json({ ok: false, code: error.code, message: error.message }, { status: error.status });
@@ -497,4 +535,36 @@ async function runAndSettle(
   const settled = settleAutoBattle({ data, resolved: atk.resolved, result, vsOutlaw, now });
   await tx.missionUser.update({ where: { userId }, data: { data: settled.data } });
   return { ...settled, result };
+}
+
+/** 슬롯마다 지휘관 병력 보정을 붙인다 */
+function applyTroopBonuses(
+  formation: AutoFormation,
+  ids: Array<string | null>,
+  bonus: Record<string, { hp: number; atk: number }>,
+): void {
+  formation.forEach((slot, i) => {
+    const id = ids[i];
+    const b = id ? bonus[id] : undefined;
+    if (slot && b && (b.hp > 0 || b.atk > 0)) {
+      slot.bonusHp = b.hp;
+      slot.bonusAtk = b.atk;
+    }
+  });
+}
+
+/** 전투 결과 → 지휘관별 잃은 병력 */
+function troopLossesFor(
+  remaining: Array<{ maxHp: number; hp: number; alive: boolean }>,
+  ids: Array<string | null>,
+  troops: Record<string, TroopCounts>,
+): Record<string, TroopCounts> {
+  const out: Record<string, TroopCounts> = {};
+  remaining.forEach((u, i) => {
+    const id = ids[i];
+    const t = id ? troops[id] : undefined;
+    if (!id || !t || u.maxHp <= 0 || troopTotal(t) === 0) return;
+    out[id] = troopLosses(t, (u.maxHp - u.hp) / u.maxHp, !u.alive);
+  });
+  return out;
 }

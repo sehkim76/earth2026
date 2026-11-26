@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { noteServerTime } from "@/lib/server-clock";
 import { territoryOwnerColor } from "@/lib/territory-colors";
+import { CITY_EVENT, fetchCity, type CityHome, type CityViewData } from "@/components/city/city-client";
+import { CityView } from "@/components/city/CityView";
 import type { BattleTargetRequest } from "@/components/battle/BattleHost";
 import { ATTACK_RANGE_M, OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
 import { estimateWinRate, recommendFormation, type EstimateCommander } from "@/lib/auto-battle-estimate";
@@ -153,6 +155,8 @@ export interface CastleBuildDraft {
   kind: "lord" | "noble";
   hp: number;
   dong: string;
+  /** 본거지(첫 영주성) 세우기 — 계급·승수 조건 없음 */
+  home?: boolean;
 }
 
 interface CastleDetail {
@@ -276,7 +280,7 @@ const CODE_MESSAGE: Record<string, string> = {
   training_castle_required: "훈련할 보유 성을 선택해 주세요.",
   training_castle_not_owned: "직접 보유한 성에서만 부대를 훈련할 수 있습니다.",
   training_castle_unavailable: "현재 훈련할 수 없는 성입니다. 활성화된 보유 성을 선택해 주세요.",
-  funds: "영향력이 부족합니다.",
+  funds: "금이 부족합니다.",
   limit: "축성 상한을 초과했습니다.",
   distance: "성과의 간격 조건을 만족하지 않습니다.",
   no_lord: "영주성이 없어 귀족성을 지을 수 없습니다.",
@@ -815,6 +819,52 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
   };
   const lordInjuredUntilRef = useRef<number | null>(null);
+  // ── 영주성 내정: 상태 폴링(상황판·지도도 같은 값을 받음), 성 안 화면, 첫 영주성 세우기 안내 ──
+  const [cityOpen, setCityOpen] = useState(false);
+  const [cityHome, setCityHome] = useState<CityHome | null>(null);
+  const [cityLoaded, setCityLoaded] = useState(false);
+  const [homePromptDismissed, setHomePromptDismissed] = useState(false);
+  const [homeName, setHomeName] = useState("나의 영주성");
+  useEffect(() => {
+    const on = (e: Event): void => {
+      const v = (e as CustomEvent<CityViewData>).detail;
+      setCityHome(v.home);
+      setCityLoaded(true);
+    };
+    window.addEventListener(CITY_EVENT, on);
+    const load = (): void => {
+      if (!document.hidden) void fetchCity();
+    };
+    const first = window.setTimeout(load, 0);
+    const id = window.setInterval(load, 30_000);
+    document.addEventListener("visibilitychange", load);
+    return () => {
+      window.removeEventListener(CITY_EVENT, on);
+      window.clearTimeout(first);
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", load);
+    };
+  }, []);
+  const openCity = (): void => {
+    if (cityLoaded && !cityHome) {
+      setHomePromptDismissed(false);
+      return;
+    }
+    onCloseCastle();
+    setSheet(null);
+    setCityOpen(true);
+  };
+  const startHomePlacement = (): void => {
+    const name = homeName.trim() || "나의 영주성";
+    props.onStartPlacement({
+      name,
+      kind: "lord",
+      hp: 5,
+      dong: (props.playerDongCode ?? props.dongCode ?? "").trim(),
+      home: true,
+    });
+    setHomePromptDismissed(true);
+  };
   const [outlawWinRates, setOutlawWinRates] = useState<Record<1 | 2 | 3, number | null> | null>(null);
   const outlawWinRatesRef = useRef(outlawWinRates);
   useEffect(() => {
@@ -831,7 +881,15 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         const body = (await res.json()) as {
           ok?: boolean;
           serverNow?: number;
-          commanders?: Array<{ name: string; kind: string; level: number; available: boolean; injuredUntil: number | null }>;
+          commanders?: Array<{
+            name: string;
+            kind: string;
+            level: number;
+            available: boolean;
+            injuredUntil: number | null;
+            bonusHp?: number;
+            bonusAtk?: number;
+          }>;
         };
         if (!alive || !body.ok || !Array.isArray(body.commanders)) {
           return;
@@ -848,6 +906,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             kind: (kinds.includes(c.kind) ? c.kind : "infantry") as EstimateCommander["kind"],
             name: c.name,
             level: c.level,
+            bonusHp: c.bonusHp,
+            bonusAtk: c.bonusAtk,
           }));
         const mine = recommendFormation(avail);
         const next = { 1: null, 2: null, 3: null } as Record<1 | 2 | 3, number | null>;
@@ -3579,6 +3639,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-20 z-[1100] mx-auto grid w-auto max-w-md grid-cols-3 gap-1 rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 p-1.5">
           <button
             type="button"
+            onClick={openCity}
+            className={`${buttonOriginal} flex items-center justify-center gap-2 border-[#c9852a] bg-[#fff1cf]`}
+          >
+            내 성
+          </button>
+          <button
+            type="button"
             onClick={() => {
               setSheet("castles");
               onCloseCastle();
@@ -3706,6 +3773,39 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               </ul>
             );
           })()}
+        </div>
+      ) : null}
+
+      <CityView open={cityOpen} onClose={() => setCityOpen(false)} />
+      {cityLoaded && !cityHome && !homePromptDismissed ? (
+        <div className="fixed inset-0 z-[3700] flex items-end justify-center bg-black/55 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:items-center">
+          <div className="w-full max-w-md rounded-2xl border-2 border-[#8e7954] bg-[#f3ead6] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+            <p className="text-lg font-black text-slate-900">영주성을 세울 곳을 정하세요</p>
+            <p className="mt-1 text-sm text-slate-700">
+              영주성은 당신의 본거지입니다. 성 안에서 건물을 짓고, 자원을 모으고, 병력을 훈련합니다. 첫 영주성은 계급·비용 없이 세울
+              수 있습니다.
+            </p>
+            <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
+              <li>영주가 지금 있는 동 안에, 아직 영주성이 없는 동에만 세울 수 있습니다.</li>
+              <li>다른 성과 200m 이상 떨어져야 합니다.</li>
+              <li>주변 4km 안의 자원지에 일꾼을 보낼 수 있으니 자원지가 많은 곳이 좋습니다.</li>
+            </ul>
+            <input
+              value={homeName}
+              onChange={(e) => setHomeName(e.target.value)}
+              maxLength={30}
+              placeholder="성 이름"
+              className={`${inputStyle} mt-3 w-full`}
+            />
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setHomePromptDismissed(true)} className={buttonGhost}>
+                나중에
+              </button>
+              <button type="button" onClick={startHomePlacement} className={buttonPrimary}>
+                위치 정하기
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -4205,6 +4305,11 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               {detail.myPending ? (
                 <p className="text-xs text-slate-500">승인 대기 중입니다.</p>
               ) : null}
+              {detail.isOwner && detail.kind === "lord" && cityHome?.castleKey === detail.castleKey ? (
+                <button type="button" onClick={openCity} className={`${buttonPrimary} w-full`}>
+                  성 안으로 들어가기
+                </button>
+              ) : null}
               {detail.isOwner ? (
                 <div className="grid grid-cols-3 gap-1.5">
                   <button
@@ -4278,10 +4383,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                           }
                           void startUnitTraining(castleKey, detail.name);
                         }}
-                        aria-label="부대 훈련 시작, 영향력 50, 훈련 시간 30분"
+                        aria-label="부대 훈련 시작, 금 50, 훈련 시간 30분"
                         className={buttonPrimary}
                       >
-                        훈련 시작 · 영향력 50 · 30분
+                        훈련 시작 · 금 50 · 30분
                       </button>
                     </>
                   )}

@@ -161,6 +161,11 @@ export const redactEvents = (events: BattleEvent[], viewer: SideIndex): BattleEv
 export interface CommanderListItem {
   /** "lord" 또는 부대 id */
   id: string;
+  /** 배치 병력이 더하는 체력·공격력 (영주성 내정) */
+  bonusHp?: number;
+  bonusAtk?: number;
+  /** 배치 병력 수 */
+  troopCount?: number;
   name: string;
   kind: CommanderKind;
   level: number;

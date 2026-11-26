@@ -180,5 +180,10 @@ export type TerritoryNeutralUnit = Prisma.TerritoryNeutralUnitModel
  * 
  */
 export type VersionTable = Prisma.VersionTableModel
+/**
+ * Model TerritoryCity
+ * 영주성 내정 (사용자별 건물·자원(석재·나무·철)·연구·병력·일꾼 채집). 금은 MissionUser.score.
+ */
+export type TerritoryCity = Prisma.TerritoryCityModel
 
 
