@@ -33,10 +33,19 @@ export interface AutoTickEvent {
   killed: boolean;
 }
 
+/** 스킬 발동 기록 (재생 연출용). self는 발동 직후 시전 진영 5칸의 상태. */
+export interface AutoSkillEvent {
+  tick: number;
+  side: 0 | 1;
+  kind: AutoUnitKind;
+  self: Array<{ hp: number; maxHp: number; atk: number; alive: boolean }>;
+}
+
 export interface AutoBattleResult {
   winner: 0 | 1 | "draw";
   ticks: number;
   events: AutoTickEvent[];
+  skills: AutoSkillEvent[];
   remaining: [AutoResolvedUnit[], AutoResolvedUnit[]];
 }
 
@@ -154,15 +163,25 @@ function applySkill(
     return;
   }
   if (kind === "mage") {
-    for (const u of foe) {
+    foe.forEach((u, idx) => {
       if (u.alive) {
         u.hp -= 1;
         if (u.hp <= 0) {
           u.hp = 0;
           u.alive = false;
         }
+        events.push({
+          tick,
+          attackerSide: 0,
+          attackerIdx: -1,
+          targetIdx: idx,
+          damage: 1,
+          counterBonus: false,
+          targetHpAfter: u.hp,
+          killed: !u.alive,
+        });
       }
-    }
+    });
     return;
   }
   // lord: 아군 전체 +1/+1
@@ -190,6 +209,9 @@ export function resolveAutoBattle(opts: AutoBattleOptions): AutoBattleResult {
   const atk = deploy(opts.attacker);
   const def = deploy(opts.defender);
   const events: AutoTickEvent[] = [];
+  const skills: AutoSkillEvent[] = [];
+  const snap = (units: AutoResolvedUnit[]): AutoSkillEvent["self"] =>
+    units.map((u) => ({ hp: u.hp, maxHp: u.maxHp, atk: u.atk, alive: u.alive }));
   let rng = opts.seed >>> 0;
   let attackerSkillUsed = false;
   let defenderSkillUsed = false;
@@ -198,6 +220,7 @@ export function resolveAutoBattle(opts: AutoBattleOptions): AutoBattleResult {
     if (opts.attackerSkillTick === tick && !attackerSkillUsed && opts.attackerSkillKind) {
       attackerSkillUsed = true;
       applySkill(atk, def, opts.attackerSkillKind, tick, events);
+      skills.push({ tick, side: 0, kind: opts.attackerSkillKind, self: snap(atk) });
     }
     if (opts.defenderSkillTick === tick && !defenderSkillUsed && opts.defenderSkillKind) {
       defenderSkillUsed = true;
@@ -208,6 +231,7 @@ export function resolveAutoBattle(opts: AutoBattleOptions): AutoBattleResult {
         const ev = events[i];
         if (ev) ev.attackerSide = 1;
       }
+      skills.push({ tick, side: 1, kind: opts.defenderSkillKind, self: snap(def) });
     }
 
     const atkAlive = atk.some((u) => u.alive);
@@ -253,7 +277,7 @@ export function resolveAutoBattle(opts: AutoBattleOptions): AutoBattleResult {
   const atkAlive = atk.some((u) => u.alive);
   const defAlive = def.some((u) => u.alive);
   const winner: AutoBattleResult["winner"] = atkAlive && !defAlive ? 0 : !atkAlive && defAlive ? 1 : "draw";
-  return { winner, ticks: MAX_TICKS, events, remaining: [atk, def] };
+  return { winner, ticks: MAX_TICKS, events, skills, remaining: [atk, def] };
 }
 
 /** 편성 검증: 1~5기, 레벨 1~10. */

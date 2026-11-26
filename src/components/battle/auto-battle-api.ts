@@ -1,6 +1,6 @@
 // 오토배틀 서버 API 호출 (POST /api/auto-battle/start).
 
-import type { AutoFormation, AutoTickEvent, AutoUnitKind } from "@/lib/auto-battle";
+import type { AutoFormation, AutoSkillEvent, AutoTickEvent, AutoUnitKind } from "@/lib/auto-battle";
 import { battleErrorMessage } from "@/components/battle/battle-api";
 
 export interface AutoBattleProgress {
@@ -19,6 +19,8 @@ export interface AutoBattleStartResult {
   progress: AutoBattleProgress[];
   injuredUntil: number | null;
   events: AutoTickEvent[];
+  /** 스킬 발동 기록 (구버전 응답엔 없을 수 있음) */
+  skills?: AutoSkillEvent[];
   attacker: AutoFormation;
   skillTick: number;
   skillKind: AutoUnitKind;
