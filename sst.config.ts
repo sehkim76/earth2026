@@ -80,6 +80,10 @@ export default $config({
                     runtime: "nodejs20.x",
                     architecture: "x86_64",
                     timeout: "60 seconds",
+                    nodejs: {
+                        format: "cjs",
+                        esbuild: { define: { "import.meta.url": JSON.stringify("file:///var/task/index.js") } },
+                    },
                     environment: {
                         DATABASE_URL: process.env.DATABASE_URL!,
                         PRISMA_QUERY_ENGINE_LIBRARY: `/var/task/${engine}`,
