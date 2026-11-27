@@ -124,10 +124,6 @@ export default function TerritoryDash() {
         </span>
       </header>
       <div className="flex items-stretch gap-1 bg-[#263631] p-1">
-        <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="금">
-          <span className="text-[10px] font-bold text-[#c8bea8]">금</span>
-          <span className="mt-0.5 text-lg font-black leading-none tabular-nums text-[#f0d99d]">{fmtNum(res?.gold ?? me.influence)}</span>
-        </div>
         <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="보유 성">
           <span className="text-[10px] font-bold text-[#c8bea8]">성</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums">{me.ownedCastles}</span>
@@ -141,13 +137,16 @@ export default function TerritoryDash() {
           <span className="mt-1 text-sm font-black leading-none tabular-nums"><RollingNumber value={me.contribution} /></span>
         </div>
       </div>
-      {res ? (
-        <div className="flex items-center gap-2 border-t border-[#b9995d]/30 bg-[#1c2c28] px-2.5 py-1 text-[11px] font-black tabular-nums" aria-label="자원">
-          <span title="석재" className="text-[#cfd6dc]">석재 {fmtNum(res.stone)}</span>
-          <span title="나무" className="text-[#b8d98a]">나무 {fmtNum(res.wood)}</span>
-          <span title="철광석" className="text-[#9fb4cc]">철광석 {fmtNum(res.iron)}</span>
-        </div>
-      ) : null}
+      <div className="flex items-center gap-2 border-t border-[#b9995d]/30 bg-[#1c2c28] px-2.5 py-1 text-[11px] font-black tabular-nums" aria-label="자원">
+        <span title="금" className="text-[#f0d99d]">금 {fmtNum(res?.gold ?? me.influence)}</span>
+        {res ? (
+          <>
+            <span title="석재" className="text-[#cfd6dc]">석재 {fmtNum(res.stone)}</span>
+            <span title="나무" className="text-[#b8d98a]">나무 {fmtNum(res.wood)}</span>
+            <span title="철광석" className="text-[#9fb4cc]">철광석 {fmtNum(res.iron)}</span>
+          </>
+        ) : null}
+      </div>
     </section>
   );
 }

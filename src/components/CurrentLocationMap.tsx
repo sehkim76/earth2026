@@ -9223,11 +9223,11 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      {showAdminBoundaries && selectedAdminCode ? (
+      {!territoryEnabled && showAdminBoundaries && selectedAdminCode ? (
         <div
           className={cn(
             "pointer-events-auto absolute left-3 z-[1210] flex max-w-[70%] items-center gap-2",
-            territoryEnabled ? "top-[7rem]" : "top-[3.75rem]",
+            "top-[3.75rem]",
             "rounded-full border border-amber-200/60 bg-black/60 px-3 py-1.5 backdrop-blur-xl",
             "shadow-[0_10px_24px_rgba(0,0,0,0.34)]"
           )}
@@ -9252,42 +9252,6 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      {territoryEnabled && territoryLegend.length > 0 ? (
-        <div
-          className={cn(
-            "pointer-events-auto absolute left-3 z-[1205] flex max-h-28 w-44 flex-col gap-0.5 overflow-y-auto rounded-md border border-white/20 bg-black/60 px-2 py-1.5 shadow-lg backdrop-blur-sm",
-            selectedAdminCode ? "top-[9.75rem]" : "top-[7rem]",
-          )}
-          aria-label="영토 범례"
-        >
-          {territoryLegend.map((entry) => (
-            <div key={entry.colorKey} className="flex items-center gap-1.5">
-              <span
-                aria-hidden="true"
-                className="inline-block h-3 w-3 shrink-0 rounded-sm"
-                style={{
-                  backgroundColor: territoryOwnerColor(entry.colorKey),
-                  boxShadow: TERRITORY_RELATION_STROKE[entry.relation]
-                    ? `0 0 0 1.5px ${TERRITORY_RELATION_STROKE[entry.relation]}`
-                    : undefined,
-                }}
-              />
-              <span className="min-w-0 truncate text-[11px] font-bold text-white/90">{entry.label}</span>
-              {TERRITORY_RELATION_LABEL[entry.relation] ? (
-                <span
-                  className="shrink-0 rounded px-1 text-[9px] font-black leading-tight text-black"
-                  style={{ backgroundColor: TERRITORY_RELATION_STROKE[entry.relation] ?? "#ddd" }}
-                >
-                  {TERRITORY_RELATION_LABEL[entry.relation]}
-                </span>
-              ) : null}
-              <span className="ml-auto text-[11px] tabular-nums text-white/60">
-                {entry.count}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : null}
 
       {markerPanel ? (
         <div
@@ -9487,10 +9451,71 @@ const isMapPerfEnabled = (): boolean => {
         </div>
       ) : null}
 
-      <div className={`pointer-events-none absolute top-3 z-1200 ${territoryEnabled ? "left-3 right-12" : "left-3 flex w-auto max-w-[calc(100%-6rem)] items-center gap-1.5"}`}>
+      {/* 영토전 좌상단: 상황판 → 선택 동 → 범례를 세로로 쌓아 상황판 높이가 바뀌어도 겹치지 않게 한다 */}
+      <div className={`pointer-events-none absolute top-3 z-1200 ${territoryEnabled ? "left-3 right-12 flex flex-col items-start gap-2" : "left-3 flex w-auto max-w-[calc(100%-6rem)] items-center gap-1.5"}`}>
         {territoryEnabled ? (
           <>
             <TerritoryDash />
+            {showAdminBoundaries && selectedAdminCode ? (
+              <div
+                className={cn(
+                  "pointer-events-auto flex max-w-full items-center gap-2",
+                  "rounded-full border border-amber-200/60 bg-black/60 px-3 py-1.5 backdrop-blur-xl",
+                  "shadow-[0_10px_24px_rgba(0,0,0,0.34)]"
+                )}
+                role="status"
+                aria-label="선택된 행정구역"
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+                <p className="truncate text-xs font-bold text-white">
+                  선택: {selectedAdminDisplayName ?? selectedAdminCode}
+                </p>
+                <button
+                  type="button"
+                  aria-label="행정구역 선택 해제"
+                  onClick={() => {
+                    setSelectedAdminCode(null);
+                    setSelectedAdminName(null);
+                  }}
+                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/15 text-[11px] font-bold leading-none text-white transition hover:bg-white/30"
+                >
+                  ×
+                </button>
+              </div>
+            ) : null}
+            {territoryLegend.length > 0 ? (
+              <div
+                className="pointer-events-auto flex max-h-28 w-44 flex-col gap-0.5 overflow-y-auto rounded-md border border-white/20 bg-black/60 px-2 py-1.5 shadow-lg backdrop-blur-sm"
+                aria-label="영토 범례"
+              >
+                {territoryLegend.map((entry) => (
+                  <div key={entry.colorKey} className="flex items-center gap-1.5">
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                      style={{
+                        backgroundColor: territoryOwnerColor(entry.colorKey),
+                        boxShadow: TERRITORY_RELATION_STROKE[entry.relation]
+                          ? `0 0 0 1.5px ${TERRITORY_RELATION_STROKE[entry.relation]}`
+                          : undefined,
+                      }}
+                    />
+                    <span className="min-w-0 truncate text-[11px] font-bold text-white/90">{entry.label}</span>
+                    {TERRITORY_RELATION_LABEL[entry.relation] ? (
+                      <span
+                        className="shrink-0 rounded px-1 text-[9px] font-black leading-tight text-black"
+                        style={{ backgroundColor: TERRITORY_RELATION_STROKE[entry.relation] ?? "#ddd" }}
+                      >
+                        {TERRITORY_RELATION_LABEL[entry.relation]}
+                      </span>
+                    ) : null}
+                    <span className="ml-auto text-[11px] tabular-nums text-white/60">
+                      {entry.count}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>
