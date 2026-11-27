@@ -1,4 +1,4 @@
-// 성 안 3D 장면 모델 (조선 건축 양식, 절차적 저폴리).
+// 성 안 3D 장면 모델 (조선 건축 양식).
 // 기와지붕(처마 곡선·추녀 솟음)·초가지붕·기단·주칠 기둥·단청 띠·문살을 조합해 건물을 만든다.
 // 정적인 부분은 재질별로 합쳐(bake) 그리기 호출을 줄이고, 깃발·불빛 같은 움직이는 부분만 따로 둔다.
 
@@ -11,6 +11,12 @@ import type { BuildingKey } from "@/lib/city";
 
 const MAT_COLORS = {
   tile: 0x56616b,
+  tileEdge: 0x37474b,
+  tileRib: 0x62747a,
+  copper: 0x9c6b34,
+  dancheongRed: 0xb65736,
+  dancheongGreen: 0x497764,
+  paving: 0xa59b82,
   tileUnder: 0x2f7d6a,
   ridge: 0xd8d2c4,
   plaster: 0xf1eadb,
@@ -31,7 +37,9 @@ const MAT_COLORS = {
   dirt: 0xcdb084,
   road: 0xd9c49a,
   grass: 0x86b553,
-  pine: 0x3d6e3c,
+  pine: 0x3d6342,
+  pineShade: 0x2b5038,
+  pineFresh: 0x597749,
   leaf: 0x6da64a,
   trunk: 0x6b4a32,
   gold: 0xe0b23c,
@@ -114,8 +122,9 @@ export function createMaterials(): { mats: Mats; tex: SceneTextures } {
   };
   // 기와: 골이 진 세로줄
   const tileTex = keep(
-    canvasTex(32, 32, (g) => {
-      g.fillStyle = "#65717b";
+    canvasTex(96, 96, (g) => {
+      g.scale(3, 3);
+      g.fillStyle = "#576970";
       g.fillRect(0, 0, 32, 32);
       g.fillStyle = "#3b444c";
       g.fillRect(0, 0, 5, 32);
@@ -123,6 +132,11 @@ export function createMaterials(): { mats: Mats; tex: SceneTextures } {
       g.fillRect(14, 0, 4, 32);
       g.fillStyle = "#4c565f";
       for (let y = 0; y < 32; y += 8) g.fillRect(0, y, 32, 1);
+      const random = rng(41);
+      for (let i = 0; i < 240; i++) {
+        g.fillStyle = i % 2 ? "#b3b8ae2c" : "#1d28273a";
+        g.fillRect(random() * 32, random() * 32, 0.4 + random() * 1.4, 0.35);
+      }
     }),
   );
   // 문살: 창호지 + 살
@@ -219,7 +233,7 @@ export function createMaterials(): { mats: Mats; tex: SceneTextures } {
       }
     }),
   );
-  const grass = keep(noiseTex("#86b553", ["#79a849", "#93c160", "#6f9c42", "#a0c96a"], 900));
+  const grass = keep(noiseTex("#829458", ["#75894f", "#8e9e5d", "#6e814b", "#9ca76a"], 1500, 256));
   grass.repeat.set(80, 80);
   const road = keep(noiseTex("#d9c49a", ["#c9b184", "#e6d3ac", "#bfa678"], 700));
   const smoke = keep(
@@ -342,7 +356,14 @@ function rock(c: Ctx, r: number, mat: THREE.Material, x: number, y: number, z: n
 
 // ───────── 지붕 ─────────
 
-/** 우진각(팔작 느낌) 기와지붕 면: 처마 오목 곡선 + 추녀 솟음 */
+function roofElevation(x: number, z: number, w: number, d: number, height: number, lift: number): number {
+  const ax = Math.abs(x) / w;
+  const az = Math.abs(z) / d;
+  const t = Math.max(0, Math.min(1 - az, 1 - Math.max(0, Math.abs(x) - (w - d)) / d));
+  return height * Math.pow(t, 1.45) + lift * Math.pow(1 - t, 2.2) * (Math.pow(ax * az, 1.6) + 0.15 * ax * ax);
+}
+
+/** 우진각 기와지붕 면 */
 function roofGeo(hw: number, hd: number, H: number, lift: number): THREE.BufferGeometry {
   const swap = hd > hw;
   const W = swap ? hd : hw;
@@ -351,21 +372,46 @@ function roofGeo(hw: number, hd: number, H: number, lift: number): THREE.BufferG
   g.rotateX(-Math.PI / 2);
   const p = g.attributes.position as THREE.BufferAttribute;
   const uv = g.attributes.uv as THREE.BufferAttribute;
-  const ridge = W - D;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i);
     const z = p.getZ(i);
-    const ax = Math.abs(x) / W;
-    const az = Math.abs(z) / D;
-    const t = Math.max(0, Math.min(1 - az, 1 - Math.max(0, Math.abs(x) - ridge) / D));
-    let y = H * Math.pow(t, 1.45);
-    y += lift * Math.pow(1 - t, 2.2) * (Math.pow(ax * az, 1.6) + 0.15 * ax * ax);
-    p.setY(i, y);
+    p.setY(i, roofElevation(x, z, W, D, H, lift));
     uv.setXY(i, x * 0.9, z * 0.6);
   }
   if (swap) g.rotateY(Math.PI / 2);
   g.computeVertexNormals();
   return g;
+}
+
+/** 처마의 막새, 지붕 골, 추녀마루에 실제 단면을 준다. */
+function roofTrim(c: Ctx, x: number, y: number, z: number, hw: number, hd: number, height: number, lift: number, gold: boolean): void {
+  const swap = hd > hw;
+  const w = Math.max(hw, hd);
+  const d = Math.min(hw, hd);
+  const point = (u: number, v: number, foot = 0): THREE.Vector3 =>
+    new THREE.Vector3(swap ? v : u, roofElevation(u, v, w, d, height, lift) + foot, swap ? -u : v);
+  const trace = (start: THREE.Vector2, end: THREE.Vector2, radius: number, mat: THREE.Material, foot = 0): void => {
+    const curve = new THREE.CatmullRomCurve3(Array.from({ length: 7 }, (_, i) => {
+      const f = i / 6;
+      return point(THREE.MathUtils.lerp(start.x, end.x, f), THREE.MathUtils.lerp(start.y, end.y, f), foot);
+    }));
+    put(c, new THREE.TubeGeometry(curve, 9, radius, 5, false), mat, x, y, z);
+  };
+  for (const side of [-1, 1]) {
+    trace(new THREE.Vector2(-w, side * d), new THREE.Vector2(w, side * d), 0.13, c.m.tileEdge);
+    trace(new THREE.Vector2(-w, side * d), new THREE.Vector2(w, side * d), 0.06, c.m.tileRib, 0.13);
+    trace(new THREE.Vector2(side * w, -d), new THREE.Vector2(side * w, d), 0.12, c.m.tileEdge);
+    const count = Math.min(24, Math.ceil((w * 2) / 0.66));
+    for (let i = 0; i < count; i++) {
+      const u = -w + (2 * w * (i + 0.5)) / count;
+      const edge = point(u, side * d, 0.09);
+      ball(c, 0.11, c.m.tileRib, x + edge.x, y + edge.y, z + edge.z, 1, 1, 0.85, 6);
+      trace(new THREE.Vector2(u, side * d), new THREE.Vector2(u, side * Math.max(0, Math.abs(u) - (w - d))), 0.05, c.m.tileRib, 0.035);
+    }
+    for (const end of [-1, 1]) {
+      trace(new THREE.Vector2(end * w, side * d), new THREE.Vector2(end * (w - d), 0), 0.115, gold ? c.m.copper : c.m.tileEdge, 0.10);
+    }
+  }
 }
 
 /** 기와지붕 (y = 처마 높이). 반환: 용마루 높이 */
@@ -374,6 +420,7 @@ export function giwa(c: Ctx, x: number, y: number, z: number, hw: number, hd: nu
   put(c, top, c.m.tile, x, y, z);
   const under = roofGeo(hw, hd, H, lift);
   put(c, under, c.m.tileUnder, x, y - 0.14, z);
+  roofTrim(c, x, y, z, hw, hd, H, lift, gold);
   // 처마 두께 (서까래 끝)
   const long = Math.max(hw, hd);
   const short = Math.min(hw, hd);
@@ -394,7 +441,8 @@ export function giwa(c: Ctx, x: number, y: number, z: number, hw: number, hd: nu
         [x, z + ridgeLen / 2 + 0.2],
       ];
   for (const [ex, ez] of ends) {
-    box(c, 0.45, 0.75, 0.45, gold ? c.m.gold : c.m.tile, ex, y + H - 0.1, ez);
+    cyl(c, 0.14, 0.27, 0.44, gold ? c.m.copper : c.m.tileEdge, ex, y + H + 0.19, ez, 6);
+    ball(c, 0.19, gold ? c.m.gold : c.m.tileRib, ex, y + H + 0.61, ez, 0.8, 1.2, 0.8, 7);
   }
   return y + H + 0.42;
 }
@@ -453,22 +501,36 @@ export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
   const base = o.base ?? 0.6;
   const { x, z, w, d, h } = o;
   if (base > 0) {
-    box(c, w + 1.4, base, d + 1.4, m.stone, x, y0, z);
-    box(c, 2.2, base * 0.5, 0.8, m.stoneLight, x, y0, z + d / 2 + 0.7 + 0.4);
+    box(c, w + 1.48, base * 0.23, d + 1.48, m.stoneDark, x, y0, z);
+    box(c, w + 1.24, base * 0.59, d + 1.24, m.wallStone, x, y0 + base * 0.18, z);
+    box(c, w + 1.43, base * 0.23, d + 1.43, m.stoneLight, x, y0 + base * 0.77, z);
+    for (let step = 0; step < 3; step++) {
+      box(c, Math.min(w * 0.53, 2.8), base * (step + 1) / 3, 0.51, m.stoneLight, x, y0, z + d / 2 + 1.86 - step * 0.55);
+    }
   }
   const yb = y0 + base;
   const nx = Math.max(2, Math.round(w / 2.3) + 1);
   const nz = Math.max(2, Math.round(d / 2.3) + 1);
   const pillarMat = plain ? m.wood : m.pillar;
+  const column = (px: number, pz: number): void => {
+    cyl(c, 0.22, 0.29, 0.18, m.stoneDark, px, yb, pz, 8);
+    cyl(c, 0.19, 0.24, h - 0.16, pillarMat, px, yb + 0.16, pz, 8);
+    box(c, 0.47, 0.13, 0.48, plain ? m.woodDark : m.dancheongRed, px, yb + h - 0.22, pz);
+    box(c, 0.68, 0.12, 0.63, plain ? m.wood : m.dancheongGreen, px, yb + h - 0.1, pz);
+    if (!plain) {
+      box(c, 0.56, 0.11, 0.88, m.copper, px, yb + h + 0.08, pz);
+      box(c, 0.85, 0.13, 1.1, m.dancheongGreen, px, yb + h + 0.19, pz);
+    }
+  };
   for (let i = 0; i < nx; i++) {
     const px = x - w / 2 + (w * i) / (nx - 1);
-    cyl(c, 0.2, 0.24, h, pillarMat, px, yb, z - d / 2, 8);
-    cyl(c, 0.2, 0.24, h, pillarMat, px, yb, z + d / 2, 8);
+    column(px, z - d / 2);
+    column(px, z + d / 2);
   }
   for (let j = 1; j < nz - 1; j++) {
     const pz = z - d / 2 + (d * j) / (nz - 1);
-    cyl(c, 0.2, 0.24, h, pillarMat, x - w / 2, yb, pz, 8);
-    cyl(c, 0.2, 0.24, h, pillarMat, x + w / 2, yb, pz, 8);
+    column(x - w / 2, pz);
+    column(x + w / 2, pz);
   }
   if (!o.open) {
     box(c, w - 0.15, h, d - 0.15, wallMat, x, yb, z);
@@ -477,13 +539,24 @@ export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
       const bay = w / (nx - 1);
       for (let i = 0; i < nx - 1; i++) {
         const cx = x - w / 2 + bay * (i + 0.5);
-        box(c, bay * 0.74, h * 0.72, 0.1, m.lattice, cx, yb + 0.35, z + d / 2 - 0.02);
+        const front = z + d / 2;
+        box(c, bay * 0.82, h * 0.74, 0.12, m.woodDark, cx, yb + 0.31, front);
+        box(c, bay * 0.73, h * 0.66, 0.12, m.lattice, cx, yb + 0.42, front + 0.05);
+        box(c, bay * 0.83, 0.14, 0.26, m.wood, cx, yb + 0.24, front + 0.055);
+        box(c, 0.06, h * 0.66, 0.06, m.woodDark, cx, yb + 0.42, front + 0.14);
+        for (const handle of [-0.12, 0.12]) {
+          ball(c, 0.045, m.copper, cx + handle, yb + h * 0.45, front + 0.14, 1, 1.35, 1, 6);
+        }
       }
     }
   }
   const band = plain ? m.wood : m.lintel;
   box(c, w + 0.5, 0.42, d + 0.5, band, x, yb + h, z);
-  if (!plain) box(c, w + 1.0, 0.38, d + 1.0, m.bracket, x, yb + h + 0.42, z);
+  if (!plain) {
+    box(c, w + 1.0, 0.38, d + 1.0, m.bracket, x, yb + h + 0.42, z);
+    box(c, w + 1.03, 0.065, d + 1.03, m.dancheongRed, x, yb + h + 0.63, z);
+    box(c, w + 1.06, 0.058, d + 1.06, m.copper, x, yb + h + 0.74, z);
+  }
   const ry = yb + h + (plain ? 0.42 : 0.8);
   const over = o.over ?? 1.3;
   const roofH = o.roofH ?? Math.max(1.4, Math.min(w, d) * 0.42);
@@ -525,8 +598,23 @@ function glow(c: Ctx, r: number, mat: THREE.Material, x: number, y: number, z: n
 }
 
 export function pine(c: Ctx, x: number, z: number, s = 1, y = 0): void {
-  cyl(c, 0.16 * s, 0.28 * s, 2.0 * s, c.m.trunk, x, y, z, 6);
-  for (let i = 0; i < 3; i++) cone(c, (1.85 - i * 0.45) * s, 1.6 * s, c.m.pine, x + (i % 2 === 0 ? 0.12 : -0.12) * s, y + (1.4 + i * 0.95) * s, z, 7);
+  const { m } = c;
+  const turn = Math.sin(x * 3.15 + z * 4.31) * Math.PI;
+  cyl(c, 0.09 * s, 0.27 * s, 3.0 * s, m.trunk, x, y, z, 7);
+  for (let branch = 0; branch < 5; branch++) {
+    const angle = turn + branch * 2.4;
+    const reach = (1.22 - branch * 0.18) * s;
+    const bx = Math.cos(angle) * reach;
+    const bz = Math.sin(angle) * reach;
+    const by = y + (1.62 + branch * 0.47) * s;
+    const axis = new THREE.Vector3(bx, 0.32 * s, bz);
+    const wood = new THREE.CylinderGeometry(0.048 * s, 0.12 * s, axis.length(), 6);
+    const limb = put(c, wood, m.trunk, x + bx / 2, by - 0.18 * s, z + bz / 2);
+    limb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.normalize());
+    const scale = (1.18 - branch * 0.12) * s;
+    ball(c, scale, m.pineShade, x + bx, by, z + bz, 1.1, 0.43, 0.95, 7);
+    ball(c, scale * 0.82, branch % 2 ? m.pine : m.pineFresh, x + bx * 0.84, by + 0.25 * s, z + bz * 0.86, 1.05, 0.49, 0.87, 7);
+  }
 }
 
 export function roundTree(c: Ctx, x: number, z: number, s = 1): void {
@@ -596,6 +684,55 @@ function lantern(c: Ctx, x: number, z: number): void {
   box(c, 0.85, 0.2, 0.85, c.m.stone, x, 1.75, z);
 }
 
+function flagstone(c: Ctx, x: number, z: number, width: number, depth: number, seed: number): void {
+  const r = rng(seed);
+  const rows = Math.ceil(depth / 0.82);
+  const columns = Math.ceil(width / 1.18);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < columns; col++) {
+      const px = x - width / 2 + (col + 0.5) * width / columns;
+      const pz = z - depth / 2 + (row + 0.5) * depth / rows;
+      const material = r() < 0.7 ? c.m.paving : c.m.stoneLight;
+      box(c, width / columns - 0.065, 0.055 + r() * 0.018, depth / rows - 0.065, material, px, 0.026, pz, (r() - 0.5) * 0.045);
+    }
+  }
+}
+
+function readingDesk(c: Ctx, x: number, z: number): void {
+  const { m } = c;
+  for (const dx of [-0.48, 0.48]) {
+    for (const dz of [-0.25, 0.25]) box(c, 0.12, 0.64, 0.12, m.woodDark, x + dx, 0.1, z + dz);
+  }
+  box(c, 1.23, 0.14, 0.71, m.wood, x, 0.73, z);
+  box(c, 0.49, 0.06, 0.4, m.plaster, x - 0.12, 0.88, z, -0.16);
+  for (let i = 0; i < 4; i++) {
+    box(c, 0.29, 0.012, 0.016, m.iron, x - 0.12, 0.94, z - 0.12 + 0.066 * i, -0.16);
+  }
+  box(c, 0.24, 0.08, 0.19, m.iron, x + 0.34, 0.87, z - 0.11);
+  box(c, 0.62, 0.09, 0.33, m.dancheongRed, x, 0.1, z + 0.83);
+}
+
+function handcart(c: Ctx, x: number, z: number): void {
+  const { m } = c;
+  for (const side of [-1, 1]) {
+    const wx = x + side * 0.9;
+    const wheel = new THREE.TorusGeometry(0.53, 0.073, 5, 13);
+    wheel.rotateY(Math.PI / 2);
+    put(c, wheel, m.woodDark, wx, 0.6, z);
+    cyl(c, 0.10, 0.10, 0.16, m.iron, wx, 0.5, z, 8).rotation.z = Math.PI / 2;
+    for (let spoke = 0; spoke < 4; spoke++) {
+      const bar = box(c, 0.055, 0.93, 0.055, m.wood, wx, 0.13, z);
+      bar.geometry.translate(0, -0.465, 0);
+      bar.position.y = 0.6;
+      bar.rotation.x = spoke * Math.PI / 4;
+    }
+    box(c, 0.10, 0.10, 2.7, m.wood, x + side * 0.53, 0.52, z + 0.78).rotation.x = 0.1;
+  }
+  box(c, 1.52, 0.14, 1.66, m.plank, x, 0.61, z);
+  for (const side of [-1, 1]) box(c, 0.10, 0.36, 1.63, m.wood, x + side * 0.73, 0.73, z);
+  for (const dx of [-0.34, 0.33]) ball(c, 0.37, m.hay, x + dx, 0.96, z, 0.91, 0.77, 1.15, 8);
+}
+
 const BUILDERS: Record<BuildingKey, Builder> = {
   // 본관: 초가 관아 → 월대 위 기와 정전 → 중층 정전 → 행각 두른 금빛 정전
   keep: (c) => {
@@ -609,7 +746,8 @@ const BUILDERS: Record<BuildingKey, Builder> = {
       fenceLine(c, 2, 5, 7, 5);
       return h1.top;
     }
-    box(c, 20, 0.8, 14, m.stone, 0, 0, 0);
+    flagstone(c, 0, 8.6, 8, 4.5, 17);
+    box(c, 20, 0.8, 14, m.wallStone, 0, 0, 0);
     box(c, 4, 0.4, 1.4, m.stoneLight, 0, 0, 7.6);
     box(c, 4, 0.8, 1.2, m.stoneLight, 0, 0, 6.6);
     if (t === 2) {
@@ -667,6 +805,13 @@ const BUILDERS: Record<BuildingKey, Builder> = {
       hall(c, { x: 4.4, z: -1.0, w: 2.6, d: 2.4, h: 1.8, base: 0.4, roofH: 1.2, over: 0.8, lift: 0.6 });
       lantern(c, 0, 1.2);
     }
+    flagstone(c, 0, 3.9, 2.6, 3.8, 23);
+    readingDesk(c, -3.3, 1.45);
+    readingDesk(c, -1.7, 1.45);
+    if (t >= 2) {
+      lantern(c, -4.8, 4.7);
+      lantern(c, 4.9, 4.7);
+    }
     pine(c, 4.3, -4.2, 0.9);
     if (t >= 2) pine(c, -4.9, -4.6, 0.8);
     else fenceLine(c, -4, 2, 4, 2);
@@ -712,6 +857,8 @@ const BUILDERS: Record<BuildingKey, Builder> = {
       jar(c, -2.5, 3.0, 0.65, 0.35);
       flag(c, 4.8, 4.4, 3.4, m.flagGreen, 1.1);
     }
+    flagstone(c, -0.1, 2.2, 2.35, 3.8, 35);
+    handcart(c, 2.5, 0.4);
     fenceLine(c, -5.2, 4.6, 0.4, 4.6);
     fenceLine(c, -5.2, -4.6, -5.2, 4.6);
     cone(c, 0.9, 1.6, m.thatch, 4.4, 0, -2.6, 9);
@@ -865,6 +1012,14 @@ const BUILDERS: Record<BuildingKey, Builder> = {
     }
     top = hall(c, { x: -0.5, z: -2.4, w: 8, d: 3.8, h: 2.5, roofH: 1.8, lift: 0.8 }).top;
     box(c, 9, 0.05, 4.4, m.dirt, 0, 0, 2.4);
+    for (const side of [-1, 1]) {
+      box(c, 0.14, 0.08, 4.4, m.stoneDark, side * 4.42, 0.03, 2.4);
+      for (const offset of [0.3, 4.55]) cyl(c, 0.14, 0.18, 0.45, m.woodDark, side * 4.42, 0.05, offset, 6);
+      jar(c, side * 3.4, 0.85, 0.55, 0.05);
+    }
+    for (const dx of [-1.3, 0, 1.3]) {
+      box(c, 0.09, 0.022, 1.8, m.stoneLight, dx * 2, 0.05, 2.8);
+    }
     for (const dx of [-1.2, 1.2]) {
       cyl(c, 0.07, 0.07, 1.6, m.wood, dx, 0, 1.8, 5);
       box(c, 1.0, 0.1, 0.1, m.wood, dx, 1.2, 1.8);
@@ -1346,13 +1501,31 @@ export function buildStaticWorld(m: Mats): { group: THREE.Group; flags: THREE.Gr
     const uv = g.attributes.uv as THREE.BufferAttribute;
     const p = g.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < uv.count; i++) uv.setXY(i, (p.getX(i) + r.x) / 6, (p.getZ(i) + r.z) / 6);
-    put(c, g, r.main ? m.road : m.road, r.x, r.main ? 0.03 : 0.02, r.z);
+    put(c, g, m.road, r.x, r.main ? 0.03 : 0.02, r.z);
     if (r.main) {
       for (const sx of [-1, 1]) {
         const eg = new THREE.PlaneGeometry(0.35, r.d);
         eg.rotateX(-Math.PI / 2);
         put(c, eg, m.stoneLight, r.x + (sx * r.w) / 2, 0.04, r.z);
       }
+    }
+  }
+
+  flagstone(c, 0, 13.2, 2.55, 15.2, 46);
+  flagstone(c, 0, 29.0, 2.55, 13.2, 55);
+  for (const x of [-3.45, 3.45]) {
+    for (const z of [3.5, 17.2, 32]) lantern(c, x, z);
+  }
+
+  const garden = rng(96);
+  for (const [gx, gz] of [[-32, -24], [-30, 33.5], [-14, 34], [-5, -30], [6, -29], [31, -31], [10, 34], [33, 27]]) {
+    box(c, 3.2, 0.13, 1.6, m.paving, gx, 0, gz);
+    box(c, 2.88, 0.10, 1.28, m.earth, gx, 0.08, gz);
+    for (let index = 0; index < 5; index++) {
+      const x = gx - 1.05 + (index % 3) * 0.84 + garden() * 0.3;
+      const z = gz - 0.38 + Math.floor(index / 3) * 0.56 + garden() * 0.22;
+      ball(c, 0.26 + garden() * 0.09, index % 2 ? m.pine : m.pineFresh, x, 0.38, z, 1.3, 0.77, 1.05, 7);
+      if (index % 2 === 0) ball(c, 0.11, m.dancheongRed, x + 0.12, 0.61, z + 0.05, 1, 0.72, 1, 6);
     }
   }
 

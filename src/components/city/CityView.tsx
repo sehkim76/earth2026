@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import dynamic from "next/dynamic";
 
@@ -48,6 +48,9 @@ import {
 import { BuildingIcon, ResourceIcon } from "@/components/city/CityIcons";
 import { cityAction, fetchCity, fmtNum, fmtRemain, type CityViewData } from "@/components/city/city-client";
 import type { CitySceneLot } from "@/components/city/CityScene3D";
+import type { CityDistrict } from "@/components/city/city-scene-engine";
+
+import "@/components/city/city-interface.css";
 
 // three.js는 성 화면을 열 때만 불러온다
 const CityScene3D = dynamic(() => import("@/components/city/CityScene3D"), {
@@ -55,22 +58,40 @@ const CityScene3D = dynamic(() => import("@/components/city/CityScene3D"), {
   loading: () => <p className="absolute inset-0 grid place-items-center text-sm font-bold text-[#f3e8ce]">성 안 풍경을 그리는 중…</p>,
 });
 
-type Tab = "buildings" | "research" | "troops" | "workers";
+const CITY_TABS = [
+  ["buildings", "건물"],
+  ["research", "연구"],
+  ["troops", "병력"],
+  ["workers", "일꾼"],
+] as const satisfies ReadonlyArray<readonly [CityDistrict, string]>;
+
+const DISTRICT_NAMES = { research: "학당", troops: "병영", workers: "일꾼 막사" } as const;
+const PANEL_CLASS = "pointer-events-auto absolute inset-x-2 bottom-2 max-h-[49%] overflow-y-auto overscroll-contain px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-[#32291d] [scrollbar-width:thin] md:inset-x-auto md:top-3 md:right-3 md:bottom-3 md:w-[min(33rem,42vw)] md:max-h-none md:px-4 md:py-4";
+const ACTION_CLASS = "min-h-10 shrink-0 px-3 text-xs font-bold text-[#fff3d7]";
+const ROW_CLASS = "px-3 py-2.5";
+const META_CLASS = "text-xs font-semibold leading-relaxed text-[#6b5438]";
 
 interface CityViewProps {
   open: boolean;
   onClose: () => void;
 }
 
+// 포털은 브라우저가 기존 페이지의 하이드레이션을 마친 뒤 연결한다.
+const subscribeToDocument = (): (() => void) => () => undefined;
+const clientDocument = (): boolean => true;
+const serverDocument = (): boolean => false;
+
 /** 서버 시각 기준 현재 */
 const serverNow = (v: CityViewData | null): number => Date.now() - (v?.skew ?? 0);
 
 /** 성 안 화면: 자원 막대, 건물 마당, 건설·연구·훈련·병력 배치·일꾼 */
 export function CityView({ open, onClose }: CityViewProps) {
+  const hasDocument = useSyncExternalStore(subscribeToDocument, clientDocument, serverDocument);
   const [view, setView] = useState<CityViewData | null>(null);
-  const [tab, setTab] = useState<Tab>("buildings");
+  const [tab, setTab] = useState<CityDistrict>("buildings");
   const [selected, setSelected] = useState<BuildingKey | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [, setTick] = useState(0);
 
@@ -82,9 +103,11 @@ export function CityView({ open, onClose }: CityViewProps) {
   const reload = useCallback(async () => {
     const r = await fetchCity();
     if (r.ok) {
+      setLoadError(null);
       setView(r.view);
       if (r.view.events.length > 0) show(r.view.events.join(" · "));
     } else {
+      setLoadError(r.message);
       show(r.message);
     }
   }, [show]);
@@ -115,7 +138,7 @@ export function CityView({ open, onClose }: CityViewProps) {
   }, [open, view, reload]);
 
   useEffect(() => {
-    if (!open || tab !== "buildings" || busy) return;
+    if (!open || busy) return;
     let pending = false;
     let cancelled = false;
     const id = window.setInterval(async () => {
@@ -132,7 +155,7 @@ export function CityView({ open, onClose }: CityViewProps) {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [open, tab, busy]);
+  }, [open, busy]);
 
   const act = async (body: Parameters<typeof cityAction>[0]): Promise<boolean> => {
     if (busy) return false;
@@ -148,7 +171,7 @@ export function CityView({ open, onClose }: CityViewProps) {
     return false;
   };
 
-  if (!open || typeof document === "undefined") return null;
+  if (!open || !hasDocument) return null;
 
   const now = serverNow(view);
   const s = view?.state ?? null;
@@ -198,21 +221,28 @@ export function CityView({ open, onClose }: CityViewProps) {
     : [];
 
   return createPortal(
-    <div className="fixed inset-0 z-[3800] flex flex-col bg-[#1b1510] text-[#2b2118]" role="dialog" aria-label="영주성">
+    <div data-city-interface className="fixed inset-0 z-[3800] isolate flex flex-col overflow-hidden text-[#2b2118]" role="dialog" aria-label="영주성">
+      {s ? (
+        <CityScene3D
+          lots={sceneLots}
+          district={tab}
+          siege={{ active: !!activeSiege, wallLevel: s.buildings.wall }}
+          selected={selected}
+          onSelect={setSelected}
+        />
+      ) : null}
       {/* 머리: 성 이름 + 자원 */}
-      <header className="shrink-0 border-b-2 border-[#8e7954] bg-[linear-gradient(180deg,#3a2c1f,#271d14)] px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] text-[#f3e8ce]">
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-lg font-black">{view?.home?.name ?? "영주성"}</p>
-            <p className="text-[11px] text-[#c8bea8]">본관 Lv.{s?.buildings.keep ?? 1} · 창고 한도 {fmtNum(cap)}</p>
-          </div>
-          <button type="button" onClick={onClose} className="shrink-0 rounded-xl border border-[#c8bea8]/50 bg-[#4a3a28] px-4 py-1.5 text-sm font-black">
-            지도로
-          </button>
+      <header data-city-surface="frame" className="relative z-10 mx-2 mt-[max(0.5rem,env(safe-area-inset-top))] grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-2 text-[#f3e8ce] md:mx-3 md:grid-cols-[minmax(10rem,1fr)_minmax(22rem,34rem)_minmax(5rem,1fr)]">
+        <div className="min-w-0">
+          <p className="truncate font-serif text-xl font-black tracking-tight">{view?.home?.name ?? "영주성"}</p>
+          <p className="text-[11px] text-[#c8bea8]">본관 Lv.{s?.buildings.keep ?? 1} · 창고 한도 {fmtNum(cap)}</p>
         </div>
-        <div className="mt-2 grid grid-cols-4 gap-1">
+        <button type="button" onClick={onClose} data-city-surface="button" className="min-h-10 justify-self-end px-4 text-sm font-bold md:col-start-3 md:row-start-1">
+          지도로
+        </button>
+        <div className="col-span-2 grid grid-cols-4 gap-1.5 md:col-span-1 md:col-start-2 md:row-start-1">
           {RESOURCE_KINDS.map((k) => (
-            <div key={k} className="rounded-lg bg-black/35 px-1.5 py-1">
+            <div key={k} data-city-surface="button" className="min-w-0 px-1.5 py-1 sm:px-2">
               <p className="flex items-center gap-1 text-[10px] font-bold text-[#c8bea8]">
                 <ResourceIcon kind={k} size={12} />
                 {RESOURCE_LABEL[k]}
@@ -224,51 +254,40 @@ export function CityView({ open, onClose }: CityViewProps) {
         </div>
       </header>
 
-      {/* 탭 */}
-      <nav className="flex shrink-0 gap-1 bg-[#271d14] px-2 py-1.5">
-        {(
-          [
-            ["buildings", "건물"],
-            ["research", "연구"],
-            ["troops", "병력"],
-            ["workers", "일꾼"],
-          ] as const
-        ).map(([t, label]) => (
+      <nav aria-label="성 내부" className="relative z-10 mx-2 mt-1.5 flex shrink-0 gap-1.5 md:mx-3 md:max-w-xl">
+        {CITY_TABS.map(([key, label]) => (
           <button
-            key={t}
+            key={key}
             type="button"
+            aria-pressed={tab === key}
             onClick={() => {
-              setTab(t);
+              setTab(key);
               setSelected(null);
             }}
-            className={`flex-1 rounded-lg py-1.5 text-sm font-black ${tab === t ? "bg-[#f0d99d] text-[#2b2118]" : "bg-[#3a2c1f] text-[#e8dcc0]"}`}
+            data-city-surface={tab === key ? "selected" : "button"}
+            className={`min-h-11 flex-1 px-2 text-sm font-bold ${tab === key ? "text-[#352414]" : "text-[#f3e8ce]"}`}
           >
             {label}
           </button>
         ))}
       </nav>
 
-      <main
-        className={
-          tab === "buildings" && view && s
-            ? "relative min-h-0 flex-1 overflow-hidden bg-[#86b553]"
-            : "min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_50%_30%,#6d7a4a_0%,#4a5634_60%,#323b24_100%)] p-2 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
-        }
-      >
+      <main className="pointer-events-none relative min-h-0 flex-1">
         {!view || !s ? (
-          <p className="py-10 text-center text-sm font-bold text-[#f3e8ce]">성 안을 불러오는 중…</p>
-        ) : tab === "buildings" ? (
+          <div className="pt-10 text-center text-sm font-bold text-[#f3e8ce]">
+            <p role="status">{loadError ?? "성 안을 불러오는 중…"}</p>
+            {loadError ? (
+              <button type="button" data-city-surface="button" className="pointer-events-auto mt-3 min-h-10 px-4" onClick={() => void reload()}>
+                다시 불러오기
+              </button>
+            ) : null}
+          </div>
+        ) : (
           <>
-            <CityScene3D
-              lots={sceneLots}
-              siege={{ active: !!activeSiege, wallLevel: s.buildings.wall }}
-              selected={selected}
-              onSelect={setSelected}
-            />
-            <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-center gap-1">
+            <div aria-live="polite" className="absolute top-3 left-2 flex w-[min(25rem,calc(100%_-_1rem))] flex-col gap-1.5 md:left-3">
               {activeSiege ? (
-                <div className="w-full max-w-sm rounded-xl border border-orange-400/65 bg-red-950/90 px-3 py-2 text-orange-50">
-                  <p className="text-xs font-black">
+                <div data-city-surface="warning" className="px-3 py-2 text-orange-50">
+                  <p className="text-xs font-bold">
                     {activeSiege.by}님의 공성 공격 · {now - activeSiege.at < 60_000 ? "방금 전" : `${Math.floor((now - activeSiege.at) / 60_000)}분 전`}
                   </p>
                   {activeSiege.defended !== null ? (
@@ -278,23 +297,18 @@ export function CityView({ open, onClose }: CityViewProps) {
                   ) : null}
                 </div>
               ) : null}
-              {s.build ? (
-                <div className="w-full max-w-sm rounded-xl bg-black/60 px-3 py-1.5 text-[#f3e8ce] backdrop-blur-sm">
-                  <p className="text-xs font-black">
-                    공사 중: {BUILDING_BY_KEY[s.build.key].name} → Lv.{s.build.toLevel} · {fmtRemain(s.build.endsAt - now)}
+              {tab === "buildings" && s.build ? (
+                <div data-city-surface="frame" className="px-3 py-2 text-[#f3e8ce]">
+                  <p className="text-xs font-bold">
+                    공사 중 · {BUILDING_BY_KEY[s.build.key].name} Lv.{s.build.toLevel} · {fmtRemain(s.build.endsAt - now)}
                   </p>
-                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/50">
-                    <div className="h-full bg-[linear-gradient(90deg,#c9852a,#f0d99d)]" style={{ width: `${progress(s.build.startedAt, s.build.endsAt)}%` }} />
-                  </div>
+                  <CityProgress value={progress(s.build.startedAt, s.build.endsAt)} label="공사 진행률" />
                 </div>
-              ) : (
-                <p className="rounded-full bg-black/50 px-3 py-1 text-center text-[11px] font-bold text-[#f3e8ce] backdrop-blur-sm">
-                  끌어서 둘러보기 · 두 손가락으로 확대 · 건물을 눌러 짓기/올리기
-                </p>
-              )}
+              ) : null}
             </div>
-            {selected ? (
+            {tab === "buildings" && selected ? (
               <BuildingSheet
+                key={selected}
                 k={selected}
                 view={view}
                 now={now}
@@ -311,113 +325,123 @@ export function CityView({ open, onClose }: CityViewProps) {
                 }}
               />
             ) : null}
-          </>
-        ) : tab === "research" ? (
-          <div className="flex flex-col gap-1.5">
-            <p className="rounded-xl bg-black/35 px-3 py-1.5 text-center text-xs font-bold text-[#f3e8ce]">
-              학당 Lv.{s.buildings.academy}: 기술은 학당 레벨까지 올릴 수 있습니다. 한 번에 하나씩 연구합니다.
-            </p>
-            {s.research ? (
-              <div className="rounded-xl bg-black/45 px-3 py-2 text-[#f3e8ce]">
-                <p className="text-xs font-black">
-                  연구 중: {TECH_BY_KEY[s.research.key].name} → Lv.{s.research.toLevel} · {fmtRemain(s.research.endsAt - now)}
-                </p>
-                <div className="mt-1 h-2 overflow-hidden rounded bg-black/50">
-                  <div className="h-full bg-[linear-gradient(90deg,#4f6d8f,#9fc3e8)]" style={{ width: `${progress(s.research.startedAt, s.research.endsAt)}%` }} />
-                </div>
-              </div>
-            ) : null}
-            {TECHS.map((t) => {
-              const lv = s.tech[t.key];
-              const maxed = lv >= MAX_TECH_LEVEL;
-              const cost = researchCost(t.key, lv);
-              const blocked = lv + 1 > s.buildings.academy;
-              return (
-                <div key={t.key} className="rounded-xl border-2 border-[#5d513e] bg-[#e8dcc0] px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-black">
-                      {t.name} <span className="text-xs text-[#7a5a1e]">Lv.{lv}/{MAX_TECH_LEVEL}</span>
-                    </p>
-                    <p className="text-xs font-bold text-[#354b3c]">
-                      {t.desc} +{lv * t.perLevel}%{maxed ? "" : ` → +${(lv + 1) * t.perLevel}%`}
-                    </p>
-                  </div>
-                  {maxed ? (
-                    <p className="mt-1 text-xs font-bold text-slate-500">최고 레벨</p>
+            {tab !== "buildings" ? (
+              <section key={tab} aria-label={DISTRICT_NAMES[tab]} data-city-surface="sheet" data-city-scroll className={PANEL_CLASS}>
+                <h2 className="mb-3 border-b border-[#aa8b5e] pb-2 font-serif text-xl font-black tracking-tight">{DISTRICT_NAMES[tab]}</h2>
+                {tab === "research" ? (
+                    <div className="flex flex-col gap-2">
+                      <p className={META_CLASS}>
+                        학당 Lv.{s.buildings.academy} · 기술은 학당 레벨까지 올릴 수 있으며 한 번에 하나씩 연구합니다.
+                      </p>
+                      {s.research ? (
+                        <div data-city-surface="row" className={ROW_CLASS}>
+                          <p className="text-xs font-black">
+                            연구 중: {TECH_BY_KEY[s.research.key].name} → Lv.{s.research.toLevel} · {fmtRemain(s.research.endsAt - now)}
+                          </p>
+                          <CityProgress value={progress(s.research.startedAt, s.research.endsAt)} label="연구 진행률" />
+                        </div>
+                      ) : null}
+                      {TECHS.map((t) => {
+                        const lv = s.tech[t.key];
+                        const maxed = lv >= MAX_TECH_LEVEL;
+                        const cost = researchCost(t.key, lv);
+                        const blocked = lv + 1 > s.buildings.academy;
+                        return (
+                          <div key={t.key} data-city-surface="row" className={ROW_CLASS}>
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                              <p className="text-sm font-black">
+                                {t.name} <span className="text-xs text-[#7a5a1e]">Lv.{lv}/{MAX_TECH_LEVEL}</span>
+                              </p>
+                              <p className="text-xs font-bold text-[#354b3c]">
+                                {t.desc} +{lv * t.perLevel}%{maxed ? "" : ` → +${(lv + 1) * t.perLevel}%`}
+                              </p>
+                            </div>
+                            {maxed ? (
+                              <p className="mt-1 text-xs font-bold text-slate-500">최고 레벨</p>
+                            ) : (
+                              <div className="mt-1 flex items-center justify-between gap-2">
+                                <div className="text-xs">
+                                  {costLine(cost)}
+                                  <span className="text-[11px] text-slate-500">{fmtRemain(researchMs(t.key, lv))}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy || !!s.research || blocked || !affordable(cost)}
+                                  onClick={() => void act({ type: "research", tech: t.key as TechKey })}
+                                  data-city-surface="action" className={ACTION_CLASS}
+                                >
+                                  {blocked ? `학당 Lv.${lv + 1} 필요` : "연구"}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : tab === "troops" ? (
+                    <TroopsTab view={view} busy={busy} onAssign={(id, troops) => void act({ type: "assign", commanderId: id, troops })} />
                   ) : (
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <div className="text-xs">
-                        {costLine(cost)}
-                        <span className="text-[11px] text-slate-500">{fmtRemain(researchMs(t.key, lv))}</span>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={busy || !!s.research || blocked || !affordable(cost)}
-                        onClick={() => void act({ type: "research", tech: t.key as TechKey })}
-                        className="shrink-0 rounded-lg bg-[#263b31] px-3 py-1.5 text-xs font-black text-[#fff4d8] disabled:opacity-40"
-                      >
-                        {blocked ? `학당 Lv.${lv + 1} 필요` : "연구"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : tab === "troops" ? (
-          <TroopsTab view={view} busy={busy} onAssign={(id, troops) => void act({ type: "assign", commanderId: id, troops })} />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <p className="rounded-xl bg-black/35 px-3 py-1.5 text-center text-xs font-bold text-[#f3e8ce]">
-              일꾼 부대 {s.gathers.length}/{gatherParties(s.buildings.camp)} · 1회 운반 {fmtNum(gatherLoad(s.buildings.camp))}
-              <br />
-              지도에서 자원지(금·석재·나무·철광석)를 눌러 일꾼을 보내세요. 일꾼은 길로만 다니며, 영주성에서 4km 안만 갈 수 있습니다.
-            </p>
-            {s.gathers.length === 0 ? (
-              <p className="py-6 text-center text-sm font-bold text-[#f3e8ce]">나가 있는 일꾼이 없습니다.</p>
-            ) : (
-              s.gathers.map((g) => {
-                const ph = gatherPhase(g, now);
-                const label = ph.phase === "going" ? "가는 중" : ph.phase === "gathering" ? "채집 중" : "돌아오는 중";
-                const until = ph.phase === "going" ? g.arriveAt : ph.phase === "gathering" ? g.doneAt : g.returnAt;
-                return (
-                  <div key={g.id} className="rounded-xl border-2 border-[#5d513e] bg-[#e8dcc0] px-3 py-2">
-                    <div className="flex items-center justify-between">
-                      <p className="flex items-center gap-1 text-sm font-black">
-                        <ResourceIcon kind={g.kind} /> {RESOURCE_LABEL[g.kind]} {fmtNum(g.amount)}
+                    <div className="flex flex-col gap-1.5">
+                      <p className={META_CLASS}>
+                        일꾼 부대 {s.gathers.length}/{gatherParties(s.buildings.camp)} · 1회 운반 {fmtNum(gatherLoad(s.buildings.camp))}
+                        <br />
+                        지도에서 자원지(금·석재·나무·철광석)를 눌러 일꾼을 보내세요. 일꾼은 길로만 다니며, 영주성에서 4km 안만 갈 수 있습니다.
                       </p>
-                      <p className="text-xs font-bold text-[#354b3c]">
-                        {label} · {fmtRemain(until - now)}
-                      </p>
+                      {s.gathers.length === 0 ? (
+                        <p data-city-surface="row" className="px-3 py-5 text-sm font-bold">나가 있는 일꾼이 없습니다.</p>
+                      ) : (
+                        s.gathers.map((g) => {
+                          const ph = gatherPhase(g, now);
+                          const label = ph.phase === "going" ? "가는 중" : ph.phase === "gathering" ? "채집 중" : "돌아오는 중";
+                          const until = ph.phase === "going" ? g.arriveAt : ph.phase === "gathering" ? g.doneAt : g.returnAt;
+                          return (
+                            <div key={g.id} data-city-surface="row" className={ROW_CLASS}>
+                              <div className="flex items-center justify-between">
+                                <p className="flex items-center gap-1 text-sm font-black">
+                                  <ResourceIcon kind={g.kind} /> {RESOURCE_LABEL[g.kind]} {fmtNum(g.amount)}
+                                </p>
+                                <p className="text-xs font-bold text-[#354b3c]">
+                                  {label} · {fmtRemain(until - now)}
+                                </p>
+                              </div>
+                              <CityProgress value={progress(g.startedAt, g.returnAt)} label="채집 일정 진행률" />
+                              {ph.phase !== "returning" ? (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => void act({ type: "recall", gatherId: g.id })}
+                                  data-city-surface="action" className={`mt-2 ${ACTION_CLASS}`}
+                                >
+                                  불러들이기
+                                </button>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
-                    <div className="mt-1 h-2 overflow-hidden rounded bg-black/20">
-                      <div className="h-full bg-[linear-gradient(90deg,#4f7a4a,#8fbf6a)]" style={{ width: `${progress(g.startedAt, g.returnAt)}%` }} />
-                    </div>
-                    {ph.phase !== "returning" ? (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void act({ type: "recall", gatherId: g.id })}
-                        className="mt-1 rounded-lg border border-[#8e7954] bg-[#fff4d8] px-3 py-1 text-xs font-black disabled:opacity-40"
-                      >
-                        불러들이기
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })
-            )}
-          </div>
+                )}
+              </section>
+            ) : null}
+          </>
         )}
       </main>
 
       {toast ? (
-        <div className="pointer-events-none fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+1rem)] z-[3810] rounded-xl bg-black/85 px-3 py-2 text-center text-sm font-bold text-[#fff4d8]">
+        <div role="status" data-city-surface="frame" className="pointer-events-none absolute top-1/3 left-1/2 z-20 w-max max-w-[calc(100%_-_2rem)] -translate-x-1/2 px-4 py-3 text-center text-sm font-bold text-[#fff4d8]">
           {toast}
         </div>
       ) : null}
     </div>,
     document.body,
+  );
+}
+
+function CityProgress({ value, label }: { value: number; label: string }): ReactElement {
+  return (
+    <div role="progressbar" aria-label={label} aria-valuenow={Math.round(value)} data-city-surface="track" className="relative mt-2 h-2">
+      <div data-city-surface="fill" className="absolute inset-y-0 left-0" style={{ width: `${value}%` }} />
+    </div>
   );
 }
 
@@ -474,20 +498,20 @@ function BuildingSheet({
   const trainCost = def.trains ? multiplyCost(TROOP_COST[def.trains], Math.min(count, batchMax)) : {};
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[3805] max-h-[62vh] overflow-y-auto rounded-t-2xl border-t-4 border-[#8e7954] bg-[#f3ead6] px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+    <section data-city-surface="sheet" data-city-scroll className={PANEL_CLASS} aria-label={def.name}>
       <div className="flex items-start gap-3">
         <BuildingIcon kind={k} size={56} />
         <div className="min-w-0 flex-1">
-          <p className="text-lg font-black">
+          <h2 className="font-serif text-xl font-black tracking-tight">
             {def.name} <span className="text-sm text-[#7a5a1e]">{lv > 0 ? `Lv.${lv}` : "미건설"}</span>
-          </p>
+          </h2>
           <p className="text-xs text-slate-600">{def.desc}</p>
         </div>
-        <button type="button" onClick={onClose} className="shrink-0 rounded-lg border border-[#8e7954] bg-white/60 px-3 py-1 text-xs font-black">
+        <button type="button" onClick={onClose} data-city-surface="row" className="min-h-10 shrink-0 px-3 text-xs font-bold">
           닫기
         </button>
       </div>
-      <div className="mt-2 rounded-xl bg-white/60 px-3 py-2 text-xs">
+      <div data-city-surface="row" className="mt-3 px-3 py-2 text-xs">
         <p className="font-bold text-slate-700">현재: {lv > 0 ? effect(lv) : "없음"}</p>
         {!maxed ? <p className="font-bold text-[#354b3c]">Lv.{lv + 1}: {effect(lv + 1)}</p> : null}
       </div>
@@ -503,19 +527,19 @@ function BuildingSheet({
             type="button"
             disabled={busy || !!s.build || keepBlock || !affordable(cost)}
             onClick={onUpgrade}
-            className="shrink-0 rounded-xl bg-[#263b31] px-4 py-2 text-sm font-black text-[#fff4d8] disabled:opacity-40"
+            data-city-surface="action" className={ACTION_CLASS}
           >
             {s.build ? "공사 중" : keepBlock ? `본관 Lv.${lv + 1} 필요` : lv === 0 ? "건설" : "업그레이드"}
           </button>
         </div>
       )}
       {k === "academy" && lv > 0 ? (
-        <button type="button" onClick={onResearch} className="mt-2 w-full rounded-xl border-2 border-[#4f6d8f] bg-white/70 py-2 text-sm font-black text-[#2c4a6b]">
+        <button type="button" onClick={onResearch} data-city-surface="button" className={`mt-3 w-full ${ACTION_CLASS}`}>
           연구 보러 가기
         </button>
       ) : null}
       {def.trains && lv > 0 ? (
-        <div className="mt-3 rounded-xl border-2 border-[#8e2f2f]/40 bg-white/60 px-3 py-2">
+        <div data-city-surface="row" className={`mt-3 ${ROW_CLASS}`}>
           <p className="text-sm font-black text-[#8e2f2f]">
             {TROOP_LABEL[def.trains]} 훈련 <span className="text-xs text-slate-600">예비 {fmtNum(s.reserve[def.trains])}명</span>
           </p>
@@ -524,9 +548,7 @@ function BuildingSheet({
               <p className="mt-1 text-xs font-bold">
                 {trainJob.count}명 훈련 중 · {fmtRemain(trainJob.endsAt - now)}
               </p>
-              <div className="mt-1 h-2 overflow-hidden rounded bg-black/15">
-                <div className="h-full bg-[linear-gradient(90deg,#8e2f2f,#e07a5f)]" style={{ width: `${progress(trainJob.startedAt, trainJob.endsAt)}%` }} />
-              </div>
+              <CityProgress value={progress(trainJob.startedAt, trainJob.endsAt)} label="훈련 진행률" />
             </>
           ) : (
             <>
@@ -551,7 +573,7 @@ function BuildingSheet({
                   type="button"
                   disabled={busy || !affordable(trainCost)}
                   onClick={() => def.trains && onTrain(def.trains, Math.min(count, batchMax))}
-                  className="shrink-0 rounded-xl bg-[#8e2f2f] px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                  data-city-surface="action" className={ACTION_CLASS}
                 >
                   훈련
                 </button>
@@ -560,7 +582,7 @@ function BuildingSheet({
           )}
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 
@@ -590,7 +612,7 @@ function TroopsTab({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="rounded-xl bg-black/45 px-3 py-2 text-[#f3e8ce]">
+      <div data-city-surface="row" className={ROW_CLASS}>
         <p className="text-xs font-black">예비 병력 (성에 대기 중)</p>
         <p className="mt-0.5 flex flex-wrap gap-x-3 text-sm font-black tabular-nums">
           {TROOP_KINDS.map((k) => (
@@ -599,14 +621,14 @@ function TroopsTab({
             </span>
           ))}
         </p>
-        <p className="mt-0.5 text-[11px] text-[#c8bea8]">
+        <p className={META_CLASS}>
           지휘관에게 병력을 맡기면 전투에서 체력·공격력이 오릅니다. 전투에서 입은 피해만큼 병력을 잃습니다.
         </p>
       </div>
       {view.commanders.map((c) => {
         const b = troopBonus(c.troops, s.tech, s.buildings);
         return (
-          <div key={c.id} className="rounded-xl border-2 border-[#5d513e] bg-[#e8dcc0] px-3 py-2">
+          <div key={c.id} data-city-surface="row" className={ROW_CLASS}>
             <div className="flex items-center justify-between gap-2">
               <p className="min-w-0 truncate text-sm font-black">
                 {c.name} <span className="text-xs text-[#7a5a1e]">Lv.{c.level}</span>
@@ -617,7 +639,7 @@ function TroopsTab({
                   setEditing(c.id);
                   setDraft({ ...c.troops });
                 }}
-                className="shrink-0 rounded-lg bg-[#263b31] px-3 py-1 text-xs font-black text-[#fff4d8]"
+                data-city-surface="action" className={ACTION_CLASS}
               >
                 배치
               </button>
@@ -629,53 +651,53 @@ function TroopsTab({
                 .join(" · ") || "병력 없음"}
             </p>
             {troopTotal(c.troops) > 0 ? <p className="text-[11px] font-bold text-[#354b3c]">전투 체력 +{b.hp} · 공격력 +{b.atk}</p> : null}
+            {cmd?.id === c.id ? (
+              <div className="mt-3 border-t border-[#baa075] pt-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-base font-black">{cmd.name} 병력 배치</p>
+                  <button type="button" onClick={() => setEditing(null)} data-city-surface="row" className="min-h-10 px-3 text-xs font-bold">
+                    닫기
+                  </button>
+                </div>
+                <p className="text-xs font-bold text-slate-600">
+                  {total}/{cap}명 · 전투 체력 +{bonus.hp} · 공격력 +{bonus.atk}
+                </p>
+                {TROOP_KINDS.map((k: TroopKind) => {
+                  const max = Math.min(avail[k], draft[k] + Math.max(0, cap - total));
+                  return (
+                    <label key={k} className="mt-1.5 flex items-center gap-2 text-sm font-bold">
+                      <span className="w-12 shrink-0">{TROOP_LABEL[k]}</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={Math.max(0, max)}
+                        value={draft[k]}
+                        disabled={max <= 0 && draft[k] === 0}
+                        onChange={(e) => setDraft((d) => ({ ...d, [k]: Number(e.target.value) }))}
+                        className="flex-1"
+                      />
+                      <span className="w-16 text-right tabular-nums">
+                        {draft[k]}/{avail[k]}
+                      </span>
+                    </label>
+                  );
+                })}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    onAssign(cmd.id, draft);
+                    setEditing(null);
+                  }}
+                  data-city-surface="action" className={`mt-2 w-full ${ACTION_CLASS}`}
+                >
+                  저장
+                </button>
+              </div>
+            ) : null}
           </div>
         );
       })}
-      {cmd ? (
-        <div className="fixed inset-x-0 bottom-0 z-[3805] rounded-t-2xl border-t-4 border-[#8e7954] bg-[#f3ead6] px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
-          <div className="flex items-center justify-between">
-            <p className="text-base font-black">{cmd.name} 병력 배치</p>
-            <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-[#8e7954] bg-white/60 px-3 py-1 text-xs font-black">
-              닫기
-            </button>
-          </div>
-          <p className="text-xs font-bold text-slate-600">
-            {total}/{cap}명 · 전투 체력 +{bonus.hp} · 공격력 +{bonus.atk}
-          </p>
-          {TROOP_KINDS.map((k: TroopKind) => {
-            const max = Math.min(avail[k], draft[k] + Math.max(0, cap - total));
-            return (
-              <label key={k} className="mt-1.5 flex items-center gap-2 text-sm font-bold">
-                <span className="w-12 shrink-0">{TROOP_LABEL[k]}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={Math.max(0, max)}
-                  value={draft[k]}
-                  disabled={max <= 0 && draft[k] === 0}
-                  onChange={(e) => setDraft((d) => ({ ...d, [k]: Number(e.target.value) }))}
-                  className="flex-1"
-                />
-                <span className="w-16 text-right tabular-nums">
-                  {draft[k]}/{avail[k]}
-                </span>
-              </label>
-            );
-          })}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              onAssign(cmd.id, draft);
-              setEditing(null);
-            }}
-            className="mt-2 w-full rounded-xl bg-[#263b31] py-2 text-sm font-black text-[#fff4d8] disabled:opacity-40"
-          >
-            저장
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

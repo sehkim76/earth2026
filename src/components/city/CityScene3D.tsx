@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { BuildingKey } from "@/lib/city";
-import { createCityWorld, type CityWorld } from "@/components/city/city-scene-engine";
+import { createCityWorld, type CityDistrict, type CityWorld } from "@/components/city/city-scene-engine";
 
 export interface CitySceneLot {
   key: BuildingKey;
@@ -21,13 +21,15 @@ export interface CitySceneLot {
 
 interface CityScene3DProps {
   lots: CitySceneLot[];
+  district: CityDistrict;
   siege: { active: boolean; wallLevel: number };
   selected: BuildingKey | null;
   onSelect: (key: BuildingKey) => void;
 }
 
 /** 성 안 3D 마당 (three.js). 이름표는 3D 위치를 따라다니는 HTML. */
-export default function CityScene3D({ lots, siege: { active, wallLevel }, selected, onSelect }: CityScene3DProps): ReactElement {
+export default function CityScene3D({ lots, district, siege: { active, wallLevel }, selected, onSelect }: CityScene3DProps): ReactElement | null {
+  const [unavailable, setUnavailable] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<CityWorld | null>(null);
   const labelsRef = useRef(new Map<BuildingKey, HTMLDivElement>());
@@ -41,10 +43,17 @@ export default function CityScene3D({ lots, siege: { active, wallLevel }, select
     const host = hostRef.current;
     if (!host) return;
     const labels = labelsRef.current;
-    const world = createCityWorld(host, {
-      onPick: (k) => onSelectRef.current(k),
-      labelFor: (k) => labels.get(k) ?? null,
-    });
+    let world: CityWorld;
+    try {
+      world = createCityWorld(host, {
+        onPick: (k) => onSelectRef.current(k),
+        labelFor: (k) => labels.get(k) ?? null,
+      });
+    } catch (error) {
+      console.error("[city] 3D renderer unavailable", error);
+      const timer = window.setTimeout(() => setUnavailable(true), 0);
+      return () => window.clearTimeout(timer);
+    }
     worldRef.current = world;
     return () => {
       world.dispose();
@@ -60,6 +69,10 @@ export default function CityScene3D({ lots, siege: { active, wallLevel }, select
   }, [lotSig]);
 
   useEffect(() => {
+    worldRef.current?.setDistrict(district);
+  }, [district]);
+
+  useEffect(() => {
     worldRef.current?.setSiege(active, wallLevel);
   }, [active, wallLevel]);
 
@@ -67,10 +80,25 @@ export default function CityScene3D({ lots, siege: { active, wallLevel }, select
     worldRef.current?.setSelected(selected);
   }, [selected]);
 
+  if (unavailable) {
+    return district === "buildings" ? (
+      <div className="absolute inset-x-3 top-48 bottom-0 overflow-y-auto pb-6 text-[#f8e7c5] sm:left-5 sm:right-auto sm:w-80">
+        <p className="mb-2 text-sm">3D 화면을 사용할 수 없습니다. 목록에서 건물을 선택하세요.</p>
+        <div className="grid grid-cols-2 gap-2">
+          {lots.map((lot) => (
+            <button key={lot.key} type="button" data-city-surface="button" className="min-h-11 px-2 text-sm" onClick={() => onSelect(lot.key)}>
+              {lot.name} · {lot.level ? `Lv.${lot.level}` : "미건설"}
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null;
+  }
+
   return (
     <div className="absolute inset-0 overflow-hidden">
       <div ref={hostRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0">
+      <div data-city-labels className="pointer-events-none absolute inset-0">
         {lots.map((l) => (
           <div
             key={l.key}
@@ -83,6 +111,7 @@ export default function CityScene3D({ lots, siege: { active, wallLevel }, select
           >
             <button
               type="button"
+              disabled={district !== "buildings"}
               onClick={() => onSelect(l.key)}
               className={`pointer-events-auto flex flex-col items-center drop-shadow-[0_2px_3px_rgba(0,0,0,0.55)] transition active:scale-95 ${
                 selected === l.key ? "scale-110" : ""

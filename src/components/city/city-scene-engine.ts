@@ -4,6 +4,7 @@ import * as THREE from "three";
 
 import type { BuildingKey } from "@/lib/city";
 import { LOTS, WALK_PATHS, WALL, buildLot, buildStaticWorld, createMaterials, type Mats } from "@/components/city/city-scene-models";
+import { createCityInterface } from "@/components/city/city-scene-interface";
 import { createSiegeScene } from "@/components/city/city-scene-siege";
 
 export interface SceneLotState {
@@ -18,7 +19,16 @@ export interface CityWorldOptions {
   labelFor: (key: BuildingKey) => HTMLElement | null;
 }
 
+export type CityDistrict = "buildings" | "research" | "troops" | "workers";
+
+const DISTRICT_LOTS = {
+  research: "academy",
+  troops: "barracks",
+  workers: "camp",
+} satisfies Record<Exclude<CityDistrict, "buildings">, BuildingKey>;
+
 export interface CityWorld {
+  setDistrict: (district: CityDistrict) => void;
   setSiege: (active: boolean, wallLevel: number) => void;
   setLots: (lots: SceneLotState[]) => void;
   setSelected: (key: BuildingKey | null) => void;
@@ -43,6 +53,8 @@ interface SmokePuff {
 
 interface Walker {
   obj: THREE.Group;
+  arms: THREE.Group[];
+  legs: THREE.Group[];
   path: Array<[number, number]>;
   lens: number[];
   total: number;
@@ -68,39 +80,60 @@ function disposeTree(root: THREE.Object3D, keepMats: Set<THREE.Material>): void 
   });
 }
 
-function makeWalker(m: Mats, rnd: () => number): THREE.Group {
-  const g = new THREE.Group();
-  const robes = [0xf3eee2, 0xe9e1cc, 0xdfe7ee, 0xc9d8c0, 0xeadbc4];
+function makeWalker(m: Mats, rnd: () => number): Pick<Walker, "obj" | "arms" | "legs"> {
+  const obj = new THREE.Group();
+  const robes = [0xe9ddbf, 0xd6dfe3, 0xb3c1a3, 0xc9a297, 0xd6bc8c];
   const robe = new THREE.MeshLambertMaterial({ color: robes[Math.floor(rnd() * robes.length)] });
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.36, 0.95, 8), robe);
-  body.position.y = 0.55;
-  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), new THREE.MeshLambertMaterial({ color: 0xe9c29a }));
-  head.position.y = 1.2;
-  const hatBrim = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.03, 10), m.dark);
-  hatBrim.position.y = 1.33;
-  const hatTop = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.26, 8), m.dark);
-  hatTop.position.y = 1.45;
-  for (const me of [body, head, hatBrim, hatTop]) {
-    me.castShadow = true;
-    g.add(me);
+  const skin = new THREE.MeshLambertMaterial({ color: 0xdcae83 });
+  const part = (
+    parent: THREE.Object3D, geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number,
+  ): THREE.Mesh => {
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(x, y, z);
+    parent.add(mesh);
+    return mesh;
+  };
+  const body = part(obj, new THREE.CylinderGeometry(0.24, 0.30, 0.58, 8), robe, 0, 0.86, 0);
+  body.scale.z = 0.77;
+  body.castShadow = true;
+  part(obj, new THREE.CylinderGeometry(0.277, 0.29, 0.06, 8), m.woodDark, 0, 0.66, 0).scale.z = 0.81;
+  part(obj, new THREE.SphereGeometry(0.19, 9, 6), skin, 0, 1.28, 0.03).castShadow = true;
+  part(obj, new THREE.CylinderGeometry(0.34, 0.35, 0.047, 12), m.dark, 0, 1.39, 0).castShadow = true;
+  part(obj, new THREE.CylinderGeometry(0.11, 0.145, 0.22, 10), m.dark, 0, 1.5, 0);
+
+  const arms: THREE.Group[] = [];
+  const legs: THREE.Group[] = [];
+  for (const side of [-1, 1]) {
+    const arm = new THREE.Group();
+    arm.position.set(side * 0.27, 1.05, 0);
+    arm.rotation.z = side * 0.12;
+    part(arm, new THREE.CylinderGeometry(0.095, 0.08, 0.34, 7), robe, 0, -0.15, 0);
+    part(arm, new THREE.SphereGeometry(0.057, 6, 5), skin, 0, -0.34, 0);
+    obj.add(arm);
+    arms.push(arm);
+    const leg = new THREE.Group();
+    leg.position.set(side * 0.13, 0.65, 0);
+    part(leg, new THREE.CylinderGeometry(0.102, 0.071, 0.50, 7), robe, 0, -0.24, 0);
+    part(leg, new THREE.BoxGeometry(0.14, 0.11, 0.23), m.woodDark, 0, -0.56, 0.06);
+    obj.add(leg);
+    legs.push(leg);
   }
   if (rnd() < 0.45) {
-    // 지게
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.9, 0.12), m.wood);
-    frame.position.set(0, 0.95, -0.28);
-    const load = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.36), rnd() < 0.5 ? m.hay : m.trunk);
-    load.position.set(0, 1.3, -0.4);
-    g.add(frame, load);
+    for (const side of [-1, 1]) {
+      part(obj, new THREE.BoxGeometry(0.075, 0.85, 0.09), m.wood, side * 0.19, 0.88, -0.29).rotation.x = 0.12;
+    }
+    part(obj, new THREE.BoxGeometry(0.45, 0.1, 0.39), m.wood, 0, 1.02, -0.37);
+    part(obj, new THREE.SphereGeometry(0.24, 8, 6), m.hay, 0, 1.21, -0.4).scale.set(1.05, 0.85, 0.85);
   }
-  g.scale.setScalar(1.45);
-  return g;
+  obj.scale.setScalar(1.28);
+  return { obj, arms, legs };
 }
 
 export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): CityWorld {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.08;
@@ -111,16 +144,19 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   canvas.style.touchAction = "none";
   host.appendChild(canvas);
 
+  const interfaceRoot = host.closest<HTMLElement>("[data-city-interface]");
+  const cityInterface = interfaceRoot ? createCityInterface(host, interfaceRoot) : null;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xb9d3c6);
   scene.fog = new THREE.Fog(0xb9d3c6, 150, 330);
 
   const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 900);
 
-  const hemi = new THREE.HemisphereLight(0xeaf4ff, 0x6b7a45, 1.25);
+  const hemi = new THREE.HemisphereLight(0xe9f1ee, 0x697858, 1.48);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff1d8, 2.3);
-  sun.position.set(45, 80, 30);
+  const sun = new THREE.DirectionalLight(0xffe5be, 2.7);
+  sun.position.set(52, 75, 40);
+  sun.shadow.radius = 2;
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
   const sc = sun.shadow.camera;
@@ -197,13 +233,17 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       lens.push(l);
       total += l;
     }
-    const obj = makeWalker(mats, rnd);
-    walkerRoot.add(obj);
-    walkers.push({ obj, path, lens, total, s: rnd() * total, dir: rnd() < 0.5 ? 1 : -1, speed: 1.3 + rnd() * 0.9, offset: (rnd() - 0.5) * 2.2 });
+    const body = makeWalker(mats, rnd);
+    walkerRoot.add(body.obj);
+    walkers.push({ ...body, path, lens, total, s: rnd() * total, dir: rnd() < 0.5 ? 1 : -1, speed: 1.3 + rnd() * 0.9, offset: (rnd() - 0.5) * 2.2 });
   }
 
   // ── 카메라 조작 ──
   const cam = { tx: 0, tz: 4, dist: 92 };
+  let district: CityDistrict = "buildings";
+  let framing: { x: number; z: number; distance: number } | null = null;
+  let overview = { ...cam };
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const fitDist = (): number => {
     const w = host.clientWidth || 1;
     const h = host.clientHeight || 1;
@@ -211,6 +251,11 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
   cam.dist = fitDist();
   const placeCamera = (): void => {
+    const w = Math.max(1, host.clientWidth);
+    const h = Math.max(1, host.clientHeight);
+    const narrow = w < 768;
+    const panelOpen = district !== "buildings" || selected !== null;
+    camera.setViewOffset(w, h, panelOpen && !narrow ? w * 0.17 : 0, panelOpen && narrow ? h * 0.16 : -h * 0.075, w, h);
     cam.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, cam.dist));
     cam.tx = Math.max(WALL.x0 - 4, Math.min(WALL.x1 + 4, cam.tx));
     cam.tz = Math.max(WALL.z0 - 4, Math.min(WALL.z1 + 10, cam.tz));
@@ -224,7 +269,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
     const h = Math.max(1, host.clientHeight);
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
-    camera.updateProjectionMatrix();
+    placeCamera();
   };
   resize();
   placeCamera();
@@ -261,10 +306,11 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
     raycaster.setFromCamera(ndc, camera);
     const hit = raycaster.intersectObjects(pickRoot.children, false)[0];
     const key = hit?.object.userData.key as BuildingKey | undefined;
-    if (key) opts.onPick(key);
+    if (key && district === "buildings") opts.onPick(key);
   };
 
   const onDown = (e: PointerEvent): void => {
+    framing = null;
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) moved = 0;
@@ -311,6 +357,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
   const onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    framing = null;
     cam.dist *= Math.exp(e.deltaY * 0.0012);
     placeCamera();
   };
@@ -326,19 +373,21 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
     const w = host.clientWidth;
     const h = host.clientHeight;
     const hideAll = cam.dist > 150;
+    const districtLot = district === "buildings" ? null : DISTRICT_LOTS[district];
     for (const key of Object.keys(LOTS) as BuildingKey[]) {
       const el = opts.labelFor(key);
       if (!el) continue;
       const lot = LOTS[key];
       const entry = lots.get(key);
       tmp.set(lot.x, (entry?.top ?? 3) + 0.8, lot.z).project(camera);
-      if (hideAll || tmp.z > 1 || tmp.x < -1.3 || tmp.x > 1.3 || tmp.y < -1.3 || tmp.y > 1.3) {
+      if (hideAll || (districtLot && key !== districtLot) || tmp.z > 1 || tmp.x < -1.3 || tmp.x > 1.3 || tmp.y < -1.3 || tmp.y > 1.3) {
         el.style.visibility = "hidden";
         continue;
       }
-      el.style.visibility = "visible";
       const sx = ((tmp.x + 1) / 2) * w;
       const sy = ((1 - tmp.y) / 2) * h;
+      const blocked = cityInterface?.overlapsLabel(sx, sy, el.offsetWidth, el.offsetHeight);
+      el.style.visibility = blocked ? "hidden" : "visible";
       el.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) translate(-50%, -100%)`;
     }
   };
@@ -351,10 +400,20 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   const animate = (): void => {
     raf = requestAnimationFrame(animate);
     const now = performance.now();
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const frameTime = Math.max(0, (now - last) / 1000);
+    const dt = Math.min(0.05, frameTime);
     last = now;
     const t = (now - clock0) / 1000;
     siege?.animate(t);
+
+    if (framing) {
+      const weight = reducedMotion.matches ? 1 : 1 - Math.exp(-frameTime * 8);
+      cam.tx = THREE.MathUtils.lerp(cam.tx, framing.x, weight);
+      cam.tz = THREE.MathUtils.lerp(cam.tz, framing.z, weight);
+      cam.dist = THREE.MathUtils.lerp(cam.dist, framing.distance, weight);
+      if (Math.abs(cam.tx - framing.x) + Math.abs(cam.tz - framing.z) + Math.abs(cam.dist - framing.distance) < 0.1) framing = null;
+      placeCamera();
+    }
 
     if (pointers.size === 0 && (Math.abs(vel.x) > 0.002 || Math.abs(vel.z) > 0.002)) {
       cam.tx += vel.x;
@@ -410,7 +469,12 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       // 길 한쪽으로 비켜 걷기
       const px = ax + (bx - ax) * f + -dz * wk.offset;
       const pz = az + (bz - az) * f + dx * wk.offset;
-      wk.obj.position.set(px, Math.abs(Math.sin(t * 8 + wk.offset * 5)) * 0.08, pz);
+      const stride = reducedMotion.matches ? 0 : Math.sin(t * 7 + wk.offset * 5) * 0.42;
+      wk.arms[0].rotation.x = stride;
+      wk.arms[1].rotation.x = -stride;
+      wk.legs[0].rotation.x = -stride;
+      wk.legs[1].rotation.x = stride;
+      wk.obj.position.set(px, Math.abs(stride) * 0.11, pz);
       wk.obj.rotation.y = Math.atan2(dx * wk.dir, dz * wk.dir);
     }
 
@@ -421,8 +485,13 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       ringMat.opacity = 0.6 + Math.sin(t * 4) * 0.25;
     }
 
-    renderer.render(scene, camera);
-    placeLabels();
+    if (!renderer.getContext().isContextLost()) {
+      renderer.render(scene, camera);
+      cityInterface?.render(renderer);
+      placeLabels();
+    } else if (interfaceRoot) {
+      delete interfaceRoot.dataset.cityWebgl;
+    }
   };
   raf = requestAnimationFrame(animate);
 
@@ -436,13 +505,26 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
 
   return {
+    setDistrict(next) {
+      if (district === next) return;
+      if (district === "buildings" && !selected) overview = { ...cam };
+      district = next;
+      vel = { x: 0, z: 0 };
+      if (next === "buildings") {
+        framing = { x: overview.tx, z: overview.tz, distance: overview.dist };
+      } else {
+        const lot = LOTS[DISTRICT_LOTS[next]];
+        framing = { x: lot.x, z: lot.z, distance: host.clientWidth < 768 ? 55 : 58 };
+      }
+      placeCamera();
+    },
     setSiege(active, wallLevel) {
       const wasActive = siege !== null;
       siege?.dispose();
       siege = active ? createSiegeScene(wallLevel, tex.smoke) : null;
       if (!siege) return;
       scene.add(siege.group);
-      if (!wasActive) {
+      if (!wasActive && district === "buildings") {
         const narrow = host.clientWidth / Math.max(1, host.clientHeight) < 0.75;
         cam.tx = narrow ? 15 : 0;
         cam.tz = WALL.z1 + (narrow ? 2 : 0);
@@ -469,7 +551,19 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       }
     },
     setSelected(key) {
+      const previous = selected;
       selected = key;
+      if (district === "buildings" && key !== previous) {
+        if (key) {
+          if (!previous) overview = { ...cam };
+          const lot = LOTS[key];
+          framing = { x: lot.x, z: lot.z, distance: Math.min(cam.dist, 68) };
+        } else {
+          framing = { x: overview.tx, z: overview.tz, distance: overview.dist };
+        }
+        vel = { x: 0, z: 0 };
+        placeCamera();
+      }
       if (key) {
         const lot = LOTS[key];
         ring.position.set(lot.x, 0.12, lot.z);
@@ -496,6 +590,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       for (const entry of lots.values()) clearLot(entry);
       lots.clear();
       siege?.dispose();
+      cityInterface?.dispose();
       disposeTree(scene, new Set());
       smokeMatBase.dispose();
       for (const tx of tex.all) tx.dispose();

@@ -1,0 +1,36 @@
+[data-city-interface] {
+  color-scheme: light;
+  background: #303a2c;
+}
+
+[data-city-interface] [data-city-surface] {
+  border: 1px solid var(--city-trim, #91754e);
+  background-color: var(--city-surface, #30251c);
+}
+
+[data-city-interface] [data-city-surface="frame"] { --city-surface: #261e17; --city-trim: #92734c; }
+[data-city-interface] [data-city-surface="sheet"] { --city-surface: #f1e3c7; --city-trim: #b4996f; }
+[data-city-interface] [data-city-surface="row"] { --city-surface: #fff1d4; --city-trim: #bca47f; }
+[data-city-interface] [data-city-surface="button"] { --city-surface: #382a20; --city-trim: #96744b; }
+[data-city-interface] [data-city-surface="selected"] { --city-surface: #e4c483; --city-trim: #ffdf9e; }
+[data-city-interface] [data-city-surface="action"] { --city-surface: #3b5141; --city-trim: #82906c; }
+[data-city-interface] [data-city-surface="warning"] { --city-surface: #542b24; --city-trim: #cf845f; }
+
+[data-city-interface][data-city-webgl="ready"] [data-city-surface] {
+  border-color: transparent;
+  background-color: transparent;
+}
+
+[data-city-interface] button[data-city-surface] {
+  cursor: pointer;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+[data-city-interface] button[data-city-surface]:hover:not(:disabled) { background-color: #eac99138; }
+[data-city-interface] button[data-city-surface]:active:not(:disabled) { background-color: #eac99160; }
+[data-city-interface] button[data-city-surface]:disabled { color: #e5dbc1; opacity: 0.55; cursor: default; }
+[data-city-interface] button:focus-visible,
+[data-city-interface] input:focus-visible { outline: 2px solid #ba8234; outline-offset: 2px; }
+[data-city-interface] input[type="range"] { accent-color: #826035; }
+[data-city-interface] [data-city-surface="track"] { --city-surface: #987850; --city-trim: #7f6340; }
+[data-city-interface] [data-city-surface="fill"] { --city-surface: #be914b; --city-trim: #efbb6b; }
