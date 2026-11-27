@@ -683,6 +683,8 @@ const territoryFillStyle = (
     fillOpacity: own.relation === "mine" ? 0.42 : 0.35,
   };
 };
+/** 점령 지역 채우기를 보이는 최대 줌 (이 값 미만에서만 표시) */
+const TERRITORY_FILL_MAX_ZOOM = 15;
 const CLUSTER_DISTANCE_PX = 80;
 
 const clusterByPixelDistance = (
@@ -1227,6 +1229,10 @@ export default function CurrentLocationMap({
     if (initialSettings.mapStyle === "cesium") return 15;
     return DEFAULT_ZOOM_LEVEL;
   });
+  // 점령 지역(소유 동 색 채우기)은 줌 15 미만에서만 보인다 (가까이서는 무법자·자원지 등이 잘 보이게).
+  const territoryFillVisible = zoomLevel < TERRITORY_FILL_MAX_ZOOM;
+  const territoryFillVisibleRef = useRef(territoryFillVisible);
+  territoryFillVisibleRef.current = territoryFillVisible;
   const [isHeadingUpMode, setIsHeadingUpMode] = useState(false);
   const [mapRotationDeg, setMapRotationDeg] = useState(0);
   const [compassIconDataUrl, setCompassIconDataUrl] = useState<string | null>(null);
@@ -8703,8 +8709,8 @@ const isMapPerfEnabled = (): boolean => {
       const code = feature ? readCode(feature.properties) : null;
       const isSel = code !== null && code === adminSelectedRef.current;
       const s = getBoundaryStyle(adminLevel, isSel, false);
-      // 영토전 동 수준에서는 소유자 색으로 채운다.
-      if (territoryEnabled && adminLevel === "dong" && code) {
+      // 영토전 동 수준에서는 소유자 색으로 채운다 (줌 15 미만에서만).
+      if (territoryEnabled && adminLevel === "dong" && code && territoryFillVisibleRef.current) {
         const own = ownedDongMapRef.current.get(code);
         if (own) {
           return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
@@ -8792,8 +8798,8 @@ const isMapPerfEnabled = (): boolean => {
       const isSel = code !== null && code === selectedAdminCode;
       const isHov = code !== null && code === hoveredAdminCode;
       const s = getBoundaryStyle(adminLevel, isSel, isHov);
-      // 영토 색 유지 (선택·호버 갱신 시에도 소유자 채우기를 덮어쓰지 않는다).
-      if (territoryEnabled && adminLevel === "dong" && code) {
+      // 영토 색 유지 (선택·호버 갱신 시에도 소유자 채우기를 덮어쓰지 않는다). 줌 15 이상이면 채우지 않는다.
+      if (territoryEnabled && adminLevel === "dong" && code && territoryFillVisible) {
         const own = ownedDongMap.get(code);
         if (own) {
           return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
@@ -8801,7 +8807,7 @@ const isMapPerfEnabled = (): boolean => {
       }
       return { color: s.strokeColor, weight: s.strokeWeight, dashArray: undefined, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
     });
-  }, [selectedAdminCode, hoveredAdminCode, adminLevel, ownedDongMap, territoryEnabled]);
+  }, [selectedAdminCode, hoveredAdminCode, adminLevel, ownedDongMap, territoryEnabled, territoryFillVisible]);
 
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady) {
