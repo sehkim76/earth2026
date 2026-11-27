@@ -243,30 +243,35 @@ export function CityView({ open, onClose }: CityViewProps) {
           onSelect={setSelected}
         />
       ) : null}
-      {/* 머리: 성 이름 + 자원 */}
-      <header data-city-surface="frame" className="relative z-10 mx-2 mt-[max(0.5rem,env(safe-area-inset-top))] grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 px-3 py-2 text-[#f3e8ce] md:mx-3 md:grid-cols-[minmax(10rem,1fr)_minmax(22rem,34rem)_minmax(5rem,1fr)]">
-        <div className="min-w-0">
-          <p className="truncate font-serif text-xl font-black tracking-tight">{view?.home?.name ?? "영주성"}</p>
-          <p className="text-[11px] text-[#c8bea8]">본관 Lv.{s?.buildings.keep ?? 1} · 창고 한도 {fmtNum(cap)}</p>
+      <header data-city-surface="gatehouse" className="relative z-10 mx-1.5 mt-[max(0.25rem,env(safe-area-inset-top))] grid shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-3 pt-[21px] pb-3 text-[#fff0cc] sm:mx-3 md:grid-cols-[minmax(0,1fr)_minmax(19rem,32rem)_auto] md:px-5">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center border border-[#d2b781]/65 bg-[#163b35] md:size-11">
+            <span className="city-gate-emblem" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="city-sign-title truncate text-lg leading-tight md:text-2xl">{view?.home?.name ?? "영주성"}</h2>
+            <p className="text-[10px] leading-4 font-medium text-[#e0d4b7] md:text-xs">본관 Lv.{s?.buildings.keep ?? 1} · 창고 한도 {fmtNum(cap)}</p>
+          </div>
         </div>
-        <button type="button" onClick={onClose} data-city-surface="button" className="min-h-10 justify-self-end px-4 text-sm font-bold md:col-start-3 md:row-start-1">
-          지도로
+        <button type="button" onClick={onClose} data-city-surface="woodTag" className="min-h-11 justify-self-end px-3 text-xs font-semibold text-[#fff2d6] md:col-start-3 md:row-start-1">
+          <span aria-hidden="true">← </span>지도로
         </button>
-        <div className="col-span-2 grid grid-cols-4 gap-1.5 md:col-span-1 md:col-start-2 md:row-start-1">
+        <dl aria-label="성 자원" data-city-surface="ledger" className="col-span-2 grid grid-cols-4 divide-x divide-[#91734c]/35 px-1 py-1 text-[#372b1d] md:col-span-1 md:col-start-2 md:row-start-1">
           {RESOURCE_KINDS.map((k) => (
-            <div key={k} data-city-surface="button" className="min-w-0 px-1.5 py-1 sm:px-2">
-              <p className="flex items-center gap-1 text-[10px] font-bold text-[#c8bea8]">
-                <ResourceIcon kind={k} size={12} />
-                {RESOURCE_LABEL[k]}
-              </p>
-              <p className="text-sm font-black tabular-nums text-[#f0d99d]">{fmtNum(liveRes(k))}</p>
-              <p className="text-[9px] tabular-nums text-[#9fbf8f]">+{fmtNum(rates?.[k] ?? 0)}/시간</p>
+            <div key={k} className="min-w-0 px-1.5 md:px-3">
+              <dt className="flex items-center gap-1 text-[10px] leading-3 font-semibold text-[#58412c]">
+                <ResourceIcon kind={k} size={12} />{RESOURCE_LABEL[k]}
+              </dt>
+              <dd className="flex flex-wrap items-baseline gap-x-1.5">
+                <strong className="text-sm leading-4 tabular-nums">{fmtNum(liveRes(k))}</strong>
+                <span className="text-[10px] leading-3 whitespace-nowrap tabular-nums text-[#405745]">+{fmtNum(rates?.[k] ?? 0)}/시간</span>
+              </dd>
             </div>
           ))}
-        </div>
+        </dl>
       </header>
 
-      <nav aria-label="성 내부" className="relative z-10 mx-2 mt-1.5 flex shrink-0 gap-1.5 md:mx-3 md:max-w-xl">
+      <nav aria-label="성 내부" className="relative z-10 mx-3 flex shrink-0 gap-1 sm:mx-5 md:w-fit md:gap-1.5">
         {CITY_TABS.map(([key, label]) => (
           <button
             key={key}
@@ -276,9 +281,10 @@ export function CityView({ open, onClose }: CityViewProps) {
               setTab(key);
               setSelected(null);
             }}
-            data-city-surface={tab === key ? "selected" : "button"}
-            className={`min-h-11 flex-1 px-2 text-sm font-bold ${tab === key ? "text-[#352414]" : "text-[#f3e8ce]"}`}
+            data-city-surface={tab === key ? "sealTag" : "woodTag"}
+            className="city-sign-title flex min-h-11 flex-1 items-center justify-center gap-1.5 px-2 pt-1 text-sm text-[#fff0cd] md:min-w-24 md:px-4"
           >
+            <span aria-hidden="true" className={`size-1.5 rotate-45 border border-[#dbc394] ${tab === key ? "bg-[#f6d798]" : ""}`} />
             {label}
           </button>
         ))}

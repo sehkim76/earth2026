@@ -34,3 +34,42 @@
 [data-city-interface] input[type="range"] { accent-color: #826035; }
 [data-city-interface] [data-city-surface="track"] { --city-surface: #987850; --city-trim: #7f6340; }
 [data-city-interface] [data-city-surface="fill"] { --city-surface: #be914b; --city-trim: #efbb6b; }
+
+.city-sign-title {
+  font-family: "Noto Serif KR", "AppleMyungjo", "Batang", serif;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+[data-city-interface] [data-city-surface="gatehouse"] { --city-surface: #27564c; --city-trim: #a78a59; }
+[data-city-interface] [data-city-surface="ledger"] { --city-surface: #f0e1be; --city-trim: #ab8e64; }
+[data-city-interface] [data-city-surface="woodTag"] { --city-surface: #41382a; --city-trim: #b3996e; }
+[data-city-interface] [data-city-surface="sealTag"] { --city-surface: #893e30; --city-trim: #e1bc82; }
+[data-city-interface]:not([data-city-webgl="ready"]) [data-city-surface="gatehouse"] {
+  background-image: repeating-linear-gradient(90deg, #465652 0 2px, #344748 3px 13px, #65736d 14px 15px), linear-gradient(#9a5840, #884b36);
+  background-size: 100% 11px, 100% 15px;
+  background-position: top;
+  background-repeat: no-repeat;
+}
+
+/* 현판 표식: 추녀가 들린 문루와 홍예문. */
+.city-gate-emblem {
+  position: relative;
+  width: 29px;
+  height: 25px;
+  border-bottom: 2px solid #d3b782;
+}
+.city-gate-emblem::before, .city-gate-emblem::after {
+  content: "";
+  position: absolute;
+  background: #efd9a7;
+}
+.city-gate-emblem::before {
+  inset: 1px 0 auto;
+  height: 10px;
+  clip-path: polygon(0 58%, 13% 70%, 34% 27%, 37% 8%, 63% 8%, 66% 27%, 87% 70%, 100% 58%, 92% 92%, 50% 100%, 8% 92%);
+}
+.city-gate-emblem::after {
+  inset: 12px 4px 0;
+  clip-path: polygon(7% 0, 20% 0, 20% 25%, 44% 25%, 44% 0, 56% 0, 56% 25%, 80% 25%, 80% 0, 93% 0, 93% 34%, 100% 100%, 63% 100%, 63% 74%, 59% 61%, 50% 55%, 41% 61%, 37% 74%, 37% 100%, 0 100%, 7% 34%);
+}

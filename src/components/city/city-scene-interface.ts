@@ -1,6 +1,10 @@
 import * as THREE from "three";
 
 const SURFACES = {
+  gatehouse: [0x27564c, 0xa78a59],
+  ledger: [0xf0e1be, 0xab8e64],
+  woodTag: [0x41382a, 0xb3996e],
+  sealTag: [0x893e30, 0xe1bc82],
   frame: [0x261e17, 0x92734c],
   sheet: [0xf1e3c7, 0xb4996f],
   row: [0xfff1d4, 0xbca47f],
@@ -46,6 +50,31 @@ const fragmentShader = /* glsl */ `
     vec3 color = surface * (0.94 + 0.07 * panelUv.y + grain * 0.04 + fibers * 0.014);
     color = mix(color, trim, 1.0 - smoothstep(0.5, 1.7, corner));
     color += vec3(0.13, 0.09, 0.04) * (1.0 - smoothstep(1.0, 3.0, edge.y)) * panelUv.y;
+    #ifdef GATEHOUSE
+      // 청기와의 골과 둥근 막새, 단청 띠와 목재 하인방.
+      float x = p.x + panelSize.x * 0.5;
+      float roofY = panelSize.y * (1.0 - panelUv.y);
+      float tileX = mod(x, 15.0) - 7.5;
+      if (roofY < 11.0) {
+        float rib = exp(-tileX * tileX * 0.20);
+        float glaze = (1.0 - roofY / 11.0) * 0.13 + rib * 0.33;
+        color = mix(vec3(0.025, 0.045, 0.052), vec3(0.28, 0.36, 0.36), glaze);
+        float cap = length(vec2(tileX, roofY - 8.0));
+        color += vec3(0.16, 0.19, 0.17) * (1.0 - smoothstep(0.2, 1.2, abs(cap - 2.8)));
+      } else if (roofY < 16.0) {
+        float diamond = abs(mod(x, 12.0) - 6.0) + abs(roofY - 13.5);
+        color = mix(vec3(0.27, 0.095, 0.054), trim, 1.0 - smoothstep(2.0, 3.0, diamond));
+      } else if (panelUv.y * panelSize.y < 6.0) {
+        color = mix(vec3(0.095, 0.05, 0.027), trim, 0.38 * step(4.0, panelUv.y * panelSize.y));
+      } else {
+        color *= 0.90 + 0.10 * sin(p.y * 0.17 + 0.9 * sin(p.x * 0.031));
+      }
+    #endif
+    #ifdef PLACARD
+      float pin = length(vec2(abs(p.x) - (panelSize.x * 0.5 - 6.0), p.y - (panelSize.y * 0.5 - 5.0)));
+      color = mix(color, trim, 1.0 - smoothstep(0.7, 1.8, pin));
+      if (edge.x + edge.y < 6.0) discard;
+    #endif
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }
@@ -62,6 +91,7 @@ export function createCityInterface(host: HTMLElement, root: HTMLElement): CityI
     materials.set(kind, new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
+      defines: kind === "gatehouse" ? { GATEHOUSE: 1 } : kind === "woodTag" || kind === "sealTag" ? { PLACARD: 1 } : {},
       depthTest: false,
       depthWrite: false,
       uniforms: {
@@ -117,7 +147,7 @@ export function createCityInterface(host: HTMLElement, root: HTMLElement): CityI
         if (existing) existing.visible = false;
         continue;
       }
-      if (kind === "frame" || kind === "sheet" || kind === "warning" || element.closest("nav")) {
+      if (kind === "gatehouse" || kind === "frame" || kind === "sheet" || kind === "warning" || element.closest("nav")) {
         blockers.push(new DOMRect(left - bounds.left, top - bounds.top, width, height));
       }
       const mesh = existing ?? new THREE.Mesh(geometry, material);
