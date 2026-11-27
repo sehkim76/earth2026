@@ -48,6 +48,7 @@ export interface TrackTarget {
 }
 
 interface TerritoryUIProps {
+  playerNickname: string;
   castleKey: string | null;
   dialog: MapDialog | null;
   openDialog: (dialog: MapDialog, onlyIfIdle?: boolean) => void;
@@ -844,7 +845,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const [cityHome, setCityHome] = useState<CityHome | null>(null);
   const [cityLoaded, setCityLoaded] = useState(false);
   const firstCityView = useRef(true);
-  const [homeName, setHomeName] = useState("나의 영주성");
+  const defaultHomeName = `${props.playerNickname}의 성`;
+  const [homeName, setHomeName] = useState(defaultHomeName);
   useEffect(() => {
     const on = (e: Event): void => {
       const v = (e as CustomEvent<CityViewData>).detail;
@@ -873,7 +875,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     openDialog({ kind: cityLoaded && !cityHome ? "homePrompt" : "city" });
   };
   const startHomePlacement = (): void => {
-    const name = homeName.trim() || "나의 영주성";
+    const name = homeName.trim() || defaultHomeName;
     props.onStartPlacement({
       name,
       kind: "lord",

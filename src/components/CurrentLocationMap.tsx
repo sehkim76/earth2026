@@ -9902,6 +9902,7 @@ const isMapPerfEnabled = (): boolean => {
       />
       {territoryEnabled ? (
         <TerritoryUI
+          playerNickname={playerLabel}
           castleKey={territoryCastleKey}
           dialog={dialog}
           openDialog={openDialog}
