@@ -984,3 +984,9 @@
   color: #fff4d8;
   background: rgba(38, 59, 49, 0.9);
 }
+.map-gather-worker--other .gather-worker__label {
+  background: #693a37;
+  max-width: 15em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -245,9 +245,7 @@ export interface TrainJob {
   startedAt: number;
   endsAt: number;
 }
-export interface GatherJob {
-  id: string;
-  nodeId: string;
+export interface GatherMovement {
   kind: ResourceKind;
   lat: number;
   lon: number;
@@ -258,11 +256,20 @@ export interface GatherJob {
   arriveAt: number;
   doneAt: number;
   returnAt: number;
+  /** 도로 경로 [lat, lon][] (영주성 → 채집 지점). 없으면 직선 (옛 데이터) */
+  path?: Array<[number, number]>;
+}
+
+export interface GatherJob extends GatherMovement {
+  id: string;
+  nodeId: string;
   /** 실어 오는 양 (회수하면 채집한 만큼으로 줄어든다) */
   amount: number;
   recalled?: boolean;
-  /** 도로 경로 [lat, lon][] (영주성 → 채집 지점). 없으면 직선 (옛 데이터) */
-  path?: Array<[number, number]>;
+}
+
+export interface VisibleWorker extends GatherMovement {
+  ownerNickname: string;
 }
 
 export const CITY_SIEGE_DURATION_MS = 20 * 60_000;
@@ -617,7 +624,7 @@ function pointAlong(path: ReadonlyArray<readonly [number, number]>, t: number): 
 export type GatherPhaseKind = "going" | "gathering" | "returning";
 
 /** 일꾼 부대의 현재 위치·단계 (화면 표시용). 도로 경로가 있으면 경로를 따라 움직인다. */
-export function gatherPhase(g: GatherJob, now: number): { phase: GatherPhaseKind; lat: number; lon: number; dir: 1 | -1 } {
+export function gatherPhase(g: GatherMovement, now: number): { phase: GatherPhaseKind; lat: number; lon: number; dir: 1 | -1 } {
   const path: Array<[number, number]> =
     g.path && g.path.length >= 2
       ? g.path

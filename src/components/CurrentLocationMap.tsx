@@ -68,6 +68,7 @@ import {
   nodesInBounds,
   workerSpeedMps,
   type ResourceKind,
+  type VisibleWorker,
 } from "@/lib/city";
 import { CITY_EVENT, cityAction, lastCityView, type CityViewData } from "@/components/city/city-client";
 import { OUTLAW_AUTO_ADVICE, OUTLAW_AUTO_LEVEL } from "@/lib/auto-battle";
@@ -3160,6 +3161,7 @@ interface OtherUnitMoveAnim {
   const cesiumHtmlOverlayRef = useRef<HTMLDivElement | null>(null);
   const cesiumAdminDataSourceRef = useRef<CesiumTypes.DataSource | null>(null);
   const cesiumHtmlMarkersRef = useRef<Array<{ element: HTMLDivElement; lon: number; lat: number; anchor: "bottom" | "center" }>>([]);
+  const cesiumWorkerMarkersRef = useRef(new Set<{ element: HTMLDivElement; lon: number; lat: number }>());
   const [isCesiumReady, setIsCesiumReady] = useState(false);
 
   const createThreePoiMarkerDataUrl = useCallback((scheme: "unvisited" | "visited" = "unvisited"): string | null => {
@@ -5052,11 +5054,6 @@ interface OtherUnitMoveAnim {
         entry.element.remove();
       }
       cesiumHtmlMarkersRef.current = [];
-      const overlay = cesiumHtmlOverlayRef.current;
-      if (overlay) {
-        // Keep overlay element itself, just clear children (already removed)
-        overlay.replaceChildren();
-      }
     };
 
     const updateCesiumHtmlPositions = (Cesium: typeof import("cesium")): void => {
@@ -5065,13 +5062,13 @@ interface OtherUnitMoveAnim {
       if (!viewer || viewer.isDestroyed() || !overlay) {
         return;
       }
-      for (const entry of cesiumHtmlMarkersRef.current) {
+      const updatePosition = (entry: { element: HTMLDivElement; lon: number; lat: number }): void => {
         try {
           const cartesian = Cesium.Cartesian3.fromDegrees(entry.lon, entry.lat, 0);
           const canvasPos = viewer.scene.cartesianToCanvasCoordinates(cartesian);
           if (!canvasPos) {
             entry.element.style.display = "none";
-            continue;
+            return;
           }
           // Hide if behind globe / offscreen
           const occluded = viewer.scene.globe.ellipsoid.cartesianToCartographic(cartesian);
@@ -5082,7 +5079,7 @@ interface OtherUnitMoveAnim {
           // canvasPos is in canvas pixels (same as overlay size)
           if (!Number.isFinite(x) || !Number.isFinite(y) || x < -100 || y < -100 || x > rect.width + 100 || y > rect.height + 100) {
             entry.element.style.display = "none";
-            continue;
+            return;
           }
           entry.element.style.display = "";
           entry.element.style.left = `${x}px`;
@@ -5090,7 +5087,9 @@ interface OtherUnitMoveAnim {
         } catch {
           entry.element.style.display = "none";
         }
-      }
+      };
+      cesiumHtmlMarkersRef.current.forEach(updatePosition);
+      cesiumWorkerMarkersRef.current.forEach(updatePosition);
     };
 
     const renderCesiumPois = (Cesium: typeof import("cesium")): void => {
@@ -7853,68 +7852,119 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, [territoryEnabled, isMapReady, cityForMap, showMarkerPanel]);
   // 일꾼 부대: 영주성 ↔ 자원지 점선 + 움직이는 일꾼 표시
-  const gatherLayerRef = useRef<LayerGroup | null>(null);
+  const [visibleWorkers, setVisibleWorkers] = useState<VisibleWorker[]>([]);
   useEffect(() => {
-    if (!territoryEnabled || !isMapReady) {
-      return;
-    }
-    const map = mapInstanceRef.current;
+    if (!territoryEnabled) return;
+    const map = mapStyle === "satellite" && isMapReady ? mapInstanceRef.current : null;
     const L = leafletRef.current;
-    if (!map || !L) {
-      return;
-    }
-    if (!gatherLayerRef.current) {
-      gatherLayerRef.current = L.layerGroup();
-    }
-    const layer = gatherLayerRef.current;
-    if (!map.hasLayer(layer)) {
-      layer.addTo(map);
-    }
-    layer.clearLayers();
-    const gathers = cityForMap?.state.gathers ?? [];
+    const globe = mapStyle === "globe" && isGlobeReady ? globeMapRef.current : null;
+    const GlobeMarker = globeMarkerCtorRef.current;
+    const overlay = mapStyle === "cesium" && isCesiumReady ? cesiumHtmlOverlayRef.current : null;
+    if (!(map && L) && !(globe && GlobeMarker) && !overlay) return;
+    const gathers = [
+      ...(cityForMap?.state.gathers ?? []).map((g) => ({ g, owner: null })),
+      ...visibleWorkers.map((g) => ({ g, owner: g.ownerNickname || "상대" })),
+    ].filter(({ g }) => g.returnAt > serverNow());
     if (gathers.length === 0) {
       return;
     }
     const color: Record<ResourceKind, string> = { gold: "#f1c40f", stone: "#cfd6dc", wood: "#8fbf6a", iron: "#9fb4cc" };
-    const workers = gathers.map((g) => {
-      // 도로 경로 (옛 데이터는 직선)
-      const line: Array<[number, number]> =
-        g.path && g.path.length >= 2
-          ? g.path
-          : [
-              [g.fromLat, g.fromLon],
-              [g.lat, g.lon],
-            ];
-      L.polyline(line, { color: color[g.kind], weight: 2.5, dashArray: "4 6", opacity: 0.85, interactive: false }).addTo(layer);
-      const icon = L.divIcon({
-        className: "map-gather-worker",
-        html: `<div class="map-rotation-upright"><div class="gather-worker" style="--worker-color:${color[g.kind]}"><span class="farmer-sprite" aria-hidden="true"></span><span class="gather-worker__label"></span></div></div>`,
-        iconSize: [80, 70],
-        iconAnchor: [40, 50],
-      });
+    const cesiumMarkers = cesiumWorkerMarkersRef.current;
+    const workers = new Set(gathers.map(({ g, owner }) => {
+      const shell = document.createElement("div");
+      shell.className = owner === null ? "map-gather-worker" : "map-gather-worker map-gather-worker--other";
+      shell.style.pointerEvents = "none";
+      shell.style.setProperty("--worker-color", color[g.kind]);
+      const root = document.createElement("div");
+      root.className = "gather-worker";
+      const sprite = document.createElement("span");
+      sprite.className = "farmer-sprite";
+      sprite.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.className = "gather-worker__label";
+      root.append(sprite, label);
+      shell.append(root);
       const p = gatherPhase(g, serverNow());
-      const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false }).addTo(layer);
-      return { g, marker };
-    });
+      if (map && L) {
+        shell.classList.add("map-rotation-upright");
+        const icon = L.divIcon({ className: "map-gather-worker", html: shell, iconSize: [80, 70], iconAnchor: [40, 50] });
+        const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false, zIndexOffset: 100 }).addTo(map);
+        const line: Array<[number, number]> = g.path && g.path.length >= 2 ? g.path : [[g.fromLat, g.fromLon], [g.lat, g.lon]];
+        const route = owner === null
+          ? L.polyline(line, { color: color[g.kind], weight: 2.5, dashArray: "4 6", opacity: 0.85, interactive: false }).addTo(map)
+          : null;
+        return {
+          g, owner, root, label,
+          move: (lat: number, lon: number) => marker.setLatLng([lat, lon]),
+          remove: () => {
+            marker.remove();
+            route?.remove();
+          },
+        };
+      }
+      if (globe && GlobeMarker) {
+        const marker = new GlobeMarker({ element: shell, anchor: "bottom" }).setLngLat([p.lon, p.lat]).addTo(globe);
+        return {
+          g, owner, root, label,
+          move: (lat: number, lon: number) => marker.setLngLat([lon, lat]),
+          remove: () => marker.remove(),
+        };
+      }
+      const entry = { element: shell, lon: p.lon, lat: p.lat };
+      shell.style.position = "absolute";
+      shell.style.transform = "translate(-50%, -100%)";
+      shell.style.display = "none";
+      overlay?.append(shell);
+      cesiumMarkers.add(entry);
+      return {
+        g, owner, root, label,
+        move: (lat: number, lon: number) => {
+          entry.lat = lat;
+          entry.lon = lon;
+        },
+        remove: () => {
+          cesiumMarkers.delete(entry);
+          shell.remove();
+        },
+      };
+    }));
     // 위치는 1초마다 경로를 따라 옮기고, 걸음·곡괭이질·도끼질·지게 귀환은 스프라이트 시트 애니메이션으로 움직인다
     const tick = (): void => {
       const now = serverNow();
-      for (const { g, marker } of workers) {
+      const groups = new Map<string, HTMLElement[]>();
+      for (const worker of workers) {
+        const { g, owner, root, label, move } = worker;
+        if (now >= g.returnAt) {
+          worker.remove();
+          workers.delete(worker);
+          continue;
+        }
         const p = gatherPhase(g, now);
-        marker.setLatLng([p.lat, p.lon]);
-        const root = marker.getElement()?.querySelector<HTMLElement>(".gather-worker");
-        if (!root) continue;
+        move(p.lat, p.lon);
+        // 같은 자원지에 도착한 일꾼도 서로 가리지 않도록 실제 좌표는 유지하고 그림만 나란히 놓는다.
+        const key = `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`;
+        const group = groups.get(key);
+        if (group) group.push(root);
+        else groups.set(key, [root]);
         const cls = `gather-worker farmer--${farmerMode(g.kind, p.phase)}${p.dir < 0 ? " gather-worker--west" : ""}`;
         if (root.className !== cls) root.className = cls;
-        const label = root.querySelector(".gather-worker__label");
-        const text = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} ${g.kind === "wood" ? "벌목" : "채굴"}` : "귀환 중";
-        if (label && label.textContent !== text) label.textContent = text;
+        const action = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} ${g.kind === "wood" ? "벌목" : "채굴"}` : "귀환 중";
+        const text = owner === null ? action : `${owner} · ${action}`;
+        if (label.textContent !== text) label.textContent = text;
+      }
+      for (const group of groups.values()) {
+        group.forEach((root, i) => {
+          root.style.translate = group.length > 1 ? `${(i - (group.length - 1) / 2) * 58}px` : "";
+        });
       }
     };
     tick();
     const id = window.setInterval(tick, 1000);
-    return () => window.clearInterval(id);
-  }, [territoryEnabled, isMapReady, cityForMap]);
+    return () => {
+      window.clearInterval(id);
+      workers.forEach((worker) => worker.remove());
+    };
+  }, [territoryEnabled, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, visibleWorkers]);
   const sendWorkers = useCallback(async (nodeId: string): Promise<void> => {
     const r = await cityAction({ type: "gather", nodeId });
     setPlacementNotice({ id: Date.now(), message: r.ok ? "일꾼 부대를 보냈습니다." : r.message });
@@ -10041,6 +10091,7 @@ const isMapPerfEnabled = (): boolean => {
           getPlayerLocation={getPlayerLocation}
           isLocationVisible={isTerritoryVisible}
           onUnitMarks={setUnitMarks}
+          onVisibleWorkers={setVisibleWorkers}
           panToLocation={panTerritoryTo}
           territoryStart={territoryStart}
           ownedCastleKeys={ownedCastleKeys}

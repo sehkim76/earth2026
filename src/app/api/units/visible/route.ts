@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { RESOURCE_KINDS, type GatherMovement, type VisibleWorker } from "@/lib/city";
 import prisma from "@/lib/prismadb";
 import { loadUnits, positionAtMoveTarget } from "@/lib/units";
 import {
@@ -8,7 +9,32 @@ import {
   territoryDisabledResponse,
 } from "@/lib/territory";
 
-/** 다른 플레이어의 배치된 부대 (지도 표시용). 본인 제외, field/garrisoned만. */
+async function readVisibleWorkers(userId: string, missionKey: string, now: number): Promise<VisibleWorker[]> {
+  const rows = await prisma.$queryRaw<{ nickname: string; job: GatherMovement }[]>`
+    SELECT u.nickname, active.job
+    FROM "TerritoryCity" c
+    JOIN "MissionUser" u ON u."userId" = c."userId" AND u."ARMissionKey" = c."missionKey"
+    CROSS JOIN LATERAL jsonb_path_query(
+      c.data, '$.gathers[*] ? (@.returnAt > $now)', jsonb_build_object('now', ${now}::bigint)
+    ) AS active(job)
+    WHERE c."missionKey" = ${missionKey} AND c."userId" <> ${userId}
+  `;
+  return rows.flatMap(({ nickname, job }) => {
+    const { kind, lat, lon, fromLat, fromLon, startedAt, arriveAt, doneAt, returnAt, path } = job;
+    const coordinatesAndTimes = [lat, lon, fromLat, fromLon, startedAt, arriveAt, doneAt, returnAt];
+    if (!RESOURCE_KINDS.includes(kind) || !coordinatesAndTimes.every(Number.isFinite)) {
+      return [];
+    }
+    const validPath = Array.isArray(path) && path.every((point) =>
+      Array.isArray(point) && point.length === 2 && point.every(Number.isFinite));
+    return [{
+      ownerNickname: nickname, kind, lat, lon, fromLat, fromLon, startedAt, arriveAt, doneAt, returnAt,
+      path: validPath ? path : undefined,
+    }];
+  });
+}
+
+/** 같은 미션에 배치된 다른 플레이어의 부대와 채집 일꾼. */
 export async function GET() {
   const userId = await requireSessionUserId();
   if (!userId) {
@@ -20,12 +46,15 @@ export async function GET() {
   }
 
   try {
-    const rows = await prisma.missionUser.findMany({
-      where: { ARMissionKey: ctx.missionKey, userId: { not: userId } },
-      select: { userId: true, nickname: true, data: true },
-      take: 200,
-    });
     const now = Date.now();
+    const [rows, workers] = await Promise.all([
+      prisma.missionUser.findMany({
+        where: { ARMissionKey: ctx.missionKey, userId: { not: userId } },
+        select: { userId: true, nickname: true, data: true },
+        take: 200,
+      }),
+      readVisibleWorkers(userId, ctx.missionKey, now),
+    ]);
     const units = rows.flatMap((row) =>
       loadUnits(row.data)
         .filter((unit) => unit.state === "field" || unit.state === "garrisoned")
@@ -57,7 +86,7 @@ export async function GET() {
           };
         }),
     ).slice(0, 200);
-    return NextResponse.json({ ok: true, units });
+    return NextResponse.json({ ok: true, units, workers, serverNow: Date.now() });
   } catch (error) {
     console.error("[units/visible] failed", error);
     return NextResponse.json({ ok: false, code: "units_visible_failed" }, { status: 500 });

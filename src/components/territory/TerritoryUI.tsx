@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { VisibleWorker } from "@/lib/city";
 import { noteServerTime } from "@/lib/server-clock";
 import { territoryOwnerColor } from "@/lib/territory-colors";
 import { CITY_EVENT, fetchCity, type CityHome, type CityViewData } from "@/components/city/city-client";
@@ -55,6 +56,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
+  onVisibleWorkers: (workers: VisibleWorker[]) => void;
   onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; outlawTier?: 1 | 2 | 3; outlawWinRate?: number | null; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
   onUnitMarkerSelectionHandled: () => void;
@@ -400,6 +402,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     onCloseCastle,
     onOpenCastle,
     onUnitMarks,
+    onVisibleWorkers,
     unitMarkerSelection,
     onUnitMarkerSelectionHandled,
     getMapCenter,
@@ -629,14 +632,24 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
   }, [props.placementNotice, flash]);
 
+  const workerRequestRef = useRef<symbol | null>(null);
   const refreshUnits = useCallback(async () => {
+    const request = Symbol();
+    workerRequestRef.current = request;
     try {
       const [own, others] = await Promise.all([
         callApi<{
           cap: number;
           units: UnitInfo[];
         }>("/api/units") as Promise<{ cap: unknown; units: unknown }>,
-        callApi<{ units?: unknown }>("/api/units/visible").catch(() => null),
+        callApi<{ units?: unknown; workers?: VisibleWorker[]; serverNow?: number }>("/api/units/visible")
+          .then((snapshot) => {
+            if (request === workerRequestRef.current && Array.isArray(snapshot.workers)) {
+              noteServerTime(snapshot.serverNow, Date.now());
+              onVisibleWorkers(snapshot.workers);
+            }
+            return snapshot;
+          }).catch(() => null),
       ]);
       const data = own as { cap: unknown; units: unknown };
       setUnitCap(typeof data.cap === "number" ? data.cap : 0);
@@ -773,7 +786,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     } catch {
       // 조회 실패 시 기존 목록 유지
     }
-  }, [isDialogSelected, onUnitMarks]);
+  }, [isDialogSelected, onUnitMarks, onVisibleWorkers]);
 
   interface NeutralUnitRow {
     id: number;
@@ -1104,6 +1117,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       .catch(() => {});
     return () => {
       cancelled = true;
+      workerRequestRef.current = null;
     };
   }, [refreshUnits, refreshTrainingCastles]);
 
