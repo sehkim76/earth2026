@@ -450,13 +450,13 @@ function applyAction(
 export async function readTroopBonuses(
   db: Tx | typeof prisma,
   userId: string,
-): Promise<{ troops: Record<string, TroopCounts>; bonus: Record<string, { hp: number; atk: number }> }> {
+): Promise<{ troops: Record<string, TroopCounts>; bonus: Record<string, { hp: number; atk: number }>; wallLevel: number }> {
   const row = await (db as typeof prisma).territoryCity.findUnique({ where: { userId }, select: { data: true } });
-  if (!row) return { troops: {}, bonus: {} };
+  if (!row) return { troops: {}, bonus: {}, wallLevel: 0 };
   const state = parseCityState(row.data, Date.now());
   const bonus: Record<string, { hp: number; atk: number }> = {};
-  for (const [id, t] of Object.entries(state.assigned)) bonus[id] = troopBonus(t, state.tech);
-  return { troops: state.assigned, bonus };
+  for (const [id, t] of Object.entries(state.assigned)) bonus[id] = troopBonus(t, state.tech, state.buildings);
+  return { troops: state.assigned, bonus, wallLevel: state.buildings.wall };
 }
 
 /** 전투 손실 반영 (지휘관별 잃은 병력). 지금 배치된 병력에서 뺀다. */

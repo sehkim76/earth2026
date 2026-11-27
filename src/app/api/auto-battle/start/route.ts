@@ -24,8 +24,8 @@ import {
   type AutoFormation,
   type AutoUnitKind,
 } from "@/lib/auto-battle";
-import { troopLosses, troopTotal, type TroopCounts } from "@/lib/city";
-import { applyTroopLosses, readTroopBonuses } from "@/lib/city-server";
+import { troopLosses, troopTotal, wallDefense, type TroopCounts } from "@/lib/city";
+import { applyTroopLosses, findHomeCastle, readTroopBonuses } from "@/lib/city-server";
 import { loadUnits } from "@/lib/units";
 import { recordBattleResult } from "@/lib/records";
 import {
@@ -361,6 +361,18 @@ export async function POST(request: Request) {
           const ownerTroops = await readTroopBonuses(tx, castle.meta.owner);
           castleOwnerTroops = ownerTroops.troops;
           applyTroopBonuses(defender, castleDefIds, ownerTroops.bonus);
+          // 성벽: 본거지 영주성을 지킬 때 성주 편성(원군 제외)에 체력·공격력 가산
+          if (ownerTroops.wallLevel > 0) {
+            const home = await findHomeCastle(tx, castle.meta.owner, ctx.missionKey);
+            if (home?.castleKey === target.castleKey) {
+              const w = wallDefense(ownerTroops.wallLevel);
+              for (const slot of defender) {
+                if (!slot) continue;
+                slot.bonusHp = (slot.bonusHp ?? 0) + w.hp;
+                slot.bonusAtk = (slot.bonusAtk ?? 0) + w.atk;
+              }
+            }
+          }
           const holder = await tx.territoryNationMember.findFirst({
             where: { userId: castle.meta.owner, nation: { missionKey: ctx.missionKey } },
             select: { nationId: true },

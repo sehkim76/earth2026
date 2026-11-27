@@ -105,6 +105,14 @@ export function BuildingIcon({ kind, size = 44 }: { kind: BuildingKey; size?: nu
             <circle cx="33" cy="38" r="1.5" fill="#2b2118" />
           </>
         );
+      case "wall":
+        return (
+          <>
+            <path d="M6 42 V22 h5 v-5 h5 v5 h4 v-5 h8 v5 h4 v-5 h5 v5 h5 V42z" fill="#bfb49d" {...S} />
+            <path d="M19 42 v-9 a5 5 0 0 1 10 0 v9z" fill="#3a2a1c" {...S} />
+            <path d="M6 30 H19 M29 30 H42 M12 36 H19 M29 36 H36" {...S} fill="none" />
+          </>
+        );
       case "tower":
         return (
           <>

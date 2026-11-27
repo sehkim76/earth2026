@@ -44,7 +44,8 @@ export type BuildingKey =
   | "range"
   | "stable"
   | "tower"
-  | "camp";
+  | "camp"
+  | "wall";
 
 export type BuildingCategory = "core" | "production" | "research" | "military";
 
@@ -66,18 +67,19 @@ export interface BuildingDef {
 export const MAX_BUILDING_LEVEL = 10;
 
 export const BUILDINGS: readonly BuildingDef[] = [
-  { key: "keep", name: "본관", category: "core", desc: "영주성의 중심. 다른 건물은 본관 레벨까지만 올릴 수 있고, 지휘관 병력 상한이 늘어납니다.", baseCost: { wood: 300, stone: 300, gold: 100 }, baseSec: 90 },
+  { key: "keep", name: "본관", category: "core", desc: "영주성의 중심. 다른 건물은 본관 레벨까지만 올릴 수 있고, 지휘관 병력 상한과 모든 병력의 체력이 늘어납니다.", baseCost: { wood: 300, stone: 300, gold: 100 }, baseSec: 90 },
+  { key: "wall", name: "성벽", category: "core", desc: "영주성을 두른 성벽. 본거지 영주성을 지킬 때 수비 지휘관의 체력·공격력이 늘어납니다. 목책 → 토성 → 석성으로 바뀝니다.", baseCost: { stone: 260, wood: 160 }, baseSec: 75 },
   { key: "storehouse", name: "창고", category: "core", desc: "석재·나무·철광석을 쌓아 둘 수 있는 양이 늘어납니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60 },
   { key: "camp", name: "일꾼 막사", category: "core", desc: "자원지로 보낼 수 있는 일꾼 부대 수와 한 번에 나르는 양이 늘어납니다.", baseCost: { wood: 180, stone: 120 }, baseSec: 60 },
   { key: "sawmill", name: "벌목장", category: "production", desc: "시간마다 나무를 생산합니다.", baseCost: { wood: 100, stone: 120 }, baseSec: 45, produces: "wood" },
   { key: "quarry", name: "채석장", category: "production", desc: "시간마다 석재를 생산합니다.", baseCost: { wood: 140, stone: 80 }, baseSec: 45, produces: "stone" },
-  { key: "forge", name: "제철소", category: "production", desc: "시간마다 철광석을 생산합니다.", baseCost: { wood: 160, stone: 160 }, baseSec: 60, produces: "iron" },
+  { key: "forge", name: "제철소", category: "production", desc: "시간마다 철광석을 생산하고, 무기를 벼려 모든 병력의 공격력이 늘어납니다.", baseCost: { wood: 160, stone: 160 }, baseSec: 60, produces: "iron" },
   { key: "mint", name: "주조소", category: "production", desc: "시간마다 금을 주조합니다.", baseCost: { wood: 200, stone: 200, iron: 80 }, baseSec: 75, produces: "gold" },
   { key: "academy", name: "학당", category: "research", desc: "기술을 연구합니다. 학당 레벨까지 기술 레벨을 올릴 수 있습니다.", baseCost: { wood: 250, stone: 250, gold: 80 }, baseSec: 90 },
-  { key: "barracks", name: "병영", category: "military", desc: "보병을 훈련합니다. 레벨이 오르면 한 번에 더 많이, 더 빨리 훈련합니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60, trains: "infantry" },
-  { key: "range", name: "궁술장", category: "military", desc: "궁병을 훈련합니다.", baseCost: { wood: 240, stone: 120 }, baseSec: 60, trains: "archer" },
-  { key: "stable", name: "마구간", category: "military", desc: "기병을 훈련합니다.", baseCost: { wood: 220, stone: 160, iron: 60 }, baseSec: 75, trains: "cavalry" },
-  { key: "tower", name: "마탑", category: "military", desc: "마법병을 훈련합니다.", baseCost: { stone: 260, iron: 80, gold: 60 }, baseSec: 90, trains: "mage" },
+  { key: "barracks", name: "병영", category: "military", desc: "보병을 훈련합니다. 레벨이 오르면 한 번에 더 많이, 더 빨리 훈련하고 보병이 강해집니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60, trains: "infantry" },
+  { key: "range", name: "궁술장", category: "military", desc: "궁병을 훈련합니다. 레벨이 오르면 궁병이 강해집니다.", baseCost: { wood: 240, stone: 120 }, baseSec: 60, trains: "archer" },
+  { key: "stable", name: "마구간", category: "military", desc: "기병을 훈련합니다. 레벨이 오르면 기병이 강해집니다.", baseCost: { wood: 220, stone: 160, iron: 60 }, baseSec: 75, trains: "cavalry" },
+  { key: "tower", name: "마탑", category: "military", desc: "마법병을 훈련합니다. 레벨이 오르면 마법병이 강해집니다.", baseCost: { stone: 260, iron: 80, gold: 60 }, baseSec: 90, trains: "mage" },
 ];
 export const BUILDING_BY_KEY: Readonly<Record<BuildingKey, BuildingDef>> = Object.fromEntries(
   BUILDINGS.map((b) => [b.key, b]),
@@ -161,23 +163,46 @@ export function commanderTroopCap(keepLevel: number, commanderLevel: number): nu
 const TROOP_HP: Readonly<Record<TroopKind, number>> = { infantry: 0.12, archer: 0.07, cavalry: 0.1, mage: 0.06 };
 const TROOP_ATK: Readonly<Record<TroopKind, number>> = { infantry: 0.02, archer: 0.035, cavalry: 0.033, mage: 0.045 };
 
-/** 병력 → 지휘관 칸 추가 체력·공격력 (연구 보정 포함) */
+/** 병종별 훈련 건물 */
+export const TROOP_BUILDING: Readonly<Record<TroopKind, "barracks" | "range" | "stable" | "tower">> = { infantry: "barracks", archer: "range", cavalry: "stable", mage: "tower" };
+/** 훈련 건물 레벨당 그 병종 체력·공격력 +% */
+export const TROOP_BUILDING_PCT = 4;
+/** 본관 레벨당 (Lv.1 넘는 만큼) 모든 병력 체력 +% */
+export const KEEP_HP_PCT = 2;
+/** 제철소 레벨당 모든 병력 공격력 +% */
+export const FORGE_ATK_PCT = 2;
+
+type BonusBuildings = Partial<Pick<Record<BuildingKey, number>, "keep" | "forge" | "barracks" | "range" | "stable" | "tower">>;
+
+/** 병력 → 지휘관 칸 추가 체력·공격력 (연구·건물 보정 포함) */
 export function troopBonus(
   troops: Partial<TroopCounts> | null | undefined,
   tech?: { drill?: number; armor?: number },
+  buildings?: BonusBuildings,
 ): { hp: number; atk: number } {
   if (!troops) return { hp: 0, atk: 0 };
   let hp = 0;
   let atk = 0;
   for (const k of TROOP_KINDS) {
     const n = Math.max(0, Math.floor(troops[k] ?? 0));
-    hp += n * TROOP_HP[k];
-    atk += n * TROOP_ATK[k];
+    const kindMult = 1 + ((buildings?.[TROOP_BUILDING[k]] ?? 0) * TROOP_BUILDING_PCT) / 100;
+    hp += n * TROOP_HP[k] * kindMult;
+    atk += n * TROOP_ATK[k] * kindMult;
   }
-  hp *= 1 + ((tech?.armor ?? 0) * TECH_BY_KEY.armor.perLevel) / 100;
-  atk *= 1 + ((tech?.drill ?? 0) * TECH_BY_KEY.drill.perLevel) / 100;
+  hp *= 1 + ((tech?.armor ?? 0) * TECH_BY_KEY.armor.perLevel) / 100 + (Math.max(0, (buildings?.keep ?? 1) - 1) * KEEP_HP_PCT) / 100;
+  atk *= 1 + ((tech?.drill ?? 0) * TECH_BY_KEY.drill.perLevel) / 100 + ((buildings?.forge ?? 0) * FORGE_ATK_PCT) / 100;
   return { hp: Math.round(hp), atk: Math.round(atk) };
 }
+
+/** 성벽: 본거지 수비 지휘관 한 칸에 더하는 체력·공격력 */
+export function wallDefense(wallLevel: number): { hp: number; atk: number } {
+  const lv = Math.max(0, Math.floor(wallLevel));
+  return { hp: lv * 3, atk: Math.floor(lv / 2) };
+}
+
+/** 성벽 모양 단계 */
+export const wallStage = (lv: number): "palisade" | "earth" | "stone" | "grand" =>
+  lv <= 3 ? "palisade" : lv <= 6 ? "earth" : lv <= 9 ? "stone" : "grand";
 
 /**
  * 전투 뒤 병력 손실: 쓰러진 칸은 50%, 살아남은 칸은 입은 피해 비율의 30%.
@@ -269,6 +294,7 @@ export function newCityState(now: number): CityState {
   buildings.sawmill = 1;
   buildings.quarry = 1;
   buildings.forge = 1;
+  buildings.wall = 1;
   return {
     v: 1,
     res: { stone: 500, wood: 500, iron: 200 },

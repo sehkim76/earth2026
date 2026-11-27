@@ -283,10 +283,12 @@ export interface Ctx {
   m: Mats;
   /** 연기 나는 곳 */
   smoke: THREE.Vector3[];
+  /** 모양 단계 1~4 (높을수록 화려) */
+  tier: number;
 }
 
-export function newCtx(m: Mats): Ctx {
-  return { s: new THREE.Group(), d: new THREE.Group(), m, smoke: [] };
+export function newCtx(m: Mats, tier = 3): Ctx {
+  return { s: new THREE.Group(), d: new THREE.Group(), m, smoke: [], tier };
 }
 
 function put(c: Ctx, g: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, ry = 0): THREE.Mesh {
@@ -430,11 +432,23 @@ export interface HallOpts {
   gold?: boolean;
   /** 단청 띠 없이 소박하게 (초가·곳간) */
   plain?: boolean;
+  /** 1단계에서도 초가로 바꾸지 않음 */
+  keepGiwa?: boolean;
 }
 
 /** 기단 + 주칠 기둥 + 벽·문살 + 단청 띠 + 지붕. 반환: { ry: 지붕 처마 높이, top: 꼭대기 } */
 export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
   const m = c.m;
+  const tier = c.tier;
+  // 단계별 양식: 1 초가·흙벽, 2 기와·백골(단청 없음), 3 단청, 4 단청+금빛 장식. 초가 건물은 3단계부터 기와로.
+  let roof = o.roof ?? "giwa";
+  let plain = o.plain ?? tier <= 2;
+  if (roof === "giwa" && tier <= 1 && !o.keepGiwa) roof = "thatch";
+  else if (roof === "thatch" && tier >= 3) roof = "giwa";
+  if (tier >= 4) plain = false;
+  if (tier <= 2) plain = true;
+  const gold = o.gold ?? tier >= 4;
+  const wallMat = o.wall ?? (tier <= 1 ? m.mud : m.plaster);
   const y0 = o.y ?? 0;
   const base = o.base ?? 0.6;
   const { x, z, w, d, h } = o;
@@ -445,7 +459,7 @@ export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
   const yb = y0 + base;
   const nx = Math.max(2, Math.round(w / 2.3) + 1);
   const nz = Math.max(2, Math.round(d / 2.3) + 1);
-  const pillarMat = o.plain ? m.wood : m.pillar;
+  const pillarMat = plain ? m.wood : m.pillar;
   for (let i = 0; i < nx; i++) {
     const px = x - w / 2 + (w * i) / (nx - 1);
     cyl(c, 0.2, 0.24, h, pillarMat, px, yb, z - d / 2, 8);
@@ -457,7 +471,7 @@ export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
     cyl(c, 0.2, 0.24, h, pillarMat, x + w / 2, yb, pz, 8);
   }
   if (!o.open) {
-    box(c, w - 0.15, h, d - 0.15, o.wall ?? m.plaster, x, yb, z);
+    box(c, w - 0.15, h, d - 0.15, wallMat, x, yb, z);
     box(c, w + 0.05, 0.32, d + 0.05, m.wood, x, yb, z);
     if (o.doors !== false) {
       const bay = w / (nx - 1);
@@ -467,15 +481,15 @@ export function hall(c: Ctx, o: HallOpts): { ry: number; top: number } {
       }
     }
   }
-  const band = o.plain ? m.wood : m.lintel;
+  const band = plain ? m.wood : m.lintel;
   box(c, w + 0.5, 0.42, d + 0.5, band, x, yb + h, z);
-  if (!o.plain) box(c, w + 1.0, 0.38, d + 1.0, m.bracket, x, yb + h + 0.42, z);
-  const ry = yb + h + (o.plain ? 0.42 : 0.8);
+  if (!plain) box(c, w + 1.0, 0.38, d + 1.0, m.bracket, x, yb + h + 0.42, z);
+  const ry = yb + h + (plain ? 0.42 : 0.8);
   const over = o.over ?? 1.3;
   const roofH = o.roofH ?? Math.max(1.4, Math.min(w, d) * 0.42);
   let top = ry;
-  if (o.roof === "thatch") top = thatchRoof(c, x, ry, z, w / 2 + over * 0.9, d / 2 + over * 0.9, roofH);
-  else if (o.roof !== "none") top = giwa(c, x, ry, z, w / 2 + over, d / 2 + over, roofH, o.lift ?? 0.8, o.gold);
+  if (roof === "thatch") top = thatchRoof(c, x, ry, z, w / 2 + over * 0.9, d / 2 + over * 0.9, roofH);
+  else if (roof !== "none") top = giwa(c, x, ry, z, w / 2 + over, d / 2 + over, roofH, o.lift ?? 0.8, gold);
   return { ry, top };
 }
 
@@ -548,6 +562,8 @@ export interface LotDef {
   d: number;
 }
 
+export const WALL = { x0: -36, x1: 36, z0: -34, z1: 38, t: 2.6, h: 3.8, gate: 6 } as const;
+
 /** 성 안 건물 자리 (정문은 +z 쪽) */
 export const LOTS: Record<BuildingKey, LotDef> = {
   keep: { x: 0, z: -21, w: 20, d: 14 },
@@ -562,100 +578,159 @@ export const LOTS: Record<BuildingKey, LotDef> = {
   barracks: { x: 10, z: 13.5, w: 11, d: 10 },
   range: { x: 24, z: 13.5, w: 11, d: 10 },
   stable: { x: 20, z: 29, w: 13, d: 10 },
+  // 성벽은 둘레 전체, 이름표·고르기는 정문 자리
+  wall: { x: 0, z: WALL.z1, w: 16, d: 7 },
 };
 
 type Builder = (c: Ctx, lv: number) => number;
 
+/** 레벨 → 모양 단계 (1: Lv.1~3 소박, 2: Lv.4~6 기와, 3: Lv.7~9 단청, 4: Lv.10 금빛) */
+export const tierOf = (lv: number): number => (lv <= 0 ? 0 : lv <= 3 ? 1 : lv <= 6 ? 2 : lv <= 9 ? 3 : 4);
+const TIER_SCALE = [1, 0.84, 0.93, 1.0, 1.1] as const;
+
+function lantern(c: Ctx, x: number, z: number): void {
+  box(c, 0.7, 0.3, 0.7, c.m.stoneLight, x, 0, z);
+  cyl(c, 0.12, 0.16, 0.9, c.m.stoneLight, x, 0.3, z, 6);
+  box(c, 0.6, 0.55, 0.6, c.m.stoneLight, x, 1.2, z);
+  glow(c, 0.16, c.m.fire, x, 1.47, z, x);
+  box(c, 0.85, 0.2, 0.85, c.m.stone, x, 1.75, z);
+}
+
 const BUILDERS: Record<BuildingKey, Builder> = {
-  // 본관: 월대 위 중층 정전
-  keep: (c, lv) => {
+  // 본관: 초가 관아 → 월대 위 기와 정전 → 중층 정전 → 행각 두른 금빛 정전
+  keep: (c) => {
     const m = c.m;
+    const t = c.tier;
+    if (t === 1) {
+      box(c, 14, 0.5, 10, m.stone, 0, 0, 0);
+      const h1 = hall(c, { x: 0, z: -0.5, y: 0.5, w: 10, d: 6, h: 2.8, base: 0.3, roofH: 2.0, over: 1.2, lift: 0.6 });
+      flag(c, 6, 4.4, 4.6, m.flagRed, 0.4);
+      fenceLine(c, -7, 5, -2, 5);
+      fenceLine(c, 2, 5, 7, 5);
+      return h1.top;
+    }
     box(c, 20, 0.8, 14, m.stone, 0, 0, 0);
-    box(c, 17, 0.7, 11.4, m.stoneLight, 0, 0.8, -0.2);
     box(c, 4, 0.4, 1.4, m.stoneLight, 0, 0, 7.6);
     box(c, 4, 0.8, 1.2, m.stoneLight, 0, 0, 6.6);
+    if (t === 2) {
+      const h2 = hall(c, { x: 0, z: -0.8, y: 0.8, w: 12, d: 7.2, h: 3.2, base: 0.4, roofH: 2.6, over: 1.5, lift: 0.9 });
+      flag(c, -9.2, 5.8, 5.4, m.flagRed, 0.1);
+      flag(c, 9.2, 5.8, 5.4, m.flagYellow, 1.7);
+      return h2.top;
+    }
+    box(c, 17, 0.7, 11.4, m.stoneLight, 0, 0.8, -0.2);
     box(c, 3, 0.4, 1.3, m.stoneLight, 0, 0.8, 5.9);
-    const low = hall(c, { x: 0, z: -0.8, y: 1.5, w: 12.6, d: 7.6, h: 3.2, base: 0.35, roofH: 1.5, over: 1.5, lift: 0.8, gold: lv >= 7 });
-    const up = hall(c, { x: 0, z: -0.8, y: low.ry + 0.7, w: 9.4, d: 5.0, h: 2.2, base: 0, roofH: 2.9, over: 1.7, lift: 1.15, doors: false, gold: lv >= 7 });
-    // 드므·품계석
+    const low = hall(c, { x: 0, z: -0.8, y: 1.5, w: 12.6, d: 7.6, h: 3.2, base: 0.35, roofH: 1.5, over: 1.5, lift: 0.8 });
+    const up = hall(c, { x: 0, z: -0.8, y: low.ry + 0.7, w: 9.4, d: 5.0, h: 2.2, base: 0, roofH: 2.9, over: 1.7, lift: 1.15, doors: false });
     for (const sx of [-6.6, 6.6]) cyl(c, 0.55, 0.45, 0.8, m.iron, sx, 1.5, 4.3, 10);
     for (let i = 0; i < 4; i++) {
       box(c, 0.4, 0.6, 0.3, m.stoneLight, -2.6, 0, 8.6 + i * 1.6);
       box(c, 0.4, 0.6, 0.3, m.stoneLight, 2.6, 0, 8.6 + i * 1.6);
     }
-    if (lv >= 4) {
-      flag(c, -9.2, 5.8, 6, m.flagRed, 0.1);
-      flag(c, 9.2, 5.8, 6, m.flagYellow, 1.7);
-      flag(c, -9.2, -6.4, 6, m.flagBlue, 2.4);
-      flag(c, 9.2, -6.4, 6, m.flagGreen, 3.3);
+    flag(c, -9.2, 5.8, 6, m.flagRed, 0.1);
+    flag(c, 9.2, 5.8, 6, m.flagYellow, 1.7);
+    flag(c, -9.2, -6.4, 6, m.flagBlue, 2.4);
+    flag(c, 9.2, -6.4, 6, m.flagGreen, 3.3);
+    if (t >= 4) {
+      // 행각 (좌우 긴 회랑)
+      hall(c, { x: -11.2, z: -0.5, w: 2.2, d: 12, h: 2.2, base: 0.3, open: true, roofH: 1.0, over: 0.8, lift: 0.4 });
+      hall(c, { x: 11.2, z: -0.5, w: 2.2, d: 12, h: 2.2, base: 0.3, open: true, roofH: 1.0, over: 0.8, lift: 0.4 });
+      lantern(c, -4.4, 8.6);
+      lantern(c, 4.4, 8.6);
     }
     return up.top;
   },
-  // 학당: 강당 + 누각 + 홍살문
-  academy: (c, lv) => {
+  // 학당: 초가 서당 → 기와 강당+홍살문 → +누각 → +장판각·석등
+  academy: (c) => {
     const m = c.m;
-    const main = hall(c, { x: 0, z: -2.2, w: 8.4, d: 4.6, h: 2.6, roofH: 2.0, lift: 0.85, gold: lv >= 7 });
-    for (const [px, pz] of [
-      [-4.6, 1.6],
-      [-1.2, 1.6],
-      [-4.6, 4.2],
-      [-1.2, 4.2],
-    ] as const)
-      cyl(c, 0.26, 0.3, 1.7, m.stone, px, 0, pz, 8);
-    box(c, 4.2, 0.3, 3.2, m.wood, -2.9, 1.7, 2.9);
-    hall(c, { x: -2.9, z: 2.9, y: 2.0, w: 3.4, d: 2.6, h: 1.7, base: 0, open: true, roofH: 1.4, over: 1.1, lift: 0.75 });
-    // 홍살문
-    for (const px of [1.6, 4.6]) cyl(c, 0.14, 0.16, 4.4, m.red, px, 0, 4.6, 6);
-    box(c, 3.4, 0.22, 0.22, m.red, 3.1, 3.9, 4.6);
-    box(c, 3.4, 0.22, 0.22, m.red, 3.1, 3.2, 4.6);
-    for (let i = 0; i < 7; i++) box(c, 0.08, 0.9, 0.08, m.red, 1.85 + i * 0.42, 3.4, 4.6);
+    const t = c.tier;
+    const main = hall(c, { x: 0, z: -2.2, w: t === 1 ? 6.4 : 8.4, d: t === 1 ? 3.8 : 4.6, h: 2.6, roofH: 2.0, lift: 0.85 });
+    if (t >= 2) {
+      for (const px of [1.6, 4.6]) cyl(c, 0.14, 0.16, 4.4, m.red, px, 0, 4.6, 6);
+      box(c, 3.4, 0.22, 0.22, m.red, 3.1, 3.9, 4.6);
+      box(c, 3.4, 0.22, 0.22, m.red, 3.1, 3.2, 4.6);
+      for (let i = 0; i < 7; i++) box(c, 0.08, 0.9, 0.08, m.red, 1.85 + i * 0.42, 3.4, 4.6);
+      flag(c, 5.2, 1.2, 4.4, m.flagBlue, 0.8);
+    }
+    if (t >= 3) {
+      for (const [px, pz] of [
+        [-4.6, 1.6],
+        [-1.2, 1.6],
+        [-4.6, 4.2],
+        [-1.2, 4.2],
+      ] as const)
+        cyl(c, 0.26, 0.3, 1.7, m.stone, px, 0, pz, 8);
+      box(c, 4.2, 0.3, 3.2, m.wood, -2.9, 1.7, 2.9);
+      hall(c, { x: -2.9, z: 2.9, y: 2.0, w: 3.4, d: 2.6, h: 1.7, base: 0, open: true, roofH: 1.4, over: 1.1, lift: 0.75 });
+    }
+    if (t >= 4) {
+      hall(c, { x: 4.4, z: -1.0, w: 2.6, d: 2.4, h: 1.8, base: 0.4, roofH: 1.2, over: 0.8, lift: 0.6 });
+      lantern(c, 0, 1.2);
+    }
     pine(c, 4.3, -4.2, 0.9);
-    pine(c, -4.9, -4.6, 0.8);
-    if (lv >= 4) flag(c, 5.2, 1.2, 4.4, m.flagBlue, 0.8);
+    if (t >= 2) pine(c, -4.9, -4.6, 0.8);
+    else fenceLine(c, -4, 2, 4, 2);
     return main.top;
   },
-  // 창고: 고상식 곳간 두 채 + 가마니·궤짝
-  storehouse: (c, lv) => {
+  // 창고: 작은 곳간 → 두 채 → 가마니·궤짝 가득 → 담장 두른 세 채
+  storehouse: (c) => {
     const m = c.m;
-    const a = hall(c, { x: -1.6, z: -2.4, w: 6.4, d: 3.6, h: 2.4, base: 0.9, wall: m.plank, doors: false, roofH: 1.6, lift: 0.6, plain: true, gold: lv >= 7 });
+    const t = c.tier;
+    const a = hall(c, { x: -1.6, z: -2.4, w: 6.4, d: 3.6, h: 2.4, base: 0.9, wall: m.plank, doors: false, roofH: 1.6, lift: 0.6, plain: true });
     box(c, 1.3, 1.8, 0.1, m.woodDark, -1.6, 1.0, -0.55);
-    hall(c, { x: 3.2, z: 2.2, w: 3.6, d: 3.0, h: 2.0, base: 0.7, wall: m.plank, doors: false, roofH: 1.3, lift: 0.5, plain: true });
-    box(c, 1.0, 1.4, 0.1, m.woodDark, 3.2, 0.75, 3.75);
-    for (let i = 0; i < 4; i++) ball(c, 0.5, m.hay, -3.6 + i * 1.05, 0.45, 2.4, 1.1, 0.8, 0.75, 7);
-    for (let i = 0; i < 3; i++) ball(c, 0.5, m.hay, -3.1 + i * 1.05, 1.15, 2.4, 1.1, 0.8, 0.75, 7);
-    box(c, 1.0, 0.9, 1.0, m.plank, 0.6, 0, 3.6);
-    box(c, 0.9, 0.8, 0.9, m.plank, 0.7, 0.9, 3.6);
-    if (lv >= 4) flag(c, -5.4, 3.6, 3.8, m.flagYellow, 2.1);
+    if (t >= 2) {
+      hall(c, { x: 3.2, z: 2.2, w: 3.6, d: 3.0, h: 2.0, base: 0.7, wall: m.plank, doors: false, roofH: 1.3, lift: 0.5, plain: true });
+      box(c, 1.0, 1.4, 0.1, m.woodDark, 3.2, 0.75, 3.75);
+    }
+    const sacks = t === 1 ? 2 : 4;
+    for (let i = 0; i < sacks; i++) ball(c, 0.5, m.hay, -3.6 + i * 1.05, 0.45, 2.4, 1.1, 0.8, 0.75, 7);
+    if (t >= 3) {
+      for (let i = 0; i < 3; i++) ball(c, 0.5, m.hay, -3.1 + i * 1.05, 1.15, 2.4, 1.1, 0.8, 0.75, 7);
+      box(c, 1.0, 0.9, 1.0, m.plank, 0.6, 0, 3.6);
+      box(c, 0.9, 0.8, 0.9, m.plank, 0.7, 0.9, 3.6);
+      flag(c, -5.4, 3.6, 3.8, m.flagYellow, 2.1);
+    }
+    if (t >= 4) {
+      hall(c, { x: -4.0, z: 2.8, w: 2.4, d: 2.2, h: 1.6, base: 0.6, wall: m.plank, doors: false, roofH: 1.0, lift: 0.4, plain: true });
+      damjang(c, -5.6, 5, 5.6, 5);
+    }
     return a.top;
   },
-  // 일꾼 막사: 초가 두 채 + 장독대 + 싸리 울타리
-  camp: (c, lv) => {
+  // 일꾼 막사: 움막 한 채 → 초가 두 채+장독대 → 기와집 → 세 채+우물
+  camp: (c) => {
     const m = c.m;
-    const a = hall(c, { x: -1.4, z: -2.2, w: 6, d: 3.4, h: 2.1, base: 0.35, wall: m.mud, roof: "thatch", roofH: 1.6, over: 1.1, plain: true });
+    const t = c.tier;
+    const a = hall(c, { x: -1.4, z: -2.2, w: t === 1 ? 4.6 : 6, d: 3.4, h: 2.1, base: 0.35, wall: m.mud, roof: "thatch", roofH: 1.6, over: 1.1, plain: true });
     cyl(c, 0.25, 0.3, 1.3, m.stoneDark, 1.0, a.ry + 0.6, -3.6, 6);
     c.smoke.push(new THREE.Vector3(1.0, a.ry + 2.2, -3.6));
-    hall(c, { x: 2.6, z: 2.2, w: 3.6, d: 3, h: 1.9, base: 0.3, wall: m.mud, roof: "thatch", roofH: 1.3, over: 0.9, plain: true });
-    box(c, 2.6, 0.35, 1.8, m.stone, -3.0, 0, 2.6);
-    jar(c, -3.7, 2.2, 1, 0.35);
-    jar(c, -2.8, 2.2, 0.85, 0.35);
-    jar(c, -3.6, 3.1, 0.75, 0.35);
-    jar(c, -2.5, 3.0, 0.65, 0.35);
+    if (t >= 2) {
+      hall(c, { x: 2.6, z: 2.2, w: 3.6, d: 3, h: 1.9, base: 0.3, wall: m.mud, roof: "thatch", roofH: 1.3, over: 0.9, plain: true });
+      box(c, 2.6, 0.35, 1.8, m.stone, -3.0, 0, 2.6);
+      jar(c, -3.7, 2.2, 1, 0.35);
+      jar(c, -2.8, 2.2, 0.85, 0.35);
+      jar(c, -3.6, 3.1, 0.75, 0.35);
+      jar(c, -2.5, 3.0, 0.65, 0.35);
+      flag(c, 4.8, 4.4, 3.4, m.flagGreen, 1.1);
+    }
     fenceLine(c, -5.2, 4.6, 0.4, 4.6);
     fenceLine(c, -5.2, -4.6, -5.2, 4.6);
     cone(c, 0.9, 1.6, m.thatch, 4.4, 0, -2.6, 9);
-    if (lv >= 4) flag(c, 4.8, 4.4, 3.4, m.flagGreen, 1.1);
+    if (t >= 4) {
+      hall(c, { x: -2.4, z: 2.6, w: 2.6, d: 2.2, h: 1.7, base: 0.3, wall: m.mud, roofH: 1.0, over: 0.7, lift: 0.4, plain: true });
+      cyl(c, 0.7, 0.8, 0.7, m.stone, 3.6, 0, -0.2, 10);
+    }
     return a.top;
   },
-  // 벌목장: 초가 헛간 + 통나무 더미 + 그루터기
-  sawmill: (c, lv) => {
+  // 벌목장: 통나무 더미+모탕 → 헛간 → 큰 헛간+더미 두 곳 → 물레방아
+  sawmill: (c) => {
     const m = c.m;
-    const a = hall(c, { x: -1.2, z: -2.2, w: 5.4, d: 3.4, h: 2.4, base: 0.2, open: true, roof: "thatch", roofH: 1.4, over: 1, plain: true });
-    for (const [bx, bz] of [
-      [2.6, 2.4],
-      [-2.6, 2.6],
-    ] as const) {
+    const t = c.tier;
+    let top = 3;
+    if (t >= 2) top = hall(c, { x: -1.2, z: -2.2, w: t >= 3 ? 6 : 5, d: 3.4, h: 2.4, base: 0.2, open: true, roof: "thatch", roofH: 1.4, over: 1, plain: true }).top;
+    const piles: Array<[number, number]> = t >= 3 ? [[2.6, 2.4], [-2.6, 2.6]] : [[1.8, 2.2]];
+    for (const [bx, bz] of piles) {
       for (let row = 0; row < 3; row++)
-        for (let i = 0; i < 3 - row; i++) logPiece(c, 0.32, 3.2, m.trunk, bx, row * 0.55, bz - 0.68 + i * 0.68 + row * 0.34, Math.PI / 2 + 0.0);
+        for (let i = 0; i < 3 - row; i++) logPiece(c, 0.32, 3.2, m.trunk, bx, row * 0.55, bz - 0.68 + i * 0.68 + row * 0.34, Math.PI / 2);
     }
     cyl(c, 0.55, 0.6, 0.6, m.trunk, 0.2, 0, 3.8, 9);
     cyl(c, 0.45, 0.5, 0.5, m.trunk, 4.4, 0, -1.0, 9);
@@ -664,125 +739,200 @@ const BUILDERS: Record<BuildingKey, Builder> = {
     logPiece(c, 0.3, 3, m.trunk, -1.0, 0.9, -2.0);
     pine(c, 4.2, -3.6, 0.95);
     pine(c, -4.6, -4.0, 0.85);
-    pine(c, 4.6, 4.2, 0.7);
-    if (lv >= 4) flag(c, -4.8, 4.4, 3.4, m.flagGreen, 2.6);
-    return a.top;
+    if (t >= 2) flag(c, -4.8, 4.4, 3.4, m.flagGreen, 2.6);
+    if (t >= 4) {
+      // 물레방아
+      box(c, 1.6, 0.1, 5, m.water, 4.6, 0.02, 1.5);
+      const wg = new THREE.TorusGeometry(1.4, 0.18, 6, 16);
+      wg.rotateY(Math.PI / 2);
+      put(c, wg, m.wood, 4.6, 1.5, 1.6);
+      for (let i = 0; i < 8; i++) {
+        const sp = box(c, 0.12, 2.8, 0.12, m.wood, 4.6, 1.5, 1.6);
+        sp.geometry.translate(0, -1.4, 0);
+        sp.rotation.x = (i / 8) * Math.PI;
+      }
+      top = Math.max(top, 3.5);
+    }
+    return top;
   },
-  // 채석장: 바위 언덕 + 다듬은 돌 + 삼각 들틀 + 수레
-  quarry: (c, lv) => {
+  // 채석장: 바위+돌 몇 개 → 들틀 → 수레·돌 더미 → 헛간
+  quarry: (c) => {
     const m = c.m;
+    const t = c.tier;
     rock(c, 2.8, m.rock, -2.0, 0, -2.4, 0.8, 1);
     rock(c, 2.1, m.stone, 1.6, 0, -2.8, 0.85, 2);
-    rock(c, 1.6, m.rock, -4.0, 0, 0.4, 0.7, 3);
+    if (t >= 2) rock(c, 1.6, m.rock, -4.0, 0, 0.4, 0.7, 3);
     rock(c, 1.2, m.stoneDark, 3.6, 0, -0.4, 0.8, 4);
-    for (let i = 0; i < 3; i++) box(c, 1.2, 0.7, 0.8, m.stoneLight, -1.2 + i * 1.3, 0, 2.6);
-    for (let i = 0; i < 2; i++) box(c, 1.2, 0.7, 0.8, m.stoneLight, -0.55 + i * 1.3, 0.7, 2.6);
-    box(c, 1.2, 0.7, 0.8, m.stoneLight, 0.1, 1.4, 2.6);
-    // 삼각 들틀
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2;
-      const leg = cyl(c, 0.08, 0.1, 4.6, m.wood, 2.8 + Math.cos(a) * 0.9, 0, 1.6 + Math.sin(a) * 0.9, 5);
-      leg.rotation.set(Math.sin(a) * 0.22, 0, -Math.cos(a) * 0.22);
-    }
-    box(c, 0.6, 0.6, 0.6, m.stoneLight, 2.8, 2.0, 1.6);
-    // 수레
-    box(c, 1.6, 0.5, 1.1, m.plank, -3.6, 0.5, 3.4);
-    for (const wz of [2.75, 4.05]) {
-      const wg = new THREE.CylinderGeometry(0.5, 0.5, 0.12, 12);
-      wg.rotateX(Math.PI / 2);
-      put(c, wg, m.woodDark, -3.6, 0.5, wz);
-    }
-    if (lv >= 4) flag(c, 4.6, 4.2, 3.4, m.flagWhite, 0.4);
-    return 4.8;
-  },
-  // 제철소: 대장간 + 쇠 녹이는 가마 + 광석 더미
-  forge: (c, lv) => {
-    const m = c.m;
-    const a = hall(c, { x: -1.4, z: -2.0, w: 5, d: 3.4, h: 2.3, base: 0.25, open: true, roof: "thatch", roofH: 1.3, over: 0.9, plain: true });
-    box(c, 0.6, 0.5, 0.4, m.iron, -1.4, 0.25, -1.8);
-    box(c, 0.35, 0.5, 0.35, m.woodDark, -1.4, 0.25, -1.8);
-    box(c, 1.8, 1.1, 0.9, m.stoneDark, -2.6, 0.25, -3.0);
-    // 가마
-    cyl(c, 0.9, 1.5, 3.0, m.stoneDark, 2.6, 0, 1.0, 10);
-    cyl(c, 0.95, 0.95, 0.3, m.stone, 2.6, 3.0, 1.0, 10);
-    glow(c, 0.65, m.fire, 2.6, 3.2, 1.0, 0.5);
-    box(c, 0.8, 0.8, 0.3, m.dark, 2.6, 0.2, 2.4);
-    glow(c, 0.25, m.fire, 2.6, 0.55, 2.55, 1.4);
-    c.smoke.push(new THREE.Vector3(2.6, 3.8, 1.0));
-    rock(c, 0.8, m.ore, -3.4, 0, 2.6, 0.7, 5);
-    rock(c, 0.6, m.ore, -2.4, 0, 3.4, 0.7, 6);
-    rock(c, 0.7, m.charcoal, 0.0, 0, 3.6, 0.6, 7);
-    box(c, 0.6, 0.12, 2.0, m.iron, 4.4, 0, -2.6);
-    box(c, 0.6, 0.12, 2.0, m.iron, 4.4, 0.12, -2.6);
-    if (lv >= 4) flag(c, 4.8, 4.2, 3.6, m.flagRed, 1.9);
-    return Math.max(a.top, 4);
-  },
-  // 주조소: 기와 관청 + 담장 + 도가니 + 엽전 더미
-  mint: (c, lv) => {
-    const m = c.m;
-    const a = hall(c, { x: 0, z: -2.0, w: 7, d: 4, h: 2.5, base: 0.55, roofH: 1.8, lift: 0.75, gold: lv >= 7 });
-    damjang(c, -5.2, -4.6, -5.2, 4.4);
-    damjang(c, -5.2, 4.4, -1.4, 4.4);
-    damjang(c, 1.4, 4.4, 5.2, 4.4);
-    cyl(c, 0.7, 0.9, 1.3, m.stoneDark, 3.2, 0, 1.6, 10);
-    glow(c, 0.45, m.fire, 3.2, 1.35, 1.6, 0.9);
-    c.smoke.push(new THREE.Vector3(3.2, 1.9, 1.6));
-    for (let i = 0; i < 5; i++) cyl(c, 0.5, 0.5, 0.12, m.gold, -2.4, i * 0.13, 1.6, 12);
-    for (let i = 0; i < 3; i++) cyl(c, 0.5, 0.5, 0.12, m.gold, -1.2, i * 0.13, 2.4, 12);
-    box(c, 0.9, 0.3, 0.45, m.gold, -3.0, 0, 2.8);
-    box(c, 0.9, 0.3, 0.45, m.gold, -2.9, 0.3, 2.8);
-    if (lv >= 4) flag(c, 4.6, -4.2, 3.8, m.flagYellow, 0.6);
-    return a.top;
-  },
-  // 병영: 기와 막사 + 연무장 + 창 걸이 + 허수아비
-  barracks: (c, lv) => {
-    const m = c.m;
-    const a = hall(c, { x: -0.5, z: -2.4, w: 8, d: 3.8, h: 2.5, roofH: 1.8, lift: 0.8, gold: lv >= 7 });
-    box(c, 9, 0.05, 4.4, m.dirt, 0, 0, 2.4);
-    for (const rx of [-3.6, 3.4]) {
-      box(c, 0.15, 1.6, 0.15, m.wood, rx - 0.8, 0, 3.9);
-      box(c, 0.15, 1.6, 0.15, m.wood, rx + 0.8, 0, 3.9);
-      box(c, 1.8, 0.12, 0.15, m.wood, rx, 1.3, 3.9);
-      for (let i = 0; i < 4; i++) {
-        cyl(c, 0.04, 0.04, 2.3, m.woodDark, rx - 0.6 + i * 0.4, 0, 4.05, 4);
-        cone(c, 0.08, 0.3, m.iron, rx - 0.6 + i * 0.4, 2.3, 4.05, 4);
+    const n = t === 1 ? 2 : 3;
+    for (let i = 0; i < n; i++) box(c, 1.2, 0.7, 0.8, m.stoneLight, -1.2 + i * 1.3, 0, 2.6);
+    if (t >= 3) {
+      for (let i = 0; i < 2; i++) box(c, 1.2, 0.7, 0.8, m.stoneLight, -0.55 + i * 1.3, 0.7, 2.6);
+      box(c, 1.2, 0.7, 0.8, m.stoneLight, 0.1, 1.4, 2.6);
+      box(c, 1.6, 0.5, 1.1, m.plank, -3.6, 0.5, 3.4);
+      for (const wz of [2.75, 4.05]) {
+        const wg = new THREE.CylinderGeometry(0.5, 0.5, 0.12, 12);
+        wg.rotateX(Math.PI / 2);
+        put(c, wg, m.woodDark, -3.6, 0.5, wz);
       }
     }
+    if (t >= 2) {
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * Math.PI * 2;
+        const leg = cyl(c, 0.08, 0.1, 4.6, m.wood, 2.8 + Math.cos(a) * 0.9, 0, 1.6 + Math.sin(a) * 0.9, 5);
+        leg.rotation.set(Math.sin(a) * 0.22, 0, -Math.cos(a) * 0.22);
+      }
+      box(c, 0.6, 0.6, 0.6, m.stoneLight, 2.8, 2.0, 1.6);
+      flag(c, 4.6, 4.2, 3.4, m.flagWhite, 0.4);
+    }
+    if (t >= 4) hall(c, { x: -3.8, z: -3.6, w: 2.8, d: 2.0, h: 1.8, base: 0.2, open: true, roofH: 1.0, over: 0.7, lift: 0.4, plain: true });
+    return 4.8;
+  },
+  // 제철소: 작은 가마+모루 → 대장간 → 큰 가마 → 가마 두 개
+  forge: (c) => {
+    const m = c.m;
+    const t = c.tier;
+    let top = 4;
+    if (t >= 2) top = hall(c, { x: -1.4, z: -2.0, w: 5, d: 3.4, h: 2.3, base: 0.25, open: true, roof: "thatch", roofH: 1.3, over: 0.9, plain: true }).top;
+    box(c, 0.6, 0.5, 0.4, m.iron, -1.4, 0.25, -1.8);
+    box(c, 0.35, 0.5, 0.35, m.woodDark, -1.4, 0.25, -1.8);
+    const fh = t === 1 ? 1.8 : 3.0;
+    const fr = t === 1 ? 0.7 : 0.9;
+    cyl(c, fr, fr + 0.6, fh, m.stoneDark, 2.6, 0, 1.0, 10);
+    cyl(c, fr + 0.05, fr + 0.05, 0.3, m.stone, 2.6, fh, 1.0, 10);
+    glow(c, fr * 0.72, m.fire, 2.6, fh + 0.2, 1.0, 0.5);
+    box(c, 0.8, 0.8, 0.3, m.dark, 2.6, 0.2, 2.4);
+    glow(c, 0.25, m.fire, 2.6, 0.55, 2.55, 1.4);
+    c.smoke.push(new THREE.Vector3(2.6, fh + 0.8, 1.0));
+    rock(c, 0.8, m.ore, -3.4, 0, 2.6, 0.7, 5);
+    rock(c, 0.7, m.charcoal, 0.0, 0, 3.6, 0.6, 7);
+    if (t >= 3) {
+      rock(c, 0.6, m.ore, -2.4, 0, 3.4, 0.7, 6);
+      box(c, 1.8, 1.1, 0.9, m.stoneDark, -2.6, 0.25, -3.0);
+      box(c, 0.6, 0.12, 2.0, m.iron, 4.4, 0, -2.6);
+      box(c, 0.6, 0.12, 2.0, m.iron, 4.4, 0.12, -2.6);
+      flag(c, 4.8, 4.2, 3.6, m.flagRed, 1.9);
+    }
+    if (t >= 4) {
+      cyl(c, 0.7, 1.2, 2.4, m.stoneDark, 4.2, 0, 3.4, 10);
+      glow(c, 0.5, m.fire, 4.2, 2.55, 3.4, 2.1);
+      c.smoke.push(new THREE.Vector3(4.2, 3.1, 3.4));
+    }
+    return Math.max(top, fh + 1);
+  },
+  // 주조소: 작은 관청 → +도가니 → +담장·엽전 더미 → 금빛
+  mint: (c) => {
+    const m = c.m;
+    const t = c.tier;
+    const a = hall(c, { x: 0, z: -2.0, w: t === 1 ? 5.4 : 7, d: 4, h: 2.5, base: 0.55, roofH: 1.8, lift: 0.75 });
+    if (t >= 2) {
+      cyl(c, 0.7, 0.9, 1.3, m.stoneDark, 3.2, 0, 1.6, 10);
+      glow(c, 0.45, m.fire, 3.2, 1.35, 1.6, 0.9);
+      c.smoke.push(new THREE.Vector3(3.2, 1.9, 1.6));
+      flag(c, 4.6, -4.2, 3.8, m.flagYellow, 0.6);
+    }
+    const stacks = t === 1 ? 2 : t === 2 ? 4 : 6;
+    for (let i = 0; i < stacks; i++) cyl(c, 0.5, 0.5, 0.12, m.gold, -2.4, i * 0.13, 1.6, 12);
+    if (t >= 3) {
+      damjang(c, -5.2, -4.6, -5.2, 4.4);
+      damjang(c, -5.2, 4.4, -1.4, 4.4);
+      damjang(c, 1.4, 4.4, 5.2, 4.4);
+      for (let i = 0; i < 3; i++) cyl(c, 0.5, 0.5, 0.12, m.gold, -1.2, i * 0.13, 2.4, 12);
+      box(c, 0.9, 0.3, 0.45, m.gold, -3.0, 0, 2.8);
+      box(c, 0.9, 0.3, 0.45, m.gold, -2.9, 0.3, 2.8);
+    }
+    if (t >= 4) {
+      for (let i = 0; i < 4; i++) box(c, 0.9, 0.3, 0.45, m.gold, -0.4 + (i % 2) * 1.0, Math.floor(i / 2) * 0.3, 3.2);
+      lantern(c, 1.8, 3.2);
+    }
+    return a.top;
+  },
+  // 병영: 군막 → 기와 막사 → +연무장·창 걸이·허수아비 → 막사 두 채+큰 수자기
+  barracks: (c) => {
+    const m = c.m;
+    const t = c.tier;
+    let top = 3;
+    if (t === 1) {
+      for (const [tx, tz] of [
+        [-2.4, -1.6],
+        [1.8, -2.2],
+        [-0.4, 2.0],
+      ] as const) {
+        cone(c, 1.8, 2.6, m.flagWhite, tx, 0, tz, 8);
+        cyl(c, 0.05, 0.05, 3.2, m.woodDark, tx, 0, tz, 4);
+      }
+      flag(c, 3.6, 2.4, 4, m.flagRed, 0.3);
+      return 3.4;
+    }
+    top = hall(c, { x: -0.5, z: -2.4, w: 8, d: 3.8, h: 2.5, roofH: 1.8, lift: 0.8 }).top;
+    box(c, 9, 0.05, 4.4, m.dirt, 0, 0, 2.4);
     for (const dx of [-1.2, 1.2]) {
       cyl(c, 0.07, 0.07, 1.6, m.wood, dx, 0, 1.8, 5);
       box(c, 1.0, 0.1, 0.1, m.wood, dx, 1.2, 1.8);
       ball(c, 0.32, m.hay, dx, 1.35, 1.8, 0.9, 1.2, 0.9, 7);
     }
-    flag(c, 4.8, -0.2, 5.6, m.flagRed, 0.3, 0, 1.4);
-    if (lv >= 4) flag(c, -4.8, -0.2, 5.0, m.flagYellow, 2.2);
-    return a.top;
+    flag(c, 4.8, -0.2, t >= 4 ? 7 : 5.6, m.flagRed, 0.3, 0, t >= 4 ? 1.8 : 1.4);
+    if (t >= 3) {
+      for (const rx of [-3.6, 3.4]) {
+        box(c, 0.15, 1.6, 0.15, m.wood, rx - 0.8, 0, 3.9);
+        box(c, 0.15, 1.6, 0.15, m.wood, rx + 0.8, 0, 3.9);
+        box(c, 1.8, 0.12, 0.15, m.wood, rx, 1.3, 3.9);
+        for (let i = 0; i < 4; i++) {
+          cyl(c, 0.04, 0.04, 2.3, m.woodDark, rx - 0.6 + i * 0.4, 0, 4.05, 4);
+          cone(c, 0.08, 0.3, m.iron, rx - 0.6 + i * 0.4, 2.3, 4.05, 4);
+        }
+      }
+      flag(c, -4.8, -0.2, 5.0, m.flagYellow, 2.2);
+    }
+    if (t >= 4) hall(c, { x: -4.4, z: 1.6, w: 1.8, d: 3.6, h: 2.0, base: 0.3, roofH: 1.0, over: 0.7, lift: 0.5 });
+    return top;
   },
-  // 궁술장: 활터 정자 + 과녁
-  range: (c, lv) => {
+  // 궁술장: 과녁+사대 → 활터 정자 → 깃발·과녁 셋 → 큰 정자
+  range: (c) => {
     const m = c.m;
-    const a = hall(c, { x: -2.4, z: 2.2, w: 4.2, d: 3.2, h: 2.1, base: 0.7, open: true, roofH: 1.5, over: 1.1, lift: 0.95, gold: lv >= 7 });
+    const t = c.tier;
+    let top = 3;
+    if (t >= 2) {
+      const big = t >= 4;
+      top = hall(c, { x: -2.4, z: 2.2, w: big ? 5 : 4.2, d: big ? 3.8 : 3.2, h: 2.1, base: 0.7, open: true, roofH: 1.5, over: 1.1, lift: 0.95 }).top;
+    } else {
+      box(c, 3, 0.3, 2.4, m.plank, -2.4, 0, 2.2);
+    }
     box(c, 4.4, 0.04, 8.4, m.dirt, 2.2, 0, -0.2);
-    for (let i = 0; i < 3; i++) {
+    const n = t >= 3 ? 3 : t === 2 ? 2 : 1;
+    for (let i = 0; i < n; i++) {
       box(c, 1.3, 1.7, 0.18, m.target, 0.8 + i * 1.6, 0.35, -3.6);
       box(c, 0.12, 0.4, 0.12, m.wood, 0.4 + i * 1.6, 0, -3.6);
       box(c, 0.12, 0.4, 0.12, m.wood, 1.2 + i * 1.6, 0, -3.6);
     }
-    flag(c, -0.4, -4.4, 2.8, m.flagRed, 0.7, 0, 0.7);
-    flag(c, 5.0, -4.4, 2.8, m.flagBlue, 2.4, 0, 0.7);
-    if (lv >= 4) flag(c, -4.8, 4.4, 3.6, m.flagGreen, 1.3);
-    return a.top;
+    if (t >= 3) {
+      flag(c, -0.4, -4.4, 2.8, m.flagRed, 0.7, 0, 0.7);
+      flag(c, 5.0, -4.4, 2.8, m.flagBlue, 2.4, 0, 0.7);
+    }
+    if (t >= 2) flag(c, -4.8, 4.4, 3.6, m.flagGreen, 1.3);
+    return top;
   },
-  // 마구간: 긴 마구간 + 말 + 울타리 + 건초
-  stable: (c, lv) => {
+  // 마구간: 울타리+말 한 필 → 마구간 → 말 넷 → 기와 마구간+구유
+  stable: (c) => {
     const m = c.m;
-    const a = hall(c, { x: 0, z: -2.6, w: 9.6, d: 3.4, h: 2.3, base: 0.25, open: true, roofH: 1.5, over: 1, lift: 0.6, plain: true });
-    box(c, 9.6, 2.3, 0.15, m.plank, 0, 0.25, -4.25);
-    for (let i = 0; i < 5; i++) box(c, 0.12, 1.3, 3.0, m.plank, -4.8 + i * 2.4, 0.25, -2.6);
+    const t = c.tier;
+    let top = 3;
+    if (t >= 2) {
+      top = hall(c, { x: 0, z: -2.6, w: t >= 3 ? 9.6 : 7, d: 3.4, h: 2.3, base: 0.25, open: true, roof: "thatch", roofH: 1.5, over: 1, lift: 0.6, plain: true }).top;
+      box(c, t >= 3 ? 9.6 : 7, 2.3, 0.15, m.plank, 0, 0.25, -4.25);
+    } else {
+      box(c, 3, 0.15, 2.4, m.thatch, -3.0, 2.0, -2.6);
+      for (const [px, pz] of [
+        [-4.4, -1.6],
+        [-1.6, -1.6],
+        [-4.4, -3.6],
+        [-1.6, -3.6],
+      ] as const)
+        cyl(c, 0.08, 0.08, 2.0, m.wood, px, 0, pz, 5);
+    }
     const horse = (hx: number, hz: number, ry: number, mat: THREE.Material): void => {
       const grp = new THREE.Group();
       const part = (w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): void => {
-        const g = new THREE.BoxGeometry(w, h, d);
-        const me = new THREE.Mesh(g, mat);
+        const me = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
         me.position.set(x, y, z);
         me.rotation.x = rx;
         grp.add(me);
@@ -802,30 +952,40 @@ const BUILDERS: Record<BuildingKey, Builder> = {
       grp.rotation.y = ry;
       c.s.add(grp);
     };
-    horse(-3.6, -2.4, 0, m.horse);
-    horse(1.2, -2.4, 0, m.horseDark);
     horse(-1.2, 2.8, 1.2, m.horse);
-    horse(2.6, 2.2, -0.6, m.horseDark);
+    if (t >= 2) horse(-3.6, -2.4, 0, m.horse);
+    if (t >= 3) {
+      horse(1.2, -2.4, 0, m.horseDark);
+      horse(2.6, 2.2, -0.6, m.horseDark);
+      for (let i = 0; i < 5; i++) box(c, 0.12, 1.3, 3.0, m.plank, -4.8 + i * 2.4, 0.25, -2.6);
+    }
     fenceLine(c, -5.8, 0.4, -5.8, 4.8);
     fenceLine(c, -5.8, 4.8, 5.8, 4.8);
     fenceLine(c, 5.8, 0.4, 5.8, 4.8);
     logPiece(c, 0.45, 1.1, m.hay, 4.6, 0, -0.6);
-    logPiece(c, 0.45, 1.1, m.hay, 4.6, 0.85, -0.6);
-    box(c, 1.6, 0.5, 0.6, m.plank, -3.8, 0, 1.4);
-    if (lv >= 4) flag(c, 6.2, -0.4, 3.6, m.flagWhite, 2.9);
-    return a.top;
+    if (t >= 2) {
+      logPiece(c, 0.45, 1.1, m.hay, 4.6, 0.85, -0.6);
+      flag(c, 6.2, -0.4, 3.6, m.flagWhite, 2.9);
+    }
+    if (t >= 4) {
+      box(c, 1.6, 0.5, 0.6, m.plank, -3.8, 0, 1.4);
+      box(c, 1.4, 0.05, 0.4, m.water, -3.8, 0.47, 1.4);
+    }
+    return top;
   },
-  // 마탑: 오층 목탑 + 상륜부 + 빛나는 구슬
-  tower: (c, lv) => {
+  // 마탑: 층수가 단계마다 늘어나는 목탑 (2→3→4→5층) + 상륜부 + 빛 구슬
+  tower: (c) => {
     const m = c.m;
+    const t = c.tier;
     box(c, 7.4, 0.8, 7.4, m.stone, 0, 0, 0);
     box(c, 2.4, 0.4, 1.0, m.stoneLight, 0, 0, 4.2);
+    const floors = t + 1;
     let y = 0.8;
     let top = 0;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < floors; i++) {
       const s = 5.0 - i * 0.72;
       const h = i === 0 ? 2.4 : 1.55;
-      const r = hall(c, { x: 0, z: 0, y, w: s, d: s, h, base: 0, roofH: 0.95, over: 1.15, lift: 0.7, doors: i === 0 });
+      const r = hall(c, { x: 0, z: 0, y, w: s, d: s, h, base: 0, roofH: 0.95, over: 1.15, lift: 0.7, doors: i === 0, roof: t === 1 ? "giwa" : undefined, keepGiwa: true });
       y = r.ry + 0.5;
       top = r.top;
     }
@@ -835,14 +995,171 @@ const BUILDERS: Record<BuildingKey, Builder> = {
       tg.rotateX(Math.PI / 2);
       put(c, tg, m.gold, 0, top + 0.5 + i * 0.32, 0);
     }
-    glow(c, 0.42, m.orb, 0, top + 2.6, 0, 0.2);
-    if (lv >= 4) {
+    glow(c, 0.3 + t * 0.07, m.orb, 0, top + 2.6, 0, 0.2);
+    if (t >= 2) {
       flag(c, -3.4, 3.4, 3.4, m.flagBlue, 0.9);
       flag(c, 3.4, 3.4, 3.4, m.flagBlue, 2.0);
     }
+    if (t >= 4) {
+      lantern(c, -3.0, -3.0);
+      lantern(c, 3.0, -3.0);
+    }
     return top + 3.0;
   },
+  // 성벽: buildWall에서 따로 만든다
+  wall: () => 0,
 };
+
+/** 성벽 단계: 목책(Lv.1~3) → 토성(4~6) → 석성(7~9) → 치·옹성 두른 대성곽(10) */
+function buildWall(c: Ctx, lv: number): number {
+  const m = c.m;
+  const { x0, x1, z0, z1, gate } = WALL;
+  const stage = lv <= 3 ? 1 : lv <= 6 ? 2 : lv <= 9 ? 3 : 4;
+  const sides: Array<[number, number, number, number]> = [
+    [x0, z0, x1, z0],
+    [x0, z0, x0, z1],
+    [x1, z0, x1, z1],
+    [x0, z1, -gate - 1, z1],
+    [gate + 1, z1, x1, z1],
+  ];
+  const flagMats = [m.flagRed, m.flagYellow, m.flagBlue, m.flagWhite, m.flagGreen];
+  const along = (ax: number, az: number, bx: number, bz: number, step: number, fn: (x: number, z: number, i: number) => void): void => {
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.round(len / step));
+    for (let i = 0; i < n; i++) fn(ax + ((bx - ax) * (i + 0.5)) / n, az + ((bz - az) * (i + 0.5)) / n, i);
+  };
+  if (stage === 1) {
+    // 목책: 끝을 깎은 통나무 말뚝
+    for (const [ax, az, bx, bz] of sides) {
+      along(ax, az, bx, bz, 0.75, (x, z, i) => {
+        const h = 2.6 + (i % 3) * 0.25;
+        cyl(c, 0.26, 0.3, h, m.trunk, x, 0, z, 6);
+        cone(c, 0.27, 0.6, m.trunk, x, h, z, 6);
+      });
+      const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
+      box(c, alongX ? Math.abs(bx - ax) : 0.2, 0.2, alongX ? 0.2 : Math.abs(bz - az), m.wood, (ax + bx) / 2, 1.6, (az + bz) / 2);
+    }
+    // 나무 망루 (정문 양쪽·모서리)
+    const watch = (x: number, z: number): void => {
+      for (const [dx, dz] of [
+        [-1, -1],
+        [1, -1],
+        [-1, 1],
+        [1, 1],
+      ] as const)
+        cyl(c, 0.14, 0.16, 5, m.wood, x + dx * 1.1, 0, z + dz * 1.1, 5);
+      box(c, 2.8, 0.25, 2.8, m.plank, x, 4.4, z);
+      box(c, 2.8, 0.8, 0.12, m.plank, x, 4.65, z + 1.35);
+      thatchRoof(c, x, 5.6, z, 1.9, 1.9, 1.2);
+    };
+    watch(-gate - 1.4, z1);
+    watch(gate + 1.4, z1);
+    watch(x0, z0);
+    watch(x1, z0);
+    box(c, 2.4, 2.6, 0.25, m.plank, -2.4, 0, z1 + 1.6, -0.7);
+    box(c, 2.4, 2.6, 0.25, m.plank, 2.4, 0, z1 + 1.6, 0.7);
+    flag(c, gate + 1.4, z1, 6.8, m.flagRed, 0.4, 0, 1.1);
+    return 7.4;
+  }
+  if (stage === 2) {
+    // 토성: 흙 둔덕 + 위에 목책, 정문은 돌 기단 위 기와 문루
+    for (const [ax, az, bx, bz] of sides) {
+      const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
+      const len = alongX ? Math.abs(bx - ax) : Math.abs(bz - az);
+      const cx = (ax + bx) / 2;
+      const cz = (az + bz) / 2;
+      box(c, alongX ? len : 4.2, 1.4, alongX ? 4.2 : len, m.earth, cx, 0, cz);
+      box(c, alongX ? len : 3.0, 1.4, alongX ? 3.0 : len, m.mud, cx, 1.4, cz);
+      along(ax, az, bx, bz, 1.1, (x, z) => cyl(c, 0.16, 0.18, 1.5, m.trunk, x, 2.8, z, 5));
+    }
+    for (const [cx, cz] of [
+      [x0, z0],
+      [x1, z0],
+      [x0, z1],
+      [x1, z1],
+    ] as const) {
+      box(c, 5, 3.0, 5, m.mud, cx, 0, cz);
+      hall(c, { x: cx, z: cz, y: 3.0, w: 3.0, d: 3.0, h: 1.6, base: 0, open: true, roof: "thatch", roofH: 1.1, over: 0.8, plain: true });
+    }
+    box(c, 13, 3.6, 5, m.stone, 0, 0, z1);
+    box(c, 4.6, 3.0, 5.2, m.dark, 0, 0, z1);
+    const g = hall(c, { x: 0, z: z1, y: 3.6, w: 9, d: 4, h: 2.2, base: 0, open: true, roofH: 2.0, over: 1.4, lift: 0.9, plain: true });
+    let fi = 0;
+    along(x0, z1, -gate - 1, z1, 12, (x, z) => flag(c, x, z + 1.5, 2.4, flagMats[fi++ % 5], fi * 0.9, 2.8));
+    along(gate + 1, z1, x1, z1, 12, (x, z) => flag(c, x, z + 1.5, 2.4, flagMats[fi++ % 5], fi * 0.9, 2.8));
+    return g.top;
+  }
+  // 석성
+  const h = stage === 4 ? 4.8 : 3.8;
+  const t = stage === 4 ? 3.0 : 2.6;
+  for (const [ax, az, bx, bz] of sides) {
+    along(ax, az, bx, bz, 6, (cx, cz) => {
+      const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
+      const l = Math.hypot(bx - ax, bz - az) / Math.max(1, Math.round(Math.hypot(bx - ax, bz - az) / 6)) + 0.02;
+      box(c, alongX ? l : t, h, alongX ? t : l, m.wallStone, cx, 0, cz);
+      const k = Math.max(2, Math.round(l / 1.9));
+      for (let j = 0; j < k; j++) {
+        const ox = alongX ? cx - l / 2 + (l * (j + 0.5)) / k : cx;
+        const oz = alongX ? cz : cz - l / 2 + (l * (j + 0.5)) / k;
+        const outX = alongX ? 0 : Math.sign(cx) * (t / 2 - 0.25);
+        const outZ = alongX ? Math.sign(cz) * (t / 2 - 0.25) : 0;
+        box(c, alongX ? 1.3 : 0.5, 0.95, alongX ? 0.5 : 1.3, m.stoneLight, ox + outX, h, oz + outZ);
+      }
+    });
+  }
+  if (stage === 4) {
+    // 치 (성벽에서 튀어나온 네모 돌출부)
+    for (const zz of [-14, 10]) {
+      for (const sx of [x0, x1]) box(c, 6, h + 0.4, 5, m.wallStone, sx + Math.sign(sx) * 2.4, 0, zz);
+    }
+    for (const xx of [-20, 20]) box(c, 5, h + 0.4, 6, m.wallStone, xx, 0, z0 - 2.4);
+    // 옹성 (정문 앞 반달 성벽)
+    const og = new THREE.CylinderGeometry(9, 9, h - 0.6, 24, 1, true, -Math.PI / 2, Math.PI);
+    og.translate(0, (h - 0.6) / 2, 0);
+    put(c, og, m.wallStone, 0, 0, z1 + 2.4);
+    const ogIn = new THREE.CylinderGeometry(7.6, 7.6, h - 0.6, 24, 1, true, -Math.PI / 2, Math.PI);
+    ogIn.translate(0, (h - 0.6) / 2, 0);
+    put(c, ogIn, m.stoneDark, 0, 0, z1 + 2.4);
+    const cap = new THREE.RingGeometry(7.6, 9, 24, 1, -Math.PI / 2, Math.PI);
+    cap.rotateX(-Math.PI / 2);
+    put(c, cap, m.stoneLight, 0, h - 0.6, z1 + 2.4);
+  }
+  // 정문: 홍예 석축 + 2층 문루
+  const gh = stage === 4 ? 6.2 : 5.4;
+  box(c, 14, gh, 4.4, m.wallStone, 0, 0, z1);
+  box(c, 4.6, 3.4, 4.6, m.dark, 0, 0, z1);
+  const arch = new THREE.CylinderGeometry(2.3, 2.3, 4.6, 14, 1, false, 0, Math.PI);
+  arch.rotateX(Math.PI / 2);
+  arch.rotateZ(Math.PI / 2);
+  put(c, arch, m.dark, 0, 3.4, z1);
+  box(c, 1.2, 3.3, 0.2, m.woodDark, -2.9, 0, z1 + 2.6, -0.9);
+  box(c, 1.2, 3.3, 0.2, m.woodDark, 2.9, 0, z1 + 2.6, 0.9);
+  const gl = hall(c, { x: 0, z: z1, y: gh, w: 10, d: 4.2, h: 2.3, base: 0, open: true, roofH: 2.2, over: 1.6, lift: 1.1 });
+  const g2 = hall(c, { x: 0, z: z1, y: gl.ry + 0.6, w: 7.2, d: 2.8, h: 1.4, base: 0, roofH: 1.8, over: 1.3, lift: 1.0, doors: false });
+  for (const [cx, cz] of [
+    [x0, z0],
+    [x1, z0],
+    [x0, z1],
+    [x1, z1],
+  ] as const) {
+    box(c, 5, h + 0.4, 5, m.wallStone, cx, 0, cz);
+    hall(c, { x: cx, z: cz, y: h + 0.4, w: 3.4, d: 3.4, h: 1.7, base: 0, open: true, roofH: 1.3, over: 1.0, lift: 0.8 });
+  }
+  let fi = 0;
+  for (let xx = x0 + 10; xx < x1 - 4; xx += 12) {
+    if (Math.abs(xx) < 8) continue;
+    flag(c, xx, z1 + 0.4, 2.4, flagMats[fi % 5], fi * 0.9, h);
+    fi++;
+  }
+  for (let zz = z0 + 10; zz < z1 - 4; zz += 14) {
+    flag(c, x1 - 0.4, zz, 2.4, flagMats[fi % 5], fi * 0.9, h);
+    flag(c, x0 + 0.4, zz, 2.4, flagMats[(fi + 2) % 5], fi * 0.7, h);
+    fi++;
+  }
+  flag(c, -4.2, z1 + 1.6, 3.0, m.flagRed, 0.2, gh, 1.3);
+  flag(c, 4.2, z1 + 1.6, 3.0, m.flagYellow, 1.2, gh, 1.3);
+  return g2.top;
+}
 
 /** 빈 터: 다진 흙 + 모서리 돌 + 팻말 */
 function emptyLot(c: Ctx, lot: LotDef): number {
@@ -930,12 +1247,26 @@ export interface BuiltLot {
   top: number;
 }
 
-/** 건물 한 자리 만들기 (자리 중심이 원점) */
+/** 건물 한 자리 만들기 (자리 중심이 원점, 성벽만 성 중심이 원점) */
 export function buildLot(key: BuildingKey, level: number, building: boolean, m: Mats): BuiltLot {
-  const c = newCtx(m);
+  const tier = tierOf(level);
+  const c = newCtx(m, Math.max(1, tier));
   const lot = LOTS[key];
   let top: number;
-  if (level <= 0) {
+  let scale = 1;
+  if (key === "wall") {
+    top = level > 0 ? buildWall(c, level) : 0;
+    // 정문 자리 기준으로 옮겨 둔다 (엔진이 자리 위치에 놓는다)
+    c.s.position.set(-lot.x, 0, -lot.z);
+    c.d.position.set(-lot.x, 0, -lot.z);
+    if (building) {
+      const sc = newCtx(m);
+      scaffold(sc, { x: 0, z: 0, w: 14, d: 6 }, 7);
+      c.s.add(sc.s);
+      sc.s.position.set(lot.x, 0, lot.z);
+    }
+    top = Math.max(top, 4);
+  } else if (level <= 0) {
     top = emptyLot(c, lot);
     if (building) {
       scaffold(c, lot, 4);
@@ -943,19 +1274,19 @@ export function buildLot(key: BuildingKey, level: number, building: boolean, m: 
     }
   } else {
     top = BUILDERS[key](c, level);
+    scale = TIER_SCALE[tier];
     if (building) scaffold(c, lot, Math.min(top * 0.8, 6));
   }
   const group = new THREE.Group();
   group.add(bake(c.s));
   group.add(c.d);
-  const scale = level >= 7 ? 1.08 : 1;
   group.scale.setScalar(scale);
-  return { group, smoke: c.smoke.map((v) => v.multiplyScalar(scale)), top: top * scale };
+  const offset = key === "wall" ? new THREE.Vector3(-lot.x, 0, -lot.z) : new THREE.Vector3();
+  return { group, smoke: c.smoke.map((v) => v.clone().add(offset).multiplyScalar(scale)), top: top * scale };
 }
 
 // ───────── 성곽·땅·나무 ─────────
 
-export const WALL = { x0: -36, x1: 36, z0: -34, z1: 38, t: 2.6, h: 3.8, gate: 6 } as const;
 
 /** 길: 정문에서 본관까지 큰길 + 가로길 두 줄 + 성 밖 길 */
 export const ROADS: Array<{ x: number; z: number; w: number; d: number; main?: boolean }> = [
@@ -1025,54 +1356,6 @@ export function buildStaticWorld(m: Mats): { group: THREE.Group; flags: THREE.Gr
     }
   }
 
-  // 성벽
-  const { x0, x1, z0, z1, t, h, gate } = WALL;
-  const seg = (ax: number, az: number, bx: number, bz: number): void => {
-    const len = Math.hypot(bx - ax, bz - az);
-    const n = Math.max(1, Math.round(len / 6));
-    const alongX = Math.abs(bx - ax) > Math.abs(bz - az);
-    for (let i = 0; i < n; i++) {
-      const cx = ax + ((bx - ax) * (i + 0.5)) / n;
-      const cz = az + ((bz - az) * (i + 0.5)) / n;
-      const l = len / n + 0.02;
-      box(c, alongX ? l : t, h, alongX ? t : l, m.wallStone, cx, 0, cz);
-      // 여장 (바깥쪽 성가퀴)
-      const k = Math.max(2, Math.round(l / 1.9));
-      for (let j = 0; j < k; j++) {
-        const ox = alongX ? cx - l / 2 + (l * (j + 0.5)) / k : cx;
-        const oz = alongX ? cz : cz - l / 2 + (l * (j + 0.5)) / k;
-        const outX = alongX ? 0 : Math.sign(cx) * (t / 2 - 0.25);
-        const outZ = alongX ? Math.sign(cz) * (t / 2 - 0.25) : 0;
-        box(c, alongX ? 1.3 : 0.5, 0.95, alongX ? 0.5 : 1.3, m.stoneLight, ox + outX, h, oz + outZ);
-      }
-    }
-  };
-  seg(x0, z0, x1, z0);
-  seg(x0, z0, x0, z1);
-  seg(x1, z0, x1, z1);
-  seg(x0, z1, -gate - 1, z1);
-  seg(gate + 1, z1, x1, z1);
-  // 정문: 홍예 석축 + 문루
-  box(c, 14, 5.4, 4.4, m.wallStone, 0, 0, z1);
-  box(c, 4.6, 3.4, 4.6, m.dark, 0, 0, z1);
-  const arch = new THREE.CylinderGeometry(2.3, 2.3, 4.6, 14, 1, false, 0, Math.PI);
-  arch.rotateX(Math.PI / 2);
-  arch.rotateZ(Math.PI / 2);
-  put(c, arch, m.dark, 0, 3.4, z1);
-  box(c, 1.2, 3.3, 0.2, m.woodDark, -2.9, 0, z1 + 2.6, -0.9);
-  box(c, 1.2, 3.3, 0.2, m.woodDark, 2.9, 0, z1 + 2.6, 0.9);
-  const gl = hall(c, { x: 0, z: z1, y: 5.4, w: 10, d: 4.2, h: 2.3, base: 0, open: true, roofH: 2.2, over: 1.6, lift: 1.1 });
-  hall(c, { x: 0, z: z1, y: gl.ry + 0.6, w: 7.2, d: 2.8, h: 1.4, base: 0, roofH: 1.8, over: 1.3, lift: 1.0, doors: false });
-  // 각루
-  for (const [cx, cz] of [
-    [x0, z0],
-    [x1, z0],
-    [x0, z1],
-    [x1, z1],
-  ] as const) {
-    box(c, 5, h + 0.4, 5, m.wallStone, cx, 0, cz);
-    hall(c, { x: cx, z: cz, y: h + 0.4, w: 3.4, d: 3.4, h: 1.7, base: 0, open: true, roofH: 1.3, over: 1.0, lift: 0.8 });
-  }
   // 성 안 장식: 연못과 정자
   const pond = new THREE.CircleGeometry(5.2, 28);
   pond.rotateX(-Math.PI / 2);
@@ -1150,23 +1433,5 @@ export function buildStaticWorld(m: Mats): { group: THREE.Group; flags: THREE.Gr
   out.add(bake(c.s));
   out.add(bake(mc.s, false));
 
-  // 성벽 깃발 (오방색)
-  const fc = newCtx(m);
-  const flagMats = [m.flagRed, m.flagYellow, m.flagBlue, m.flagWhite, m.flagGreen];
-  let fi = 0;
-  for (let xx = x0 + 10; xx < x1 - 4; xx += 12) {
-    if (Math.abs(xx) < 8) continue;
-    flag(fc, xx, z1 + 0.4, 2.4, flagMats[fi % 5], fi * 0.9, h);
-    fi++;
-  }
-  for (let zz = z0 + 10; zz < z1 - 4; zz += 14) {
-    flag(fc, x1 - 0.4, zz, 2.4, flagMats[fi % 5], fi * 0.9, h);
-    flag(fc, x0 + 0.4, zz, 2.4, flagMats[(fi + 2) % 5], fi * 0.7, h);
-    fi++;
-  }
-  flag(fc, -4.2, z1 + 1.6, 3.0, m.flagRed, 0.2, 5.4, 1.3);
-  flag(fc, 4.2, z1 + 1.6, 3.0, m.flagYellow, 1.2, 5.4, 1.3);
-  const poles = bake(fc.s);
-  out.add(poles);
-  return { group: out, flags: fc.d, smoke: [] };
+  return { group: out, flags: new THREE.Group(), smoke: [] };
 }

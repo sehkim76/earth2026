@@ -7,6 +7,9 @@ import dynamic from "next/dynamic";
 import {
   BUILDINGS,
   BUILDING_BY_KEY,
+  FORGE_ATK_PCT,
+  KEEP_HP_PCT,
+  TROOP_BUILDING_PCT,
   MAX_BUILDING_LEVEL,
   MAX_TECH_LEVEL,
   RESOURCE_KINDS,
@@ -32,6 +35,7 @@ import {
   troopTrainMs,
   upgradeCost,
   upgradeMs,
+  wallDefense,
   type BuildingKey,
   type Cost,
   type ResourceKind,
@@ -410,12 +414,18 @@ function BuildingSheet({
   const [count, setCount] = useState(10);
   const effect = (level: number): string => {
     const at = { ...s, buildings: { ...s.buildings, [k]: level } };
+    if (k === "forge") return `철광석 ${fmtNum(productionPerHour(at).iron)}/시간 · 병력 공격 +${level * FORGE_ATK_PCT}%`;
     if (def.produces) return `${RESOURCE_LABEL[def.produces]} ${fmtNum(productionPerHour(at)[def.produces])}/시간`;
     if (k === "storehouse") return `석재·나무·철광석 각 ${fmtNum(storageCap(level))}까지`;
     if (k === "camp") return `일꾼 부대 ${gatherParties(level)} · 운반 ${fmtNum(gatherLoad(level))}`;
-    if (k === "keep") return `지휘관 병력 상한 +${Math.max(0, level - 1) * 30} (건물 최대 Lv.${level})`;
+    if (k === "keep") return `지휘관 병력 상한 +${Math.max(0, level - 1) * 30} · 병력 체력 +${Math.max(0, level - 1) * KEEP_HP_PCT}% (건물 최대 Lv.${level})`;
+    if (k === "wall") {
+      const w = wallDefense(level);
+      return `본거지 수비 지휘관 체력 +${w.hp} · 공격 +${w.atk}`;
+    }
     if (k === "academy") return `기술 최대 Lv.${Math.min(level, MAX_TECH_LEVEL)}`;
-    if (def.trains) return `1회 ${trainBatchMax(level)}명 · 1명 ${(troopTrainMs(def.trains, Math.max(1, level)) / 1000).toFixed(1)}초`;
+    if (def.trains)
+      return `${TROOP_LABEL[def.trains]} 체력·공격 +${level * TROOP_BUILDING_PCT}% · 1회 ${trainBatchMax(level)}명 · 1명 ${(troopTrainMs(def.trains, Math.max(1, level)) / 1000).toFixed(1)}초`;
     return "";
   };
   const trainJob = def.trains ? s.training[def.trains] : undefined;
@@ -535,7 +545,7 @@ function TroopsTab({
     return out;
   }, [cmd, s.reserve]);
   const total = troopTotal(draft);
-  const bonus = troopBonus(draft, s.tech);
+  const bonus = troopBonus(draft, s.tech, s.buildings);
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -553,7 +563,7 @@ function TroopsTab({
         </p>
       </div>
       {view.commanders.map((c) => {
-        const b = troopBonus(c.troops, s.tech);
+        const b = troopBonus(c.troops, s.tech, s.buildings);
         return (
           <div key={c.id} className="rounded-xl border-2 border-[#5d513e] bg-[#e8dcc0] px-3 py-2">
             <div className="flex items-center justify-between gap-2">
