@@ -2,6 +2,7 @@
 // 잠금: city:<userId> (성 상태만 다룬다). 다른 사용자 잠금과 함께 잡을 땐 사용자 잠금 → city 순서.
 
 import prisma from "@/lib/prismadb";
+import { nodeById } from "@/lib/resource-nodes";
 import { findServerRoute } from "@/lib/server-graph";
 import { listCommanders, toJsonObject } from "@/lib/battle-server";
 import type { CommanderListItem } from "@/lib/battle";
@@ -24,7 +25,7 @@ import {
   gatherRatePerSec,
   multiplyCost,
   newCityState,
-  nodeById,
+  type ResourceNode,
   nodeEpoch,
   parseCityState,
   pathLengthM,
@@ -114,7 +115,7 @@ export async function planGatherRoute(userId: string, missionKey: string, nodeId
   const now = Date.now();
   const home = await findHomeCastle(prisma, userId, missionKey);
   if (!home) throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
-  const node = nodeById(nodeId, now);
+  const node = await nodeById(nodeId, now);
   if (!node) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
   const dist = distanceM(home, node);
   if (dist > GATHER_MAX_DISTANCE_M) {
@@ -258,6 +259,7 @@ export type CityAction =
 
 /** 잠금 안에서 정산 → (행동) → 저장. 행동이 없으면 조회. */
 export async function runCity(userId: string, missionKey: string, action: CityAction | null): Promise<CityView> {
+  const gatherNode = action?.type === "gather" ? await nodeById(action.nodeId, Date.now()) : null;
   return withNamedLock(`city:${userId}`, async (tx) => {
     const now = Date.now();
     const loaded = await loadCityRow(tx, userId, missionKey, now);
@@ -273,7 +275,7 @@ export async function runCity(userId: string, missionKey: string, action: CityAc
       if (!home && action.type !== "assign") {
         throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
       }
-      const goldCost = applyAction(state, action, now, home, commanders, events);
+      const goldCost = applyAction(state, action, now, home, commanders, events, gatherNode);
       if (goldCost > 0) {
         const ok = await spendInfluence(tx, userId, goldCost);
         // 금이 모자라면 트랜잭션 전체를 되돌린다 (석재 등 차감도 저장 전이라 함께 취소)
@@ -301,6 +303,7 @@ function applyAction(
   home: HomeCastle | null,
   commanders: CommanderListItem[],
   events: string[],
+  gatherNode: ResourceNode | null,
 ): number {
   switch (action.type) {
     case "upgrade": {
@@ -362,8 +365,8 @@ function applyAction(
       if (state.gathers.length >= gatherParties(state.buildings.camp)) {
         throw new CityError("parties", 409, "보낼 수 있는 일꾼 부대가 없습니다. 일꾼 막사를 올리세요.");
       }
-      const node = nodeById(action.nodeId, now);
-      if (!node) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
+      const node = gatherNode;
+      if (!node || node.expiresAt <= now) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
       if (state.gathers.some((g) => g.nodeId === node.id)) throw new CityError("busy", 409, "이미 일꾼이 가 있는 자원지입니다.");
       const remain = node.amount - (state.nodeUsed[node.id] ?? 0);
       if (remain <= 0) throw new CityError("empty", 409, "다 캐낸 자원지입니다.");

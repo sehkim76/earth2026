@@ -65,7 +65,7 @@ import {
   gatherLoad,
   gatherPhase,
   gatherRatePerSec,
-  nodesInBounds,
+  type ResourceNode,
   workerSpeedMps,
   type ResourceKind,
   type VisibleWorker,
@@ -125,6 +125,7 @@ import {
   WALKABLE_BORDER_WIDTH_PX,
 } from "@/lib/walkable-overlay";
 import type { WalkableSurface } from "@/lib/walkable-surface";
+import { nodesInBounds } from "@/lib/resource-nodes";
 import TerritoryDash from "@/components/territory/TerritoryDash";
 import TerritoryStartPicker, { type TerritoryStart } from "@/components/TerritoryStartPicker";
 import type { AttackApproachRequest, CastleBuildDraft } from "@/components/territory/TerritoryUI";
@@ -663,14 +664,6 @@ const getSavedZoomForStyle = (cacheKey: string, style: MapStyle): number | null 
   } catch {
     return null;
   }
-};
-
-/** 자원지 마커 SVG (독자 디자인) */
-const RESOURCE_NODE_SVG: Readonly<Record<ResourceKind, string>> = {
-  gold: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 20 L8 10 L13 14 L18 7 L23 20z" fill="#8a7a5e" stroke="#2b2118" stroke-width="1.5" stroke-linejoin="round"/><circle cx="12" cy="17" r="3" fill="#f1c40f" stroke="#7a5a1e" stroke-width="1.2"/><circle cx="17" cy="15" r="2.2" fill="#f5d76e" stroke="#7a5a1e" stroke-width="1"/></svg>',
-  stone: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 21 L7 11 L13 8 L20 12 L23 21z" fill="#aab4bc" stroke="#2b2118" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 17 l4 -4 4 2" fill="none" stroke="#5b6770" stroke-width="1.3"/></svg>',
-  wood: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M13 3 L5 15 H10 L6 21 H20 L16 15 H21z" fill="#4f7a4a" stroke="#1e2e1c" stroke-width="1.5" stroke-linejoin="round"/><rect x="11.5" y="20" width="3" height="4" fill="#7a4a1f"/></svg>',
-  iron: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 20 L8 9 L14 12 L19 6 L23 20z" fill="#5b6770" stroke="#1d252b" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 16 h3 M15 14 h3" stroke="#cfd6dc" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
 /** 일꾼(조선 농부) 스프라이트 — 병사·무법자와 같은 8프레임 시트 (scripts/build-farmer-sprites.mjs) */
@@ -3177,7 +3170,7 @@ interface OtherUnitMoveAnim {
   const cesiumHtmlOverlayRef = useRef<HTMLDivElement | null>(null);
   const cesiumAdminDataSourceRef = useRef<CesiumTypes.DataSource | null>(null);
   const cesiumHtmlMarkersRef = useRef<Array<{ element: HTMLDivElement; lon: number; lat: number; anchor: "bottom" | "center" }>>([]);
-  const cesiumWorkerMarkersRef = useRef(new Set<{ element: HTMLDivElement; lon: number; lat: number }>());
+  const cesiumFieldMarkersRef = useRef(new Set<{ element: HTMLDivElement; lon: number; lat: number }>());
   const [isCesiumReady, setIsCesiumReady] = useState(false);
 
   const createThreePoiMarkerDataUrl = useCallback((scheme: "unvisited" | "visited" = "unvisited"): string | null => {
@@ -5072,7 +5065,7 @@ interface OtherUnitMoveAnim {
         }
       };
       cesiumHtmlMarkersRef.current.forEach(updatePosition);
-      cesiumWorkerMarkersRef.current.forEach(updatePosition);
+      cesiumFieldMarkersRef.current.forEach(updatePosition);
     };
 
     const renderCesiumPois = (Cesium: typeof import("cesium")): void => {
@@ -7559,75 +7552,124 @@ const isMapPerfEnabled = (): boolean => {
       window.removeEventListener(CITY_EVENT, on);
     };
   }, []);
-  const resourceLayerRef = useRef<LayerGroup | null>(null);
+  const showResourceNodes = territoryEnabled && zoomLevel >= 14;
   useEffect(() => {
-    if (!territoryEnabled || !isMapReady) {
-      return;
-    }
-    const map = mapInstanceRef.current;
+    if (!showResourceNodes) return;
+    const map = mapStyle === "satellite" && isMapReady ? mapInstanceRef.current : null;
+    const globe = mapStyle === "globe" && isGlobeReady ? globeMapRef.current : null;
+    const viewer = mapStyle === "cesium" && isCesiumReady ? cesiumViewerRef.current : null;
     const L = leafletRef.current;
-    if (!map || !L) {
-      return;
-    }
-    if (!resourceLayerRef.current) {
-      resourceLayerRef.current = L.layerGroup();
-    }
-    const layer = resourceLayerRef.current;
-    if (!map.hasLayer(layer)) {
-      layer.addTo(map);
-    }
-    const render = (): void => {
-      layer.clearLayers();
-      if (!isLeafletMapLoaded(map) || map.getZoom() < 14) {
+    const GlobeMarker = globeMarkerCtorRef.current;
+    const overlay = cesiumHtmlOverlayRef.current;
+    if (!(map && L) && !(globe && GlobeMarker) && !(viewer && overlay)) return;
+    const cesiumMarkers = cesiumFieldMarkersRef.current;
+    const removers: Array<() => void> = [];
+    let revision = 0;
+    const clear = (): void => {
+      for (const remove of removers.splice(0)) remove();
+    };
+    const openResource = (node: ResourceNode, label: string, remain: number, busy: boolean): void => {
+      const c = cityForMapRef.current;
+      const lines = [`매장량: ${Math.floor(remain).toLocaleString("ko-KR")} / ${node.amount.toLocaleString("ko-KR")}`];
+      if (c?.home) {
+        const dist = cityDistanceM(c.home, node);
+        const load = Math.min(gatherLoad(c.state.buildings.camp), remain);
+        const travelMin = dist / workerSpeedMps(c.state) / 60;
+        const gatherMin = load / gatherRatePerSec(c.state) / 60;
+        lines.push(`영주성에서 ${(dist / 1000).toFixed(1)}km${dist > 4000 ? " (4km 초과: 보낼 수 없음)" : ""}`);
+        lines.push(`일꾼 1회: ${Math.floor(load).toLocaleString("ko-KR")} 운반 · 왕복 약 ${Math.ceil(travelMin * 2 * 1.3)}분(길 따라) + 채집 ${Math.ceil(gatherMin)}분`);
+      } else {
+        lines.push("영주성을 세우면 일꾼을 보낼 수 있습니다.");
+      }
+      lines.push(`사라지기까지 ${Math.max(1, Math.ceil((node.expiresAt - serverNow()) / 60_000))}분`);
+      showMarkerPanel({
+        title: `${label} 자원지`,
+        lines,
+        resourceNodeId: remain > 0 && !busy ? node.id : undefined,
+        lat: node.lat,
+        lon: node.lon,
+      });
+    };
+    const render = async (): Promise<void> => {
+      const version = ++revision;
+      const bounds = map && isLeafletMapLoaded(map) ? map.getBounds() : globe?.getBounds();
+      const rect = viewer && !viewer.isDestroyed() ? viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid) : null;
+      let nodes: ResourceNode[];
+      try {
+        if (bounds) {
+          nodes = await nodesInBounds(bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast(), serverNow(), 300);
+        } else if (rect) {
+          const deg = 180 / Math.PI;
+          nodes = await nodesInBounds(rect.south * deg, rect.west * deg, rect.north * deg, rect.east * deg, serverNow(), 300);
+        } else {
+          clear();
+          return;
+        }
+      } catch {
         return;
       }
-      const b = map.getBounds();
+      if (version !== revision) return;
+      clear();
       const city = cityForMapRef.current;
       const used = city?.state.nodeUsed ?? {};
-      const busy = new Set((city?.state.gathers ?? []).map((g) => g.nodeId));
-      for (const node of nodesInBounds(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), serverNow(), 300)) {
+      const working = new Set((city?.state.gathers ?? []).map(gather => gather.nodeId));
+      for (const node of nodes) {
         const remain = Math.max(0, node.amount - (used[node.id] ?? 0));
+        const busy = working.has(node.id);
         const label = `${RESOURCE_LABEL[node.kind]} Lv.${node.level}`;
-        const icon = L.divIcon({
-          className: "map-resource-node",
-          html: `<div class="map-rotation-upright"><div class="res-node res-node--${node.kind}${remain <= 0 ? " res-node--empty" : ""}${busy.has(node.id) ? " res-node--busy" : ""}">${RESOURCE_NODE_SVG[node.kind]}<span class="res-node__label">${label}</span></div></div>`,
-          iconSize: [64, 44],
-          iconAnchor: [32, 22],
-        });
-        const marker = L.marker([node.lat, node.lon], { icon, keyboard: false });
-        marker.on("click", () => {
-          const c = cityForMapRef.current;
-          const lines = [`매장량: ${Math.floor(remain).toLocaleString("ko-KR")} / ${node.amount.toLocaleString("ko-KR")}`];
-          if (c?.home) {
-            const dist = cityDistanceM(c.home, node);
-            const load = Math.min(gatherLoad(c.state.buildings.camp), remain);
-            const travelMin = dist / workerSpeedMps(c.state) / 60;
-            const gatherMin = load / gatherRatePerSec(c.state) / 60;
-            lines.push(`영주성에서 ${(dist / 1000).toFixed(1)}km${dist > 4000 ? " (4km 초과: 보낼 수 없음)" : ""}`);
-            lines.push(`일꾼 1회: ${Math.floor(load).toLocaleString("ko-KR")} 운반 · 왕복 약 ${Math.ceil(travelMin * 2 * 1.3)}분(길 따라) + 채집 ${Math.ceil(gatherMin)}분`);
-          } else {
-            lines.push("영주성을 세우면 일꾼을 보낼 수 있습니다.");
-          }
-          lines.push(`사라지기까지 ${Math.max(1, Math.ceil((node.expiresAt - serverNow()) / 60_000))}분`);
-          showMarkerPanel({
-            title: `${label} 자원지`,
-            lines,
-            resourceNodeId: remain > 0 && !busy.has(node.id) ? node.id : undefined,
-            lat: node.lat,
-            lon: node.lon,
-          });
-        });
-        marker.addTo(layer);
+        const shell = document.createElement("div");
+        shell.className = "resource-site" + (map ? " map-rotation-upright" : "");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `res-node res-node--${node.kind}${remain <= 0 ? " res-node--empty" : ""}${busy ? " res-node--busy" : ""}`;
+        button.setAttribute("aria-label", label + " 자원지");
+        const image = document.createElement("img");
+        image.src = `/markers/resource-${node.kind}.webp`;
+        image.alt = "";
+        image.width = image.height = 60;
+        image.draggable = false;
+        const caption = document.createElement("span");
+        caption.className = "res-node__label";
+        caption.textContent = label;
+        button.append(image, caption);
+        button.onclick = (event): void => {
+          event.stopPropagation();
+          openResource(node, label, remain, busy);
+        };
+        shell.append(button);
+        if (map && L) {
+          const icon = L.divIcon({ className: "map-resource-node", html: shell, iconSize: [76, 56], iconAnchor: [38, 56] });
+          const marker = L.marker([node.lat, node.lon], { icon, keyboard: false }).addTo(map);
+          removers.push(() => marker.remove());
+        } else if (globe && GlobeMarker) {
+          const marker = new GlobeMarker({ element: shell, anchor: "bottom" }).setLngLat([node.lon, node.lat]).addTo(globe);
+          removers.push(() => marker.remove());
+        } else if (overlay) {
+          shell.style.position = "absolute";
+          shell.style.transform = "translate(-50%, -100%)";
+          shell.style.display = "none";
+          const entry = { element: shell, lon: node.lon, lat: node.lat };
+          overlay.append(shell);
+          cesiumMarkers.add(entry);
+          removers.push(() => { cesiumMarkers.delete(entry); shell.remove(); });
+        }
       }
     };
-    render();
-    map.on("moveend", render);
-    const id = window.setInterval(render, 60_000);
+    const update = (): void => { void render(); };
+    update();
+    map?.on("moveend", update);
+    globe?.on("moveend", update);
+    const unsubscribe = viewer?.camera.moveEnd.addEventListener(update);
+    const timer = window.setInterval(update, 60_000);
     return () => {
-      map.off("moveend", render);
-      window.clearInterval(id);
+      revision++;
+      map?.off("moveend", update);
+      globe?.off("moveend", update);
+      unsubscribe?.();
+      window.clearInterval(timer);
+      clear();
     };
-  }, [territoryEnabled, isMapReady, cityForMap, showMarkerPanel]);
+  }, [showResourceNodes, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, showMarkerPanel]);
   // 일꾼 부대: 영주성 ↔ 자원지 점선 + 움직이는 일꾼 표시
   const [visibleWorkers, setVisibleWorkers] = useState<VisibleWorker[]>([]);
   useEffect(() => {
@@ -7646,7 +7688,7 @@ const isMapPerfEnabled = (): boolean => {
       return;
     }
     const color: Record<ResourceKind, string> = { gold: "#f1c40f", stone: "#cfd6dc", wood: "#8fbf6a", iron: "#9fb4cc" };
-    const cesiumMarkers = cesiumWorkerMarkersRef.current;
+    const cesiumMarkers = cesiumFieldMarkersRef.current;
     const workers = new Set(gathers.map(({ g, owner }) => {
       const shell = document.createElement("div");
       shell.className = owner === null ? "map-gather-worker" : "map-gather-worker map-gather-worker--other";
