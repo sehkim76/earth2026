@@ -658,14 +658,14 @@ export function AutoBattleHost({ enabled, outlawRequest, onOutlawRequestDone, ca
       ) : null}
       {playing && !finished ? (
         <div className="fixed inset-0 z-[3900] flex items-end justify-center bg-black/55 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:items-center">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+          <div className="joseon-war-panel w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
             <AutoBattleScene result={playing} onFinished={() => setFinished(playing)} />
           </div>
         </div>
       ) : null}
       {finished ? (
         <div className="fixed inset-0 z-[3900] flex items-end justify-center bg-black/55 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:items-center">
-          <div className="w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
+          <div className="joseon-war-panel w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-200/40 bg-[linear-gradient(135deg,#2a2016_0%,#120c08_100%)] text-amber-50 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
             <ResultPanel result={finished} onClose={closeAll} />
           </div>
         </div>

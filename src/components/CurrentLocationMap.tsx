@@ -77,6 +77,7 @@ import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
 import { AutoBattleHost } from "@/components/battle/AutoBattleHost";
+import { WorkerPanel } from "@/components/territory/worker-panel";
 import type { MapDialog, MarkerPanel } from "@/components/territory/map-dialog";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
 import { serverNow } from "@/lib/server-clock";
@@ -261,6 +262,7 @@ type GlobeMapConstructor = new (options: {
 }) => GlobeMapLike;
 
 type GlobeMarkerConstructor = new (options?: {
+  subpixelPositioning?: boolean;
   element?: HTMLElement;
   color?: string;
   anchor?: string;
@@ -299,12 +301,14 @@ type NearbyPlayer = {
 };
 
 type NearbyPlayerMarkerEntry = {
+  latest: { lat: number; lon: number };
   marker: Marker;
   dispose: () => void;
   selectedCharacter: PlayerCharacter;
 };
 
 interface UnitMoveTargetMark {
+  via?: Array<{ lat: number; lon: number }> | null;
   fromLat: number;
   fromLon: number;
   lat: number;
@@ -667,8 +671,20 @@ const getSavedZoomForStyle = (cacheKey: string, style: MapStyle): number | null 
 };
 
 /** 일꾼(조선 농부) 스프라이트 — 병사·무법자와 같은 8프레임 시트 (scripts/build-farmer-sprites.mjs) */
+function moveLeafletSprite(map: LeafletMap, marker: Marker, lat: number, lon: number): void {
+  marker.setLatLng([lat, lon]);
+  const el = marker.getElement();
+  if (!el) return;
+  // Leaflet rounds markers to whole pixels. Preserve the subpixel offset even on a rotated map.
+  const projected = map.project([lat, lon]);
+  const dx = projected.x - Math.round(projected.x);
+  const dy = projected.y - Math.round(projected.y);
+  const angle = (map.getBearing?.() || 0) * Math.PI / 180;
+  el.style.translate = `${dx * Math.cos(angle) - dy * Math.sin(angle)}px ${dx * Math.sin(angle) + dy * Math.cos(angle)}px`;
+}
+
 type FarmerMode = "walk_pick" | "walk_axe" | "mine" | "chop" | "carry_ore" | "carry_wood";
-const farmerMode = (kind: ResourceKind, phase: "going" | "gathering" | "returning"): FarmerMode => {
+const farmerMode = (kind: ResourceKind, phase: "going" | "gathering" | "returning" | "waiting"): FarmerMode => {
   const wood = kind === "wood";
   if (phase === "gathering") return wood ? "chop" : "mine";
   if (phase === "returning") return wood ? "carry_wood" : "carry_ore";
@@ -939,8 +955,10 @@ const CASTLE_IMAGE_BY_KIND: Record<"lord" | "noble", string> = {
 const BANDIT_STOCKADE_IMAGE = "/markers/bandit-stockade.webp?v=2";
 const DAMAGED_LORD_CASTLE_IMAGE = "/markers/joseon-lord-fortress-damaged.webp?v=2";
 
-function buildingMarkerImage(neutral: boolean, kind: string | null, damaged: boolean): string | null {
+const castleTier = (level: number): number => level >= 8 ? 3 : level >= 4 ? 2 : 1;
+function buildingMarkerImage(neutral: boolean, kind: string | null, damaged: boolean, tier = 1): string | null {
   if (neutral) return BANDIT_STOCKADE_IMAGE;
+  if (kind === "lord" && tier > 1) return `/markers/joseon-${tier === 3 ? "palace" : "walled"}${damaged ? "-damaged" : ""}.webp`;
   if (kind === "lord") return damaged ? DAMAGED_LORD_CASTLE_IMAGE : CASTLE_IMAGE_BY_KIND.lord;
   if (kind === "noble") return CASTLE_IMAGE_BY_KIND.noble;
   return null;
@@ -1511,7 +1529,7 @@ export default function CurrentLocationMap({
   }
   const [territoryCastles, setTerritoryCastles] = useState<TerritoryOwnedCastle[]>([]);
   // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성). 같은 /api/castles/list 폴링에서 파생한다.
-  const [castleKindMap, setCastleKindMap] = useState<Map<string, string>>(new Map());
+  const [castleKindMap, setCastleKindMap] = useState<Map<string, { kind: string; tier: number }>>(new Map());
   // 내구도가 깎인 성 키 (hp < maxHp). 영주성 손상 이미지 표시용. 같은 폴링에서 파생한다.
   const [castleDamagedKeys, setCastleDamagedKeys] = useState<Set<string>>(() => new Set());
   const castleDamagedSigRef = useRef<string | null>(null);
@@ -1536,11 +1554,11 @@ export default function CurrentLocationMap({
           return;
         }
         const next: TerritoryOwnedCastle[] = [];
-        const nextKinds = new Map<string, string>();
+        const nextKinds = new Map<string, { kind: string; tier: number }>();
         const nextDamaged = new Set<string>();
         for (const row of data.castles as Record<string, unknown>[]) {
           if (typeof row.castleKey === "string" && typeof row.kind === "string") {
-            nextKinds.set(row.castleKey.trim(), row.kind);
+            nextKinds.set(row.castleKey.trim(), { kind: row.kind, tier: castleTier(Number(row.keepLevel)) });
           }
           if (
             typeof row.castleKey === "string" &&
@@ -2028,7 +2046,8 @@ export default function CurrentLocationMap({
   useEffect(() => {
     unitMarksRef.current = unitMarks;
   }, [unitMarks]);
-  const otherUnitMoveAnimRef = useRef(new Map<string, OtherUnitMoveAnim>());
+  const wakeUnitMotion = useRef<(() => void) | null>(null);
+  const unitMoveAnimationsRef = useRef(new Map<string, UnitMoveAnimation>());
   const otherUnitMoveLoopRef = useRef<number | null>(null);
   const [unitMarkerSelection, setUnitMarkerSelection] = useState<{ id: string; nonce: number } | null>(null);
 
@@ -2050,23 +2069,13 @@ interface PoiMarkerEntry {
   eventKey: string | null;
 }
 
-interface OtherUnitMoveAnim {
+interface UnitMoveAnimation {
   key: string;
-  path: Array<{ lat: number; lon: number }>;
-  startedAt: number;
-  endsAt: number;
-  fromLat: number;
-  fromLon: number;
-  destLat: number;
-  destLon: number;
+  target: UnitMoveTarget;
   done: boolean;
   lastLon: number;
   img: HTMLElement | null;
-  /** 마지막으로 setLatLng한 레이어 픽셀 좌표 (반올림). 같으면 DOM 갱신을 건너뛴다. */
-  lastPx: number;
-  lastPy: number;
-  /** lastPx/lastPy를 기록한 마커 (마커가 재생성되면 캐시를 무시한다). */
-  pxMarker: Marker | null;
+
 }
   const unitLayerRef = useRef<LayerGroup | null>(null);
   const unitMarkerMapRef = useRef<Map<string, Marker>>(new Map());
@@ -2792,7 +2801,7 @@ interface OtherUnitMoveAnim {
     if (!key.startsWith("castle-")) {
       return null;
     }
-    return castleKindMap.get(key) ?? null;
+    return castleKindMap.get(key)?.kind ?? null;
   };
   /** 내구도가 깎인 성인지 (castle list의 hp/maxHp 기준). */
   const isCastleDamaged = (eventKey?: string | null): boolean =>
@@ -3102,9 +3111,8 @@ interface OtherUnitMoveAnim {
   const playerMarkerLastLonRef = useRef<number | null>(null);
   const playerMarkerFacingLeftRef = useRef(false);
   const poiIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const damagedLordCastleIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
+  const lordIcons = useRef(new Map<string, import("leaflet").DivIcon>());
   const poiNeutralIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
-  const poiLordIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   const poiNobleIconRef = useRef<Marker["options"]["icon"] | undefined>(undefined);
   // 패널 선택 개체 적색 테두리용: eventKey → 단일 마커.
   const poiMarkerByKeyRef = useRef<Map<string, Marker>>(new Map());
@@ -4186,7 +4194,7 @@ interface OtherUnitMoveAnim {
         }
 
         syncPlayerMarkerFacingDirection(markerLon);
-        markerRef.current.setLatLng([markerLat, markerLon]);
+        if (!lordMovingNow) markerRef.current.setLatLng([markerLat, markerLon]);
       }
 
       if (markerRef.current) {
@@ -4296,7 +4304,7 @@ interface OtherUnitMoveAnim {
         // ignore
       }
       if (globeMapRef.current) {
-        globeMapRef.current.setCenter([center.lon, center.lat]);
+        if (!playerMoveTarget) globeMapRef.current.setCenter([center.lon, center.lat]);
         return;
       }
       const map = new globeLib.Map({
@@ -4474,7 +4482,7 @@ interface OtherUnitMoveAnim {
         } else {
           const point = cluster.points[0];
           const isNeutralPoi = isNeutralEventKey(point.eventKey);
-          const buildingImage = buildingMarkerImage(isNeutralPoi, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey));
+          const buildingImage = buildingMarkerImage(isNeutralPoi, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey), castleKindMap.get(point.eventKey?.trim() ?? "")?.tier);
           const isCenterPoi = buildingImage !== null;
           const element = document.createElement("div");
           element.style.width = isCenterPoi ? "54px" : "30px";
@@ -4617,7 +4625,7 @@ interface OtherUnitMoveAnim {
       if (isCancelled) {
         return;
       }
-      if (!adminSelectedRef.current) {
+      if (!adminSelectedRef.current && (!playerMoveTarget || !globePlayerMarkerRef.current)) {
         map.setCenter([center.lon, center.lat]);
       }
       if (
@@ -4634,7 +4642,7 @@ interface OtherUnitMoveAnim {
         globePlayerLabelRef.current = null;
       }
       if (globePlayerMarkerRef.current) {
-        globePlayerMarkerRef.current.setLngLat([center.lon, center.lat]);
+        if (!playerMoveTarget) globePlayerMarkerRef.current.setLngLat([center.lon, center.lat]);
         if (globePlayerLabelRef.current && globePlayerLabelRef.current.textContent !== playerLabel) {
           globePlayerLabelRef.current.textContent = playerLabel;
         }
@@ -4674,7 +4682,7 @@ interface OtherUnitMoveAnim {
         label.style.whiteSpace = "nowrap";
         wrapper.appendChild(label);
         globePlayerLabelRef.current = label;
-        globePlayerMarkerRef.current = new MarkerCtor({ element: wrapper, anchor: "bottom" })
+        globePlayerMarkerRef.current = new MarkerCtor({ element: wrapper, anchor: "bottom", subpixelPositioning: true })
           .setLngLat([center.lon, center.lat])
           .addTo(map);
         wrapper.style.cursor = "pointer";
@@ -5144,7 +5152,7 @@ interface OtherUnitMoveAnim {
         } else {
           const point = cluster.points[0];
           const isNeutralCesium = isNeutralEventKey(point.eventKey);
-          const buildingImage = buildingMarkerImage(isNeutralCesium, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey));
+          const buildingImage = buildingMarkerImage(isNeutralCesium, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey), castleKindMap.get(point.eventKey?.trim() ?? "")?.tier);
           const isCenterCesium = buildingImage !== null;
           const element = document.createElement("div");
           element.style.position = "absolute";
@@ -5325,7 +5333,7 @@ interface OtherUnitMoveAnim {
       const billboardSize = isLargeCharacter ? 66 : 44;
       const labelOffsetY = isLargeCharacter ? -72 : -50;
       if (target) {
-        target.position = new Cesium.ConstantPositionProperty(position);
+        if (!playerMoveTarget) target.position = new Cesium.ConstantPositionProperty(position);
         if (target.billboard) {
           target.billboard.image = new Cesium.ConstantProperty(image);
           (target.billboard as unknown as { width?: unknown; height?: unknown }).width = new Cesium.ConstantProperty(billboardSize) as unknown as any;
@@ -5359,6 +5367,7 @@ interface OtherUnitMoveAnim {
       }
 
       try {
+        if (target && playerMoveTarget) return;
         const currentHeight = currentViewer.camera.positionCartographic.height;
         const height = Number.isFinite(currentHeight) && currentHeight > 100 && currentHeight < 100000000 ? currentHeight : 1500;
         const heading = currentViewer.camera.heading;
@@ -5381,6 +5390,29 @@ interface OtherUnitMoveAnim {
       isCancelled = true;
     };
   }, [mapStyle, isCesiumReady, location, playerLocation, activePlayerCharacter, playerLabel, getCesiumPlayerImageAsync]);
+
+  // 지도 위치만 매 프레임 보간한다. UI·서버 위치 갱신 주기는 독립적이다.
+  useEffect(() => {
+    if (!playerMoveTarget) return;
+    let frame = 0;
+    let stopped = false;
+    let cesium: typeof import("cesium") | undefined;
+    if (mapStyle === "cesium") void loadCesium().then(lib => { cesium = lib; }).catch(() => {});
+    const draw = (): void => {
+      if (stopped) return;
+      const p = positionAtMoveTarget(playerMoveTarget, Date.now());
+      const map = mapInstanceRef.current;
+      if (mapStyle === "satellite" && map && markerRef.current) moveLeafletSprite(map, markerRef.current, p.lat, p.lon);
+      if (mapStyle === "globe") globePlayerMarkerRef.current?.setLngLat([p.lon, p.lat]);
+      const property = cesiumPlayerEntityRef.current?.position;
+      if (mapStyle === "cesium" && cesium && property instanceof cesium.ConstantPositionProperty) {
+        property.setValue(cesium.Cartesian3.fromDegrees(p.lon, p.lat));
+      }
+      if (!p.arrived) frame = requestAnimationFrame(draw);
+    };
+    frame = requestAnimationFrame(draw);
+    return () => { stopped = true; cancelAnimationFrame(frame); };
+  }, [playerMoveTarget, mapStyle, isMapReady, isGlobeReady, isCesiumReady]);
 
   useEffect(() => {
     return () => {
@@ -6316,6 +6348,17 @@ interface OtherUnitMoveAnim {
     }
 
     const markerMap = nearbyPlayerMarkerMapRef.current;
+    const samples = new Map<Marker, { from: { lat: number; lng: number }; to: [number, number]; start: number }>();
+    let frame = 0;
+    const draw = (time: number): void => {
+      for (const [marker, sample] of samples) {
+        if (!marker.getElement()) { samples.delete(marker); continue; }
+        const t = Math.min(1, Math.max(0, time - sample.start) / NEARBY_PLAYERS_POLL_INTERVAL_MS);
+        moveLeafletSprite(map, marker, sample.from.lat + (sample.to[0] - sample.from.lat) * t, sample.from.lng + (sample.to[1] - sample.from.lng) * t);
+        if (t >= 1) samples.delete(marker);
+      }
+      frame = samples.size ? requestAnimationFrame(draw) : 0;
+    };
     let cancelled = false;
     let lastWriteAt = 0;
 
@@ -6425,6 +6468,7 @@ interface OtherUnitMoveAnim {
         }
 
         const payload = (await response.json()) as { players?: NearbyPlayer[]; serverNow?: number };
+        if (cancelled) return;
         const players = Array.isArray(payload.players) ? payload.players : [];
         // 다른 영주의 부상 표시 (마커 상자에 player-injured, 이름표에 "· 부상").
         const applyNearbyInjury = (marker: Marker, player: NearbyPlayer): void => {
@@ -6469,13 +6513,13 @@ interface OtherUnitMoveAnim {
               // 영토전: 다른 영주를 탭하면 정보 패널 + 공격 버튼.
               const ownerId = player.userId;
               marker.on("click", () => {
-                const ll = marker.getLatLng();
+                const latest = markerMap.get(ownerId)?.latest ?? player;
                 const raw = marker.getTooltip()?.getContent();
                 const label = typeof raw === "string" ? raw : player.nickname || "영주";
                 const injured = label.endsWith(" · 부상");
                 const name = label.replace(/ · 부상$/, "");
                 const me = getPlayerLocation();
-                const dist = me ? Math.round(calculateDistance(me.lat, me.lon, ll.lat, ll.lng)) : null;
+                const dist = me ? Math.round(calculateDistance(me.lat, me.lon, latest.lat, latest.lon)) : null;
                 showMarkerPanel({
                   title: `영주 ${name}`,
                   lines: [
@@ -6484,8 +6528,8 @@ interface OtherUnitMoveAnim {
                     ...(dist !== null ? [`거리: 약 ${dist}m (영주)`] : []),
                   ],
                   pvpTarget: { type: "lord", ownerId, targetId: "lord", name: `영주 ${name}` },
-                  lat: ll.lat,
-                  lon: ll.lng,
+                  lat: latest.lat,
+                  lon: latest.lon,
                 });
               });
             }
@@ -6499,13 +6543,19 @@ interface OtherUnitMoveAnim {
             markerMap.set(player.userId, {
               marker,
               dispose: markerVisual.dispose,
-              selectedCharacter,
+              selectedCharacter, latest: { lat: player.lat, lon: player.lon },
             });
             applyNearbyInjury(marker, player);
             return;
           }
 
-          currentEntry.marker.setLatLng(position);
+          currentEntry.latest = { lat: player.lat, lon: player.lon };
+          const from = currentEntry.marker.getLatLng();
+          const prior = samples.get(currentEntry.marker);
+          if ((from.lat !== position[0] || from.lng !== position[1]) && !(prior?.to[0] === position[0] && prior.to[1] === position[1])) {
+            samples.set(currentEntry.marker, { from, to: position, start: performance.now() });
+            if (!frame) frame = requestAnimationFrame(draw);
+          }
           applyNearbyInjury(currentEntry.marker, player);
         });
       } catch {
@@ -6532,6 +6582,8 @@ interface OtherUnitMoveAnim {
       cancelled = true;
       window.clearInterval(timerId);
       document.removeEventListener("visibilitychange", onVisible);
+      cancelAnimationFrame(frame);
+      samples.clear();
       markerMap.forEach((entry) => {
         entry.marker.remove();
         entry.dispose();
@@ -6600,26 +6652,16 @@ interface OtherUnitMoveAnim {
       if (!entry) {
         return null;
       }
-      const ll = entry.marker.getLatLng();
-      return { lat: ll.lat, lon: ll.lng };
+      return entry.latest;
     }
     const mark = unitMarksRef.current.find((m) => m.id === targetId && !m.mine);
     if (!mark) {
       return null;
     }
-    const anim = otherUnitMoveAnimRef.current.get(targetId);
+    const anim = unitMoveAnimationsRef.current.get(targetId);
     if (anim && !anim.done) {
       const pos = positionAtMoveTarget(
-        {
-          fromLat: anim.fromLat,
-          fromLon: anim.fromLon,
-          lat: anim.destLat,
-          lon: anim.destLon,
-          startedAt: anim.startedAt,
-          endsAt: anim.endsAt,
-          via: null,
-          path: anim.path,
-        },
+        anim.target,
         targetId.startsWith("neutral-") ? serverNow() : Date.now(),
       );
       if (Number.isFinite(pos.lat) && Number.isFinite(pos.lon)) {
@@ -6894,8 +6936,7 @@ interface OtherUnitMoveAnim {
       };
       if (existing) {
         // 지도가 직접 애니메이션 중인 타인 부대는 서버 스냅샷으로 위치를 덮어쓰지 않는다.
-        const mapAnim = !mark.mine ? otherUnitMoveAnimRef.current.get(mark.id) : undefined;
-        const mapAnimHold = !!mapAnim && (mapAnim.path !== null || mapAnim.done);
+        const mapAnimHold = !!mark.moveTarget;
         if (!mapAnimHold) {
           const cur = existing.getLatLng();
           if (Math.abs(cur.lat - mark.lat) > 1e-7 || Math.abs(cur.lng - mark.lon) > 1e-7) {
@@ -7052,10 +7093,10 @@ interface OtherUnitMoveAnim {
     if (!territoryEnabled || !isMapReady) {
       return;
     }
-    const anims = otherUnitMoveAnimRef.current;
+    const anims = unitMoveAnimationsRef.current;
     const seen = new Set<string>();
     for (const mark of unitMarks) {
-      if (mark.mine || !mark.moveTarget) {
+      if (!mark.moveTarget) {
         continue;
       }
       const target = mark.moveTarget;
@@ -7064,7 +7105,7 @@ interface OtherUnitMoveAnim {
         continue;
       }
       seen.add(mark.id);
-      const key = `${target.startedAt}:${target.lat},${target.lon}`;
+      const key = `${target.startedAt}:${target.endsAt}:${target.lat},${target.lon}`;
       const prev = anims.get(mark.id);
       if (prev && prev.key === key) {
         continue;
@@ -7078,7 +7119,7 @@ interface OtherUnitMoveAnim {
               )
             : null;
         if (!mark.id.startsWith("neutral-")) {
-          return raw && raw.length > 0 ? raw : [{ lat: target.lat, lon: target.lon }];
+          return raw && raw.length > 0 ? raw : target.via?.length ? target.via : [{ lat: target.lat, lon: target.lon }];
         }
         // 무법자: 그려지는 경로 위를 이동한다. 저장 경로 중 현재 다리 구간만
         // 잘라내어 애니메이션한다.
@@ -7091,19 +7132,10 @@ interface OtherUnitMoveAnim {
       })();
       anims.set(mark.id, {
         key,
-        path: storedPath,
-        startedAt: target.startedAt,
-        endsAt: target.endsAt,
-        fromLat: target.fromLat,
-        fromLon: target.fromLon,
-        destLat: target.lat,
-        destLon: target.lon,
+        target: { ...target, via: target.via ?? null, path: storedPath },
         done: false,
         lastLon: target.fromLon,
         img: null,
-        lastPx: Number.NaN,
-        lastPy: Number.NaN,
-        pxMarker: null,
       });
     }
     for (const id of [...anims.keys()]) {
@@ -7111,6 +7143,7 @@ interface OtherUnitMoveAnim {
         anims.delete(id);
       }
     }
+    wakeUnitMotion.current?.();
   }, [territoryEnabled, isMapReady, unitMarks]);
 
   useEffect(() => {
@@ -7119,15 +7152,15 @@ interface OtherUnitMoveAnim {
     }
     let running = true;
     let raf = 0;
-    const cancelTick = (): void => {
-      window.cancelAnimationFrame(raf);
-      window.clearTimeout(raf);
+    const start = (): void => {
+      if (running && !raf) raf = window.requestAnimationFrame(tick);
     };
     const tick = (): void => {
       if (!running) {
         return;
       }
-      const anims = otherUnitMoveAnimRef.current;
+      const anims = unitMoveAnimationsRef.current;
+      raf = 0;
       let hasWork = false;
       for (const anim of anims.values()) {
         if (!anim.done) {
@@ -7135,11 +7168,7 @@ interface OtherUnitMoveAnim {
           break;
         }
       }
-      // 움직이는 부대가 없으면 vsync를 깨우지 않고 0.8초 간격으로만 확인한다.
-      if (!hasWork) {
-        raf = window.setTimeout(tick, 800);
-        return;
-      }
+      if (!hasWork) return;
       const map = mapInstanceRef.current;
       let viewW = 0;
       let viewH = 0;
@@ -7166,57 +7195,14 @@ interface OtherUnitMoveAnim {
         }
         // 서버 권위 위치와 동일한 수식 (등속 폴리선 보간).
         const pos = positionAtMoveTarget(
-          {
-            fromLat: anim.fromLat,
-            fromLon: anim.fromLon,
-            lat: anim.destLat,
-            lon: anim.destLon,
-            startedAt: anim.startedAt,
-            endsAt: anim.endsAt,
-            via: null,
-            path: anim.path,
-          },
+          anim.target,
           // 무법자 다리 시각은 서버 시계 기준 (기기 시계 오차로 앞서 걷다 되돌아가는 현상 방지).
           id.startsWith("neutral-") ? serverNow() : Date.now(),
         );
-        if (pos.arrived || !map || viewW <= 0 || viewH <= 0) {
-          marker.setLatLng([pos.lat, pos.lon]);
-          anim.lastPx = Number.NaN;
-          anim.lastPy = Number.NaN;
-        } else {
-          // Leaflet 마커는 반올림한 레이어 픽셀에 놓이므로, 반올림 좌표가 같으면
-          // setLatLng(=DOM transform 갱신)를 건너뛴다. 화면 밖(여유 포함) 마커도 건너뛰고
-          // moveend·zoomend에서 다시 맞춘다.
-          let skip = false;
-          try {
-            const layerPt = map.latLngToLayerPoint([pos.lat, pos.lon]).round();
-            if (anim.pxMarker === marker && layerPt.x === anim.lastPx && layerPt.y === anim.lastPy) {
-              skip = true;
-            } else {
-              const containerPt = map.layerPointToContainerPoint(layerPt);
-              if (
-                containerPt.x < -padX ||
-                containerPt.y < -padY ||
-                containerPt.x > viewW + padX ||
-                containerPt.y > viewH + padY
-              ) {
-                skip = true;
-                anim.lastPx = Number.NaN;
-                anim.lastPy = Number.NaN;
-              } else {
-                anim.lastPx = layerPt.x;
-                anim.lastPy = layerPt.y;
-                anim.pxMarker = marker;
-              }
-            }
-          } catch {
-            skip = false;
-            anim.lastPx = Number.NaN;
-            anim.lastPy = Number.NaN;
-          }
-          if (!skip) {
-            marker.setLatLng([pos.lat, pos.lon]);
-          }
+        if (map) {
+          const point = map.latLngToContainerPoint([pos.lat, pos.lon]);
+          const visible = point.x >= -padX && point.x <= viewW + padX && point.y >= -padY && point.y <= viewH + padY;
+          if (visible || pos.arrived) moveLeafletSprite(map, marker, pos.lat, pos.lon);
         }
         // 마커 엘리먼트는 재생성 전까지 동일하므로 스프라이트를 캐시해 매 프레임 querySelector를 피한다.
         let img = anim.img;
@@ -7254,25 +7240,12 @@ interface OtherUnitMoveAnim {
       }
       raf = window.requestAnimationFrame(tick);
     };
-    raf = window.requestAnimationFrame(tick);
-    // 이동·줌이 끝나면 캐시한 픽셀 좌표를 무효화해 다음 프레임에 전 마커 위치를 다시 맞춘다
-    // (줌 변경 시 레이어 좌표계가 바뀌고, 화면 밖이던 마커가 들어올 수 있다).
-    const resyncMap = mapInstanceRef.current;
-    const resync = (): void => {
-      for (const anim of otherUnitMoveAnimRef.current.values()) {
-        anim.lastPx = Number.NaN;
-        anim.lastPy = Number.NaN;
-      }
-    };
-    try {
-      resyncMap?.on("moveend zoomend viewreset", resync);
-    } catch {}
+    wakeUnitMotion.current = start;
+    start();
     return () => {
       running = false;
-      cancelTick();
-      try {
-        resyncMap?.off("moveend zoomend viewreset", resync);
-      } catch {}
+      window.cancelAnimationFrame(raf);
+      wakeUnitMotion.current = null;
     };
   }, [territoryEnabled, isMapReady]);
 
@@ -7543,6 +7516,14 @@ const isMapPerfEnabled = (): boolean => {
     const apply = (v: CityViewData | null): void => {
       cityForMapRef.current = v;
       setCityForMap(v);
+      const key = v?.home?.castleKey;
+      if (key && v?.state.buildings.keep) {
+        const tier = castleTier(v.state.buildings.keep);
+        setCastleKindMap(current => {
+          const entry = current.get(key);
+          return entry && entry.tier !== tier ? new Map(current).set(key, { ...entry, tier }) : current;
+        });
+      }
     };
     const first = window.setTimeout(() => apply(lastCityView()), 0);
     const on = (e: Event): void => apply((e as CustomEvent<CityViewData>).detail);
@@ -7672,6 +7653,7 @@ const isMapPerfEnabled = (): boolean => {
   }, [showResourceNodes, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, showMarkerPanel]);
   // 일꾼 부대: 영주성 ↔ 자원지 점선 + 움직이는 일꾼 표시
   const [visibleWorkers, setVisibleWorkers] = useState<VisibleWorker[]>([]);
+  const selectedWorker = dialog?.kind === "worker" ? dialog.selection : null;
   useEffect(() => {
     if (!territoryEnabled) return;
     const map = mapStyle === "satellite" && isMapReady ? mapInstanceRef.current : null;
@@ -7681,21 +7663,29 @@ const isMapPerfEnabled = (): boolean => {
     const overlay = mapStyle === "cesium" && isCesiumReady ? cesiumHtmlOverlayRef.current : null;
     if (!(map && L) && !(globe && GlobeMarker) && !overlay) return;
     const gathers = [
-      ...(cityForMap?.state.gathers ?? []).map((g) => ({ g, owner: null })),
-      ...visibleWorkers.map((g) => ({ g, owner: g.ownerNickname || "상대" })),
+      ...(cityForMap?.state.gathers ?? []).map((g) => ({ g, owner: null, selection: { slot: g.slot ?? 0 } })),
+      ...visibleWorkers.map((g) => ({ g, owner: g.ownerNickname || "상대", selection: { foreignId: g.id } })),
     ].filter(({ g }) => g.returnAt > serverNow());
     if (gathers.length === 0) {
       return;
     }
     const color: Record<ResourceKind, string> = { gold: "#f1c40f", stone: "#cfd6dc", wood: "#8fbf6a", iron: "#9fb4cc" };
     const cesiumMarkers = cesiumFieldMarkersRef.current;
-    const workers = new Set(gathers.map(({ g, owner }) => {
+    const workers = new Set(gathers.map(({ g, owner, selection }) => {
       const shell = document.createElement("div");
       shell.className = owner === null ? "map-gather-worker" : "map-gather-worker map-gather-worker--other";
       shell.style.pointerEvents = "none";
       shell.style.setProperty("--worker-color", color[g.kind]);
-      const root = document.createElement("div");
+      const root = document.createElement("button");
+      root.type = "button";
+      root.style.pointerEvents = "auto";
       root.className = "gather-worker";
+      root.setAttribute("aria-label", "slot" in selection ? `일꾼 ${selection.slot + 1}부대 정보` : `${owner}의 일꾼 정보`);
+      const selected = selectedWorker && ("slot" in selection
+        ? "slot" in selectedWorker && selectedWorker.slot === selection.slot
+        : "foreignId" in selectedWorker && selectedWorker.foreignId === selection.foreignId);
+      root.setAttribute("aria-pressed", String(!!selected));
+      root.onclick = event => { event.stopPropagation(); openDialog({ kind: "worker", selection }); };
       const sprite = document.createElement("span");
       sprite.className = "farmer-sprite";
       sprite.setAttribute("aria-hidden", "true");
@@ -7714,7 +7704,7 @@ const isMapPerfEnabled = (): boolean => {
           : null;
         return {
           g, owner, root, label,
-          move: (lat: number, lon: number) => marker.setLatLng([lat, lon]),
+          move: (lat: number, lon: number) => moveLeafletSprite(map, marker, lat, lon),
           remove: () => {
             marker.remove();
             route?.remove();
@@ -7722,7 +7712,7 @@ const isMapPerfEnabled = (): boolean => {
         };
       }
       if (globe && GlobeMarker) {
-        const marker = new GlobeMarker({ element: shell, anchor: "bottom" }).setLngLat([p.lon, p.lat]).addTo(globe);
+        const marker = new GlobeMarker({ element: shell, anchor: "bottom", subpixelPositioning: true }).setLngLat([p.lon, p.lat]).addTo(globe);
         return {
           g, owner, root, label,
           move: (lat: number, lon: number) => marker.setLngLat([lon, lat]),
@@ -7748,8 +7738,11 @@ const isMapPerfEnabled = (): boolean => {
       };
     }));
     // 위치는 1초마다 경로를 따라 옮기고, 걸음·곡괭이질·도끼질·지게 귀환은 스프라이트 시트 애니메이션으로 움직인다
+    let moving = false;
+    const lastPositions = new WeakMap<HTMLElement, { lat: number; lon: number }>();
     const tick = (): void => {
       const now = serverNow();
+      moving = false;
       const groups = new Map<string, HTMLElement[]>();
       for (const worker of workers) {
         const { g, owner, root, label, move } = worker;
@@ -7759,15 +7752,20 @@ const isMapPerfEnabled = (): boolean => {
           continue;
         }
         const p = gatherPhase(g, now);
-        move(p.lat, p.lon);
+        moving ||= p.phase === "going" || p.phase === "returning";
+        const previous = lastPositions.get(root);
+        if (!previous || previous.lat !== p.lat || previous.lon !== p.lon) {
+          move(p.lat, p.lon);
+          lastPositions.set(root, p);
+        }
         // 같은 자원지에 도착한 일꾼도 서로 가리지 않도록 실제 좌표는 유지하고 그림만 나란히 놓는다.
         const key = `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`;
         const group = groups.get(key);
         if (group) group.push(root);
         else groups.set(key, [root]);
-        const cls = `gather-worker farmer--${farmerMode(g.kind, p.phase)}${p.dir < 0 ? " gather-worker--west" : ""}`;
+        const cls = `gather-worker ${p.phase === "waiting" ? "farmer--idle " : ""}farmer--${farmerMode(g.kind, p.phase)}${p.dir < 0 ? " gather-worker--west" : ""}`;
         if (root.className !== cls) root.className = cls;
-        const action = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} ${g.kind === "wood" ? "벌목" : "채굴"}` : "귀환 중";
+        const action = p.phase === "going" ? "일꾼 이동" : p.phase === "waiting" ? "현장 대기" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} ${g.kind === "wood" ? "벌목" : "채굴"}` : "귀환 중";
         const text = owner === null ? action : `${owner} · ${action}`;
         if (label.textContent !== text) label.textContent = text;
       }
@@ -7777,13 +7775,21 @@ const isMapPerfEnabled = (): boolean => {
         });
       }
     };
-    tick();
-    const id = window.setInterval(tick, 1000);
+    let frame = 0;
+    let timer = 0;
+    const animate = (): void => {
+      tick();
+      if (!workers.size) return;
+      if (moving) frame = requestAnimationFrame(animate);
+      else timer = window.setTimeout(animate, 500);
+    };
+    frame = requestAnimationFrame(animate);
     return () => {
-      window.clearInterval(id);
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
       workers.forEach((worker) => worker.remove());
     };
-  }, [territoryEnabled, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, visibleWorkers]);
+  }, [territoryEnabled, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, visibleWorkers, selectedWorker, openDialog]);
   const sendWorkers = useCallback(async (panel: MarkerPanel): Promise<void> => {
     const nodeId = panel.resourceNodeId;
     if (!nodeId) return;
@@ -7904,7 +7910,7 @@ const isMapPerfEnabled = (): boolean => {
     // 같은 입력으로 이펙트가 반복 실행돼도 마커 전체 재빌드는 1회로 제한한다.
     // (콜백 identity 변경 등으로 이펙트가 3연타되던 것을 스킵 — clearLayers+191개 재생성이 블로킹 주범)
     // 줌을 제외한 입력 서명. 이것이 바뀌면 전체 재빌드, 줌만 바뀌면 마커 단위로 비교한다.
-    const baseSig = `${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|d:${[...castleDamagedKeys].sort().join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v}`).join(",")}`;
+    const baseSig = `${territoryEnabled}|${markerPoiPoints.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lon.toFixed(5)}`).join(";")}|d:${[...castleDamagedKeys].sort().join(",")}|c:${[...castleKindMap.entries()].map(([k, v]) => `${k}=${v.kind}.${v.tier}`).join(",")}`;
     const buildSig = `${zoomLevel}|${baseSig}`;
     if (
       markerBuildSigRef.current === buildSig &&
@@ -7999,26 +8005,18 @@ const isMapPerfEnabled = (): boolean => {
     }
     const poiNeutralIcon = poiNeutralIconRef.current ?? poiIcon;
 
-    if (!poiLordIconRef.current) {
-      poiLordIconRef.current = L.divIcon({
-        className: "castle-lord-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="${CASTLE_IMAGE_BY_KIND.lord}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
-        iconSize: [54, 54],
-        iconAnchor: [27, 27],
-      });
-    }
-    const poiLordIcon = poiLordIconRef.current ?? poiIcon;
-
-    if (!damagedLordCastleIconRef.current) {
-      damagedLordCastleIconRef.current = L.divIcon({
-        className: "castle-lord-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="${DAMAGED_LORD_CASTLE_IMAGE}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
-        iconSize: [54, 54],
-        iconAnchor: [27, 27],
-      });
-    }
-    const damagedLordCastleIcon = damagedLordCastleIconRef.current ?? poiLordIcon;
-
+    const lordIcon = (key: string | undefined, damaged: boolean): import("leaflet").DivIcon => {
+      const src = buildingMarkerImage(false, "lord", damaged, castleKindMap.get(key?.trim() ?? "")?.tier)!;
+      let icon = lordIcons.current.get(src);
+      if (!icon) {
+        const shell = document.createElement("div");
+        shell.className = "map-rotation-upright";
+        appendBuildingMarkerImage(shell, src);
+        icon = L.divIcon({ className: "castle-lord-marker-shell", html: shell.outerHTML, iconSize: [54, 54], iconAnchor: [27, 27] });
+        lordIcons.current.set(src, icon);
+      }
+      return icon;
+    };
     if (!poiNobleIconRef.current) {
       poiNobleIconRef.current = L.divIcon({
         className: "castle-noble-marker-shell",
@@ -8241,15 +8239,13 @@ const isMapPerfEnabled = (): boolean => {
             })
           : null;
         // 내구도가 깎인 영주성은 손상 이미지로 표시한다 (castle list hp/maxHp 기준).
-        const poiMarkerIcon = castleDamaged && territoryEnabled && castleKind === "lord"
-          ? damagedLordCastleIcon
+        const poiMarkerIcon = castleKind === "lord"
+          ? lordIcon(point.eventKey ?? undefined, territoryEnabled && castleDamaged)
           : territorySoldierIcon
             ? territorySoldierIcon
             : isNeutralEventKey(point.eventKey)
               ? poiNeutralIcon
-              : castleKind === "lord"
-                ? poiLordIcon
-                : castleKind === "noble"
+              : castleKind === "noble"
                   ? poiNobleIcon
                   : poiIcon;
         const poiMarker = L.marker([point.lat, point.lon], { icon: poiMarkerIcon });
@@ -9021,6 +9017,7 @@ const isMapPerfEnabled = (): boolean => {
   return (
     <section
       className={cn("relative isolate flex h-full w-full overflow-hidden", className)}
+      data-territory-map={territoryEnabled || undefined}
       aria-label="현재 위치 지도"
     >
       {viewportDebugLines.length > 0 ? (
@@ -9130,9 +9127,12 @@ const isMapPerfEnabled = (): boolean => {
       ) : null}
 
 
+      {selectedWorker && <WorkerPanel key={"slot" in selectedWorker ? selectedWorker.slot : selectedWorker.foreignId}
+        selection={selectedWorker} view={cityForMap} others={visibleWorkers} center={getTerritoryCenter} onClose={() => closeDialog("worker")} />}
       {markerPanel ? (
         <div
           role="dialog"
+          data-map-panel="marker"
           aria-labelledby="map-marker-dialog-title"
           className={
             territoryEnabled
@@ -9396,7 +9396,7 @@ const isMapPerfEnabled = (): boolean => {
         ) : null}
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-[1200]">
+      <div data-map-panel="controls" className="pointer-events-none absolute right-4 top-4 z-[1200]">
         <div className="relative">
           <button
             type="button"
@@ -9562,7 +9562,7 @@ const isMapPerfEnabled = (): boolean => {
       ) : null}
 
       {showSettingsModal ? (
-        <div className="pointer-events-auto fixed inset-0 z-[2100] bg-white">
+        <div data-map-panel="settings" className="pointer-events-auto fixed inset-0 z-[2100] bg-white">
           <div className="flex h-full w-full flex-col px-5 py-4">
             <div className="flex items-center justify-between">
               <button
@@ -9913,6 +9913,7 @@ const isMapPerfEnabled = (): boolean => {
           getPlayerLocation={getPlayerLocation}
           isLocationVisible={isTerritoryVisible}
           onUnitMarks={setUnitMarks}
+          workerCity={cityForMap}
           onVisibleWorkers={setVisibleWorkers}
           panToLocation={panTerritoryTo}
           territoryStart={territoryStart}

@@ -1,3 +1,5 @@
+import { createRouteSampler } from "@/lib/route-sampler";
+
 import type { CastleClass } from "@/lib/territory";
 
 /** units 전용 하버사인 (territory.ts와 순환 import 방지). */
@@ -249,6 +251,8 @@ export function movePolyline(target: UnitMoveTarget): Array<{ lat: number; lon: 
   return line;
 }
 
+const motionSamplers = new WeakMap<UnitMoveTarget, ReturnType<typeof createRouteSampler>>();
+
 /** 주문 시각 기준 위치. now >= endsAt면 목적지. 이동 중이면 {lat, lon, arrived:false}. */
 export function positionAtMoveTarget(
   target: UnitMoveTarget,
@@ -261,35 +265,15 @@ export function positionAtMoveTarget(
   if (elapsedSec <= 0) {
     return { lat: target.fromLat, lon: target.fromLon, arrived: false };
   }
-  const line = movePolyline(target);
-  const totalSec = Math.max(1, (target.endsAt - target.startedAt) / 1000);
-  // 전체 소요시간을 폴리선 길이에 비례 배분 (등속 이동).
-  let totalLen = 0;
-  const segLens: number[] = [];
-  for (let i = 1; i < line.length; i += 1) {
-    const a = line[i - 1];
-    const b = line[i];
-    if (!a || !b) continue;
-    const len = distM(a.lat, a.lon, b.lat, b.lon);
-    segLens.push(len);
-    totalLen += len;
+  let sample = motionSamplers.get(target);
+  if (!sample) {
+    const line = movePolyline(target);
+    if (line.length < 2) return { lat: target.lat, lon: target.lon, arrived: true };
+    sample = createRouteSampler(line, (a, b) => distM(a.lat, a.lon, b.lat, b.lon));
+    motionSamplers.set(target, sample);
   }
-  if (totalLen <= 0) {
-    return { lat: target.lat, lon: target.lon, arrived: true };
-  }
-  let travel = Math.min(totalLen, (elapsedSec / totalSec) * totalLen);
-  for (let i = 1; i < line.length; i += 1) {
-    const segLen = segLens[i - 1] ?? 0;
-    const a = line[i - 1];
-    const b = line[i];
-    if (!a || !b) continue;
-    if (travel <= segLen) {
-      const t = segLen <= 0 ? 1 : travel / segLen;
-      return { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t, arrived: false };
-    }
-    travel -= segLen;
-  }
-  return { lat: target.lat, lon: target.lon, arrived: true };
+  const pos = sample(elapsedSec / Math.max(1, (target.endsAt - target.startedAt) / 1000));
+  return { lat: pos.lat, lon: pos.lon, arrived: false };
 }
 
 /** 만료 주문서 정산 (서버 권위). null = 정산 불필요.

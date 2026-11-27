@@ -534,7 +534,7 @@
   width: 100%;
   height: 4px;
   border-radius: 9999px;
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.95), rgba(14, 116, 144, 0.9));
+  background: var(--map-slider-track, linear-gradient(180deg, rgba(125, 211, 252, 0.95), rgba(14, 116, 144, 0.9)));
 }
 
 .map-zoom-slider::-webkit-slider-thumb {
@@ -542,9 +542,9 @@
   appearance: none;
   width: 14px;
   height: 14px;
-  border: 2px solid #cffafe;
+  border: 2px solid var(--map-slider-rim, #cffafe);
   border-radius: 9999px;
-  background: #0ea5e9;
+  background: var(--map-slider-thumb, #0ea5e9);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.32);
   margin-top: -5px;
 }
@@ -554,15 +554,15 @@
   height: 4px;
   border: none;
   border-radius: 9999px;
-  background: linear-gradient(180deg, rgba(125, 211, 252, 0.95), rgba(14, 116, 144, 0.9));
+  background: var(--map-slider-track, linear-gradient(180deg, rgba(125, 211, 252, 0.95), rgba(14, 116, 144, 0.9)));
 }
 
 .map-zoom-slider::-moz-range-thumb {
   width: 14px;
   height: 14px;
-  border: 2px solid #cffafe;
+  border: 2px solid var(--map-slider-rim, #cffafe);
   border-radius: 9999px;
-  background: #0ea5e9;
+  background: var(--map-slider-thumb, #0ea5e9);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.32);
 }
 
@@ -1028,3 +1028,67 @@
 .walkable-road-outline {
   vector-effect: non-scaling-stroke;
 }
+
+/* 영토 지도와 지휘 화면: 성 안 문루의 단청·놋쇠와 한지 장부를 공유한다. */
+[data-territory-map] {
+  --map-slider-track: #b59d6d;
+  --map-slider-rim: #f4e3b9;
+  --map-slider-thumb: #a3773d;
+  --palace-ink: #392d20;
+  --palace-pine: #284d43;
+  --palace-brass: #a48450;
+  --palace-paper: #f8edcf;
+  --palace-ridge: repeating-linear-gradient(96deg,#283b3b 0 6px,#52605a 7px 9px,#303e40 10px 14px);
+  --palace-grain: repeating-linear-gradient(4deg,transparent 0 4px,#97703e08 5px,transparent 6px 11px);
+  --palace-serif: "Noto Serif KR", "AppleMyungjo", "Batang", serif;
+}
+.joseon-sheet, [data-territory-map] [data-map-panel="settings"] {
+  color: var(--palace-ink);
+  border: 1px solid var(--palace-brass);
+  border-top: 5px solid var(--palace-pine);
+  border-radius: 4px;
+  background: var(--palace-grain), linear-gradient(100deg,#ecddba,#fff5dc 45%,#f1e3c5);
+  box-shadow: inset 0 2px #c5a16b,inset 0 0 0 4px #ad8d5525,0 4px 15px #241b1160;
+}
+.joseon-sheet :is(h2,h3,.text-base.font-black), .joseon-dashboard header, .joseon-tab,
+[data-territory-map] :is(#map-marker-dialog-title,[data-map-panel="settings"] h2,[data-map-panel="settings"] h3) {
+  font-family: var(--palace-serif); letter-spacing: .035em;
+}
+.joseon-sheet > div:first-child:has(> p.text-base) {
+  border-bottom: 1px solid #bda276; padding: .35rem .3rem .5rem; margin-bottom: .5rem;
+}
+.joseon-command,.joseon-button,.joseon-tab {
+  border: 1px solid #9e8350; border-radius: 3px; min-height: 36px;
+  padding: .35rem .85rem; font-weight: 750; font-size: .875rem;
+  box-shadow: inset 0 0 0 2px #fff4d61a;
+}
+.joseon-command { background: linear-gradient(#395f51,#24483e); color: #fff3d1; }
+.joseon-button { background: #eddfbb; color: #453426; }
+.joseon-tab { background: #3b3025; color: #ffecc0; }
+.joseon-tab:first-child { background: #805041; color: #fff4d1; }
+.joseon-sheet button:focus-visible,.joseon-tab:focus-visible,.gather-worker:focus-visible { outline: 2px solid #b86832; outline-offset: 2px; }
+.joseon-sheet button:disabled { opacity: .5; cursor: default; }
+.joseon-dock,.joseon-dashboard,.joseon-war-panel,[data-territory-map] [data-map-panel="marker"] {
+  border: 1px solid var(--palace-brass); border-radius: 4px;
+  background: linear-gradient(115deg,#293f38,#263930 65%,#382c22);
+  box-shadow: inset 0 0 0 2px #e2c99222,0 4px 14px #271b1354;
+}
+.joseon-dashboard { background: #352b20; }
+.joseon-dashboard header,.joseon-dock {
+  background: var(--palace-ridge) top/100% 6px no-repeat,linear-gradient(#31594c,#223e36);
+  padding-top: .65rem; border-bottom: 2px solid #996546;
+}
+.joseon-dashboard header p::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: .4rem; background: #a54c3b; border: 1px solid #f0be79; }
+.joseon-dashboard header + div { background: #3c3327; }
+.joseon-dashboard [aria-label="자원"] { background: #302c23; }
+[data-territory-map] [data-map-panel="marker"] > div:first-child { background: #31564a; border-bottom: 2px solid #b68d57; }
+[data-territory-map] [data-map-panel="controls"] :is(button,[class*="backdrop-blur"]) { background-color: #293d32f2; border-color: #ac915e; color: #fff0cb; }
+[data-territory-map] [data-map-panel="controls"] input { accent-color: #ccaa64; }
+[data-territory-map] [data-map-panel="settings"] :is(button.bg-white,.bg-slate-50) { background-color: #fff3d8; border-color: #ae956f; border-radius: 4px; }
+.worker-roster-row { display:flex; align-items:center; gap:.65rem; padding:.35rem .7rem; text-align:left; background:#fff5dc; border:1px solid #bc9e72; border-left:3px solid #577361; border-radius:3px; }
+.worker-portrait { display:inline-block; width:38px; height:38px; flex:none; background:#e9dcbf url("/markers/farmer_walk_pick_sheet.png") left center/800% 100% no-repeat; border:1px solid #b49b73; border-radius:3px; }
+button.gather-worker { border:0; background:transparent; padding:0; cursor:pointer; margin:auto; }
+.gather-worker[aria-pressed="true"] .gather-worker__label { outline:2px solid #efc16b; outline-offset:2px; }
+.farmer--idle .farmer-sprite { animation:none; }
+
+.joseon-side-actions button { border: 1px solid #aa8957; border-radius: 3px; padding-inline: .15rem; font-size: .75rem; }

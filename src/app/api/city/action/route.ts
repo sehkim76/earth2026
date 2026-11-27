@@ -30,6 +30,12 @@ function parseAction(body: unknown): CityAction | null {
     }
     case "gather":
       return typeof b.nodeId === "string" ? { type: "gather", nodeId: b.nodeId.slice(0, 64) } : null;
+    case "workerMove":
+      if (typeof b.slot !== "number" || !Number.isSafeInteger(b.slot) || b.slot < 0 ||
+          !(b.gatherId === null || typeof b.gatherId === "string" && b.gatherId.length > 0 && b.gatherId.length <= 64) ||
+          typeof b.lat !== "number" || !Number.isFinite(b.lat) || Math.abs(b.lat) > 90 ||
+          typeof b.lon !== "number" || !Number.isFinite(b.lon) || Math.abs(b.lon) > 180) return null;
+      return { type: "workerMove", slot: b.slot, gatherId: b.gatherId, lat: b.lat, lon: b.lon };
     case "recall":
       return typeof b.gatherId === "string" ? { type: "recall", gatherId: b.gatherId.slice(0, 64) } : null;
     default:
@@ -52,12 +58,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   const action = parseAction(body);
   if (!action) return NextResponse.json({ ok: false, code: "invalid", message: "잘못된 요청입니다." }, { status: 400 });
   try {
-    if (action.type === "gather") {
+    if (action.type === "gather" || action.type === "workerMove") {
       // 일꾼은 도로로만 다닌다 — 잠금 밖에서 경로를 먼저 찾는다 (클라이언트가 보낸 경로는 받지 않는다)
       const origin = new URL(request.url).origin;
       setGraphBaseUrl(origin);
       setRasterBaseUrl(origin);
-      action.route = await planGatherRoute(userId, ctx.missionKey, action.nodeId);
+      if (action.type === "gather") action.route = await planGatherRoute(userId, ctx.missionKey, action.nodeId);
     }
     const v = await runCity(userId, ctx.missionKey, action);
     return NextResponse.json({ ok: true, ...v });

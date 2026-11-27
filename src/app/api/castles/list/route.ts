@@ -52,6 +52,23 @@ export async function GET() {
         ownerIds.add(meta.owner);
       }
     }
+    // 성 내정은 영주당 하나이며, 가장 먼저 세운 영주성이 본성이다.
+    const homes = new Map<string, string>();
+    for (const { key, meta } of [...parsed].sort((a, b) =>
+      String(a.meta.createdAt ?? "").localeCompare(String(b.meta.createdAt ?? "")) || a.key.localeCompare(b.key))) {
+      if (meta.kind === "lord" && meta.owner && !homes.has(meta.owner)) homes.set(meta.owner, key);
+    }
+    const cityRows = homes.size ? await prisma.$queryRaw<{ userId: string; keep: string | null; build: { key?: string; endsAt?: number; toLevel?: number } | null }[]>`
+      SELECT "userId", data #>> '{buildings,keep}' AS keep, data -> 'build' AS build
+      FROM "TerritoryCity" WHERE "missionKey" = ${ctx.missionKey}
+    ` : [];
+    const keepByCastle = new Map<string, number>();
+    const now = Date.now();
+    for (const row of cityRows) {
+      const key = homes.get(row.userId);
+      if (key) keepByCastle.set(key, row.build?.key === "keep" && Number(row.build.endsAt) <= now ?
+        Number(row.build.toLevel) : Number(row.keep) || 1);
+    }
     const nickRows =
       ownerIds.size > 0
         ? await prisma.missionUser.findMany({
@@ -114,6 +131,7 @@ export async function GET() {
       castles.push({
         castleKey: key,
         kind: meta.kind,
+        keepLevel: keepByCastle.get(key) ?? 1,
         name: nameByKey.get(key) ?? key,
         owner: meta.owner,
         ownerNickname: meta.owner ? (nickById.get(meta.owner) ?? "") : "",

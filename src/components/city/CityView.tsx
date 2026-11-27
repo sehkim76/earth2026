@@ -26,6 +26,7 @@ import {
   gatherLoad,
   gatherParties,
   gatherPhase,
+  WORKER_PHASE_LABEL,
   multiplyCost,
   productionPerHour,
   researchCost,
@@ -410,19 +411,19 @@ export function CityView({ open, onClose }: CityViewProps) {
                       ) : (
                         s.gathers.map((g) => {
                           const ph = gatherPhase(g, now);
-                          const label = ph.phase === "going" ? "가는 중" : ph.phase === "gathering" ? "채집 중" : "돌아오는 중";
+                          const label = WORKER_PHASE_LABEL[ph.phase];
                           const until = ph.phase === "going" ? g.arriveAt : ph.phase === "gathering" ? g.doneAt : g.returnAt;
                           return (
                             <div key={g.id} data-city-surface="row" className={ROW_CLASS}>
                               <div className="flex items-center justify-between">
                                 <p className="flex items-center gap-1 text-sm font-black">
-                                  <ResourceIcon kind={g.kind} /> {RESOURCE_LABEL[g.kind]} {fmtNum(g.amount)}
+                                  {g.order && !g.amount ? "일꾼 부대" : <><ResourceIcon kind={g.kind} /> {RESOURCE_LABEL[g.kind]} {fmtNum(g.amount)}</>}
                                 </p>
                                 <p className="text-xs font-bold text-[#354b3c]">
-                                  {label} · {fmtRemain(until - now)}
+                                  {label}{ph.phase !== "waiting" && ` · ${fmtRemain(until - now)}`}
                                 </p>
                               </div>
-                              <CityProgress value={progress(g.startedAt, g.returnAt)} label="채집 일정 진행률" />
+                              {ph.phase !== "waiting" && <CityProgress value={progress(g.startedAt, g.order && ph.phase === "going" ? g.arriveAt : g.returnAt)} label="일꾼 일정 진행률" />}
                               {ph.phase !== "returning" ? (
                                 <button
                                   type="button"

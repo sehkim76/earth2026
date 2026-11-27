@@ -105,7 +105,7 @@ export default function TerritoryDash() {
 
   if (!me) {
     return (
-      <div className="pointer-events-auto w-max max-w-[72vw] whitespace-nowrap rounded-2xl border border-[#b9995d]/70 bg-[#14201f]/95 p-3 text-[#f3e8ce]">
+      <div className="joseon-dashboard pointer-events-auto w-max max-w-[72vw] whitespace-nowrap rounded-2xl border border-[#b9995d]/70 bg-[#14201f]/95 p-3 text-[#f3e8ce]">
         <p className="text-sm font-black">지휘 상황판</p>
         <p className="mt-1 text-xs text-[#c8bea8]">전황을 불러오는 중…</p>
       </div>
@@ -115,10 +115,10 @@ export default function TerritoryDash() {
   return (
     <section
       aria-label="영토전 지휘 상황"
-      className="pointer-events-auto w-max max-w-[72vw] overflow-hidden rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 text-[#f3e8ce]"
+      className="joseon-dashboard pointer-events-auto w-max max-w-[72vw] overflow-hidden rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 text-[#f3e8ce]"
     >
       <header className="flex items-center gap-2 whitespace-nowrap bg-[#1c2c28] px-2.5 py-1.5">
-        <p className="text-xs font-black leading-none">영토전 지휘 상황판</p>
+        <p className="text-xs font-black leading-none">영지 상황판</p>
         <span className="rounded-md bg-[#344333] px-1.5 py-0.5 text-[11px] font-black text-[#f0d99d]">
           {CLASS_LABEL[me.class] ?? me.class}
         </span>

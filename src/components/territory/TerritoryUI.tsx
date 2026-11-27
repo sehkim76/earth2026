@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { VisibleWorker } from "@/lib/city";
-import { noteServerTime } from "@/lib/server-clock";
+import { gatherParties, gatherPhase, WORKER_PHASE_LABEL, type VisibleWorker } from "@/lib/city";
+import { noteServerTime, serverNow } from "@/lib/server-clock";
 import { territoryOwnerColor } from "@/lib/territory-colors";
 import { CITY_EVENT, fetchCity, type CityHome, type CityViewData } from "@/components/city/city-client";
 import { CityView } from "@/components/city/CityView";
@@ -59,6 +59,7 @@ interface TerritoryUIProps {
   panToLocation: (lat: number, lon: number) => void;
   getPlayerLocation: () => { lat: number; lon: number } | null;
   isLocationVisible: (lat: number, lon: number) => boolean;
+  workerCity: CityViewData | null;
   onVisibleWorkers: (workers: VisibleWorker[]) => void;
   onUnitMarks: (marks: { id: string; name: string; lat: number; lon: number; mine: boolean; moving: boolean; selected: boolean; injured?: boolean; ownerId?: string; ownerName?: string; outlawTier?: 1 | 2 | 3; outlawWinRate?: number | null; moveTarget: { fromLat: number; fromLon: number; lat: number; lon: number; startedAt: number; endsAt: number; via: Array<{ lat: number; lon: number }> | null } | null }[]) => void;
   unitMarkerSelection: { id: string; nonce: number } | null;
@@ -346,14 +347,14 @@ const messageOf = (error: unknown): string => {
 };
 
 const sheetStyle =
-  "fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto max-h-[min(64dvh,620px)] w-auto max-w-xl overflow-y-auto rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]";
+  "joseon-sheet fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto max-h-[min(64dvh,620px)] w-auto max-w-xl overflow-y-auto rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]";
 
 const buttonPrimary =
-  "min-h-[33px] rounded-xl bg-[#263b31] px-4 py-1 text-sm font-black tracking-wide text-[#fff4d8] active:translate-y-0.5 active:bg-[#344a3d] disabled:opacity-40";
+  "joseon-command min-h-[33px] rounded-xl bg-[#263b31] px-4 py-1 text-sm font-black tracking-wide text-[#fff4d8] active:translate-y-0.5 active:bg-[#344a3d] disabled:opacity-40";
 const buttonGhost =
-  "min-h-[33px] rounded-xl border border-[#8e7954]/55 bg-[#e5dac3] px-3 py-1 text-sm font-black tracking-wide text-[#26352d] active:translate-y-0.5 active:bg-[#d9c9a8] disabled:opacity-40";
+  "joseon-button min-h-[33px] rounded-xl border border-[#8e7954]/55 bg-[#e5dac3] px-3 py-1 text-sm font-black tracking-wide text-[#26352d] active:translate-y-0.5 active:bg-[#d9c9a8] disabled:opacity-40";
 const buttonOriginal =
-  "min-h-[33px] rounded-[16px] border border-slate-300 bg-white px-4 py-1 text-sm font-black tracking-wide text-slate-700 active:translate-y-0.5 disabled:opacity-40";
+  "joseon-tab min-h-[33px] rounded-[16px] border border-slate-300 bg-white px-4 py-1 text-sm font-black tracking-wide text-slate-700 active:translate-y-0.5 disabled:opacity-40";
 const inputStyle =
   "min-h-[33px] w-full rounded-xl border border-[#8e7954]/50 bg-[#fffaf0] px-3 py-1 text-sm font-bold text-[#202821] outline-none focus:border-[#a77b35]";
 
@@ -554,6 +555,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   // refreshUnits를 units/movingUnitIds에 의존시키면 콜백 identity가 바뀌어
   // 마운트 effect가 반복 실행되는 순환이 생기므로 ref로 최신값을 참조한다.
   const unitsRef = useRef<UnitInfo[]>([]);
+  const activeUnitRoutes = useRef(new Map<string, UnitMoveTarget>());
   const movingUnitIdsRef = useRef<Set<string>>(new Set());
   const selectedUnitRef = useRef<string | null>(null);
   const moveSheetOpenRef = useRef(false);
@@ -786,7 +788,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           moving: movingIds.has(unit.id),
           selected: isDialogSelected(unit.id),
           injured: typeof unit.injuredUntil === "number" && unit.injuredUntil > Date.now(),
-          moveTarget: null,
+          moveTarget: movingIds.has(unit.id) ? activeUnitRoutes.current.get(unit.id) ?? null : null,
         }));
       onUnitMarks([...ownMarks, ...otherMarks, ...toNeutralMarks(neutralUnitsRef.current)]);
     } catch {
@@ -1334,7 +1336,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             moving: movingUnitIds.includes(s.id),
             selected: s.id === selectedUnit && sheet === "move",
             injured: typeof s.injuredUntil === "number" && s.injuredUntil > Date.now(),
-            moveTarget: null,
+            moveTarget: movingUnitIds.includes(s.id) ? activeUnitRoutes.current.get(s.id) ?? null : null,
           })),
         ...otherUnitMarks,
         ...toNeutralMarks(neutralUnitsRef.current),
@@ -1459,6 +1461,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         })()
       : null;
   const canJoinHere = castleDistM !== null && castleDistM <= 100;
+  const showMembershipActions = detail && (detail.kind !== "lord" || detail.isOwner || detail.owner === null);
 
   const doJoin = (transfer: boolean): Promise<void> =>
     runAction(async () => {
@@ -2910,6 +2913,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       via: null,
       path,
     };
+    activeUnitRoutes.current.set(unitId, orderLike);
     setMoveProgressMap((prev) => ({
       ...prev,
       [unitId]: {
@@ -2975,6 +2979,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       };
       requestAnimationFrame(tick);
     });
+    if (activeUnitRoutes.current.get(unitId) === orderLike) activeUnitRoutes.current.delete(unitId);
     const arrived = path[path.length - 1] ?? { lat: destLat, lon: destLon };
     if (finalize && movingUnitIdsRef.current.has(unitId)) {
       // 도착 확정은 runAction busy 게이트를 타지 않고 직접 기록한다 (동시 이동 허용).
@@ -3393,7 +3398,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   };
 
   // 지도 또는 전투 화면이 현재 창을 그리는 동안에도 부대 이동과 폴링은 계속 처리한다.
-  if (props.choosingStart || dialog?.kind === "marker" || dialog?.kind === "settings" || dialog?.kind === "start" ||
+  if (props.choosingStart || dialog?.kind === "worker" || dialog?.kind === "marker" || dialog?.kind === "settings" || dialog?.kind === "start" ||
       dialog?.kind === "outlawFormation" || dialog?.kind === "castleFormation" || dialog?.kind === "battle") {
     return null;
   }
@@ -3413,7 +3418,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             aria-modal="true"
             aria-labelledby="territory-action-dialog-title"
             aria-describedby="territory-action-dialog-message"
-            className="w-full max-w-sm rounded-2xl border border-[#a77b35] bg-[#f2ead8] p-4 text-[#202821]"
+            className="joseon-sheet w-full max-w-sm rounded-2xl border border-[#a77b35] bg-[#f2ead8] p-4 text-[#202821]"
           >
             <h2 id="territory-action-dialog-title" className="text-base font-black">
               {actionDialog.title}
@@ -3439,7 +3444,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="territory-scout-dialog-title"
-            className="w-full max-w-sm rounded-2xl border border-[#a77b35] bg-[#f2ead8] p-4 text-[#202821]"
+            className="joseon-sheet w-full max-w-sm rounded-2xl border border-[#a77b35] bg-[#f2ead8] p-4 text-[#202821]"
           >
             <h2 id="territory-scout-dialog-title" className="text-base font-black">
               {scoutResult.unitName} 정찰 결과
@@ -3490,7 +3495,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               ) : null}
             </div>
           ) : null}
-          <div className="fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto w-auto max-w-xl rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]" role="dialog" aria-modal="false" aria-labelledby="unit-movement-title">
+          <div className="joseon-sheet fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto w-auto max-w-xl rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]" role="dialog" aria-modal="false" aria-labelledby="unit-movement-title">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div>
                 <p id="unit-movement-title" className="text-base font-black text-slate-900">{isLordSelected ? "영주 이동" : "부대 이동"}</p>
@@ -3652,7 +3657,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           </div>
         </>
       ) : sheet !== null || castleKey ? null : (
-        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-20 z-[1100] mx-auto grid w-auto max-w-md grid-cols-3 gap-1 rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 p-1.5">
+        <div className="joseon-dock fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 right-20 z-[1100] mx-auto grid w-auto max-w-md grid-cols-3 gap-1 rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 p-1.5">
           <button
             type="button"
             onClick={openCity}
@@ -3715,7 +3720,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         </div>
       )}
 
-      <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] right-3 z-[1100] flex w-[4.25rem] flex-col gap-1.5">
+      <div className="joseon-side-actions fixed bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] right-3 z-[1100] flex w-[4.25rem] flex-col gap-1.5">
         <button
           type="button"
           disabled={healingLord}
@@ -4010,8 +4015,24 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   </div>
                 ) : null}
               </div>
+              {props.workerCity?.home && <div className="my-2 grid gap-1" aria-label="일꾼 부대 목록">
+                {Array.from({ length: gatherParties(props.workerCity.state.buildings.camp) }, (_, slot) => {
+                  const now = serverNow();
+                  const job = props.workerCity?.state.gathers.find(g => g.slot === slot && g.returnAt > now);
+                  const pos = job ? gatherPhase(job, now) : props.workerCity?.home;
+                  return <button key={slot} type="button" className="worker-roster-row" onClick={() => {
+                    if (pos) panToLocation(pos.lat, pos.lon);
+                    openDialog({ kind: "worker", selection: { slot } });
+                  }}>
+                    <span className="worker-portrait" aria-hidden="true" />
+                    <strong>일꾼 {slot + 1}부대</strong>
+                    <span className="ml-auto text-xs">{job ? WORKER_PHASE_LABEL[gatherPhase(job, now).phase] : "성내 대기"}</span>
+                    <span aria-hidden="true">›</span>
+                  </button>;
+                })}
+              </div>}
               {units.length === 0 ? (
-              <p className="py-3 text-center text-sm text-slate-500">파견된 부대가 없습니다.</p>
+              <p className="py-3 text-center text-sm text-slate-500">파견된 전투 부대가 없습니다.</p>
             ) : (
               <ul className="flex flex-col gap-1">
               {units.map((s) => (
@@ -4272,7 +4293,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   공성 쿨다운 {Math.ceil(detail.cooldownSec / 60)}분 남음
                 </p>
               ) : null}
-              {!detail.myMemberCastle ? (
+              {showMembershipActions && !detail.myMemberCastle ? (
                 <button
                   type="button"
                   disabled={busy || !canJoinHere}
@@ -4294,7 +4315,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   전투로 공격 (60초)
                 </button>
               ) : null}
-              {detail && !detail.myMemberCastle && castleDistM !== null && !canJoinHere ? (
+              {showMembershipActions && !detail.myMemberCastle && castleDistM !== null && !canJoinHere ? (
                 <p className="text-xs text-slate-500">
                   입성은 성 100m 이내에서 가능합니다 (현재{" "}
                   {castleDistM >= 1000
@@ -4303,7 +4324,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   ).
                 </p>
               ) : null}
-              {detail.myMemberCastle ? (
+              {showMembershipActions && detail.myMemberCastle ? (
                 <button
                   type="button"
                   disabled={busy}

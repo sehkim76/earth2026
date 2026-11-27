@@ -21,6 +21,9 @@ import {
   distanceM,
   emptyTroops,
   gatherLoad,
+  gatherPhase,
+  type GatherJob,
+  workerCargo,
   gatherParties,
   gatherRatePerSec,
   multiplyCost,
@@ -156,7 +159,7 @@ export async function findHomeCastle(db: Tx | typeof prisma, userId: string, mis
   const mine = events
     .map((e) => ({ key: e.EventKey ?? "", meta: parseCastleMeta(e.string_param1) }))
     .filter((c) => c.key && c.meta && c.meta.owner === userId && c.meta.kind === "lord" && c.meta.seasonId === seasonId)
-    .sort((a, b) => String(a.meta?.createdAt ?? "").localeCompare(String(b.meta?.createdAt ?? "")));
+    .sort((a, b) => String(a.meta?.createdAt ?? "").localeCompare(String(b.meta?.createdAt ?? "")) || a.key.localeCompare(b.key));
   const first = mine[0];
   if (!first) return null;
   const gps = await client.aRMissionGPS.findFirst({
@@ -249,16 +252,61 @@ function view(
   };
 }
 
+interface WorkerMove {
+  type: "workerMove";
+  slot: number;
+  gatherId: string | null;
+  lat: number;
+  lon: number;
+}
+interface WorkerRoute {
+  path: Array<[number, number]>;
+  startedAt: number | null;
+  recalled: boolean;
+  homeKey: string;
+}
+
+async function planWorkerRoute(userId: string, missionKey: string, action: WorkerMove): Promise<WorkerRoute> {
+  const row = await prisma.territoryCity.findUnique({ where: { userId }, select: { data: true } });
+  const now = Date.now();
+  const job = parseCityState(row?.data, now).gathers.find(g => g.id === action.gatherId && g.returnAt > now);
+  if (action.gatherId && !job) throw new CityError("gone", 409, "일꾼이 이미 귀환했습니다.");
+  const home = await findHomeCastle(prisma, userId, missionKey);
+  if (!home) throw new CityError("no_home", 409, "영주성이 필요합니다.");
+  const from = job ? gatherPhase(job, now) : home;
+  const to = action;
+  if (distanceM(home, to) > GATHER_MAX_DISTANCE_M) throw new CityError("too_far", 400, "영주성에서 4km 안의 길을 선택하세요.");
+  const result = await findServerRoute(from.lat, from.lon, to.lat, to.lon);
+  if (!result.ok || result.path.length < 2) throw new CityError("no_road", 409, "연결된 길을 찾지 못했습니다.");
+  const path = thinRoute(result.path);
+  if (distanceM(result.path[0]!, from) > (job ? 100 : ROUTE_END_TOLERANCE_M) ||
+      distanceM(result.path[result.path.length - 1]!, to) > 100 ||
+      pathLengthM(path) > GATHER_MAX_ROAD_M) throw new CityError("no_road", 409, "가까운 길 위의 목적지를 선택하세요.");
+  return { path, startedAt: job?.startedAt ?? null, recalled: !!job?.recalled, homeKey: home.castleKey };
+}
+
+/** 영주성부터 현재 위치까지 실제로 지나온 길. 새 이동·귀환은 이 지점에서 이어진다. */
+function travelledTrail(g: GatherJob, now: number): Array<[number, number]> {
+  const path: Array<[number, number]> = g.path?.length ? g.path : [[g.fromLat, g.fromLon], [g.lat, g.lon]];
+  const fraction = now < g.arriveAt ? (now - g.startedAt) / Math.max(1, g.arriveAt - g.startedAt) :
+    now < g.doneAt ? 1 : (g.returnAt - now) / Math.max(1, g.returnAt - g.doneAt);
+  const leg = truncatePath(path, pathLengthM(path) * Math.max(0, Math.min(1, fraction)));
+  const points = [...(g.homeTrail ?? []), ...leg].map(([lat, lon]) => ({ lat, lon }));
+  return thinRoute(points);
+}
+
 export type CityAction =
   | { type: "upgrade"; building: BuildingKey }
   | { type: "research"; tech: TechKey }
   | { type: "train"; troop: TroopKind; count: number }
   | { type: "assign"; commanderId: string; troops: TroopCounts }
   | { type: "gather"; nodeId: string; route?: Array<[number, number]> }
+  | WorkerMove
   | { type: "recall"; gatherId: string };
 
 /** 잠금 안에서 정산 → (행동) → 저장. 행동이 없으면 조회. */
 export async function runCity(userId: string, missionKey: string, action: CityAction | null): Promise<CityView> {
+  const workerRoute = action?.type === "workerMove" ? await planWorkerRoute(userId, missionKey, action) : null;
   const gatherNode = action?.type === "gather" ? await nodeById(action.nodeId, Date.now()) : null;
   return withNamedLock(`city:${userId}`, async (tx) => {
     const now = Date.now();
@@ -275,7 +323,7 @@ export async function runCity(userId: string, missionKey: string, action: CityAc
       if (!home && action.type !== "assign") {
         throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
       }
-      const goldCost = applyAction(state, action, now, home, commanders, events, gatherNode);
+      const goldCost = applyAction(state, action, now, home, commanders, events, gatherNode, workerRoute);
       if (goldCost > 0) {
         const ok = await spendInfluence(tx, userId, goldCost);
         // 금이 모자라면 트랜잭션 전체를 되돌린다 (석재 등 차감도 저장 전이라 함께 취소)
@@ -304,6 +352,7 @@ function applyAction(
   commanders: CommanderListItem[],
   events: string[],
   gatherNode: ResourceNode | null,
+  workerRoute: WorkerRoute | null,
 ): number {
   switch (action.type) {
     case "upgrade": {
@@ -395,7 +444,10 @@ function applyAction(
       state.nodeUsed[node.id] = (state.nodeUsed[node.id] ?? 0) + load;
       const arriveAt = now + travelMs;
       const doneAt = arriveAt + gatherMs;
+      let slot = 0;
+      while (state.gathers.some(g => g.slot === slot)) slot++;
       state.gathers.push({
+        slot,
         id: `g${now.toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
         nodeId: node.id,
         kind: node.kind,
@@ -414,11 +466,46 @@ function applyAction(
       events.push("일꾼 부대 출발");
       return 0;
     }
+    case "workerMove": {
+      const g = state.gathers.find(job => job.slot === action.slot);
+      if (action.slot >= gatherParties(state.buildings.camp) || (g?.id ?? null) !== action.gatherId ||
+          !workerRoute || workerRoute.homeKey !== home?.castleKey || (g?.startedAt ?? null) !== workerRoute.startedAt ||
+          !!g?.recalled !== workerRoute.recalled) throw new CityError("changed", 409, "일꾼 상태가 바뀌었습니다. 다시 선택하세요.");
+      const path = workerRoute.path;
+      const head = path[0]!;
+      if (g && distanceM(gatherPhase(g, now), { lat: head[0], lon: head[1] }) > 100) throw new CityError("changed", 409, "일꾼의 현재 위치에서 다시 명령하세요.");
+      const trail = g ? travelledTrail(g, now) : [];
+      const current = trail.at(-1);
+      if (current && (current[0] !== head[0] || current[1] !== head[1])) path.unshift(current);
+      const tail = path[path.length - 1]!;
+      const amount = g ? workerCargo(g, now) : 0;
+      if (g?.nodeId) state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - amount));
+      const job = {
+        id: g?.id ?? crypto.randomUUID(), slot: action.slot, nodeId: "", order: "move" as const,
+        homeTrail: trail, kind: g?.kind ?? "wood", fromLat: path[0]![0], fromLon: path[0]![1], lat: tail[0], lon: tail[1],
+        startedAt: now, arriveAt: now + Math.round(pathLengthM(path) / workerSpeedMps(state) * 1000),
+        // 수동 명령은 귀환 명령까지 현장에 머문다. JSON과 공개 마커 조회에서 동일한 종료 시각을 사용한다.
+        doneAt: Number.MAX_SAFE_INTEGER, returnAt: Number.MAX_SAFE_INTEGER, amount, path, recalled: false,
+      };
+      if (g) Object.assign(g, job);
+      else state.gathers.push(job);
+      events.push("일꾼이 목적지로 출발했습니다.");
+      return 0;
+    }
     case "recall": {
       const g = state.gathers.find((x) => x.id === action.gatherId);
       if (!g) throw new CityError("invalid", 404, "일꾼 부대를 찾을 수 없습니다.");
       if (now >= g.doneAt) return 0; // 이미 돌아오는 중
-      const rate = gatherRatePerSec(state);
+      if (g.order === "move") {
+        const path = travelledTrail(g, now);
+        const current = path[path.length - 1]!;
+        const start = path[0]!;
+        Object.assign(g, { fromLat: start[0], fromLon: start[1], lat: current[0], lon: current[1],
+          path, homeTrail: [], startedAt: now, arriveAt: now, doneAt: now,
+          returnAt: now + Math.round(pathLengthM(path) / workerSpeedMps(state) * 1000), recalled: true });
+        events.push("일꾼 부대 귀환 명령");
+        return 0;
+      }
       let carried = 0;
       let backMs: number;
       if (now < g.arriveAt) {
@@ -435,7 +522,7 @@ function applyAction(
           g.lon = g.fromLon + (g.lon - g.fromLon) * t;
         }
       } else {
-        carried = Math.min(g.amount, Math.floor(((now - g.arriveAt) / 1000) * rate));
+        carried = workerCargo(g, now);
         backMs = g.arriveAt - g.startedAt;
       }
       state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - carried));

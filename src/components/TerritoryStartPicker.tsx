@@ -613,7 +613,7 @@ export default function TerritoryStartPicker({
 
   return (
     <div className="pointer-events-auto fixed inset-0 z-[3000] flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-slate-50 p-4 shadow-2xl">
+      <div className="joseon-sheet flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl bg-slate-50 p-4 shadow-2xl">
         <h2 className="text-lg font-black text-slate-900">영토전 시작 위치</h2>
         <p className="mt-1 text-xs text-slate-500">
           영토전에서는 GPS를 사용하지 않습니다. 시작 동네를 선택해 주세요.

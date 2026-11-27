@@ -1,3 +1,5 @@
+import { createRouteSampler } from "@/lib/route-sampler";
+
 // 영주성 내정 (순수 모듈: 서버·화면 공용). React/Next/Prisma import 금지.
 //
 // - 자원: 금(MissionUser.score, 옛 영향력) + 석재·나무·철광석(TerritoryCity.data.res)
@@ -246,6 +248,8 @@ export interface TrainJob {
   endsAt: number;
 }
 export interface GatherMovement {
+  /** 자유 이동은 목적지에서 다음 명령을 기다린다. 기존 채집 기록은 이 값이 없다. */
+  order?: "move";
   kind: ResourceKind;
   lat: number;
   lon: number;
@@ -261,6 +265,9 @@ export interface GatherMovement {
 }
 
 export interface GatherJob extends GatherMovement {
+  slot?: number;
+  /** 영주성에서 현재 이동 명령의 출발점까지 밟은 길. */
+  homeTrail?: Array<[number, number]>;
   id: string;
   nodeId: string;
   /** 실어 오는 양 (회수하면 채집한 만큼으로 줄어든다) */
@@ -269,6 +276,7 @@ export interface GatherJob extends GatherMovement {
 }
 
 export interface VisibleWorker extends GatherMovement {
+  id: string;
   ownerNickname: string;
 }
 
@@ -368,6 +376,14 @@ export function parseCityState(raw: unknown, now: number): CityState {
     typeof o.castleKey === "string" && num(o.at) > 0 && typeof o.by === "string" &&
     (typeof o.defended === "boolean" || o.defended === null) && typeof o.conquered === "boolean",
   );
+  const gathers = Array.isArray(raw.gathers) ? raw.gathers.filter((g) => isObj(g) && typeof g.returnAt === "number") as unknown as GatherJob[] : [];
+  const occupied = new Set(gathers.map(g => g.slot));
+  let nextSlot = 0;
+  for (const g of gathers) {
+    if (g.slot !== undefined) continue;
+    while (occupied.has(nextSlot)) nextSlot++;
+    g.slot = nextSlot++;
+  }
   return {
     v: 1,
     res: { stone: Math.max(0, num(res.stone, base.res.stone)), wood: Math.max(0, num(res.wood, base.res.wood)), iron: Math.max(0, num(res.iron, base.res.iron)) },
@@ -378,7 +394,7 @@ export function parseCityState(raw: unknown, now: number): CityState {
     training,
     reserve: readTroops(raw.reserve),
     assigned,
-    gathers: Array.isArray(raw.gathers) ? (raw.gathers.filter((g) => isObj(g) && typeof g.returnAt === "number") as unknown as GatherJob[]) : [],
+    gathers,
     nodeUsed,
     settledAt: num(raw.settledAt, now),
     goldAcc: Math.max(0, num(raw.goldAcc)),
@@ -461,7 +477,7 @@ export function settleCity(state: CityState, now: number): { state: CityState; g
     if (g.returnAt <= now) {
       if (g.kind === "gold") goldGain += Math.floor(g.amount);
       else s.res[g.kind] = Math.min(Math.max(cap, s.res[g.kind]), s.res[g.kind] + g.amount);
-      events.push(`일꾼 귀환: ${RESOURCE_LABEL[g.kind]} +${Math.floor(g.amount)}`);
+      events.push(g.amount > 0 ? `일꾼 귀환: ${RESOURCE_LABEL[g.kind]} +${Math.floor(g.amount)}` : "일꾼이 영주성에 귀환했습니다.");
     } else {
       keep.push(g);
     }
@@ -543,35 +559,38 @@ export function truncatePath(path: ReadonlyArray<readonly [number, number]>, d: 
   return out;
 }
 
-/** 경로 위 비율 t(0~1) 지점과 진행 방향(동쪽이면 1, 서쪽이면 -1) */
-function pointAlong(path: ReadonlyArray<readonly [number, number]>, t: number): { lat: number; lon: number; dir: 1 | -1 } {
-  const total = pathLengthM(path);
-  const cut = truncatePath(path, total * Math.max(0, Math.min(1, t)));
-  const end = cut[cut.length - 1] ?? [0, 0];
-  const prev = cut.length >= 2 ? (cut[cut.length - 2] as [number, number]) : (path[1] ?? end);
-  const dLon = cut.length >= 2 ? end[1] - prev[1] : prev[1] - end[1];
-  return { lat: end[0], lon: end[1], dir: dLon < 0 ? -1 : 1 };
-}
+const workerSamplers = new WeakMap<object, ReturnType<typeof createRouteSampler>>();
 
-export type GatherPhaseKind = "going" | "gathering" | "returning";
+export type GatherPhaseKind = "going" | "gathering" | "waiting" | "returning";
+export const WORKER_PHASE_LABEL: Record<GatherPhaseKind, string> = {
+  going: "이동 중", gathering: "채집 중", waiting: "현장 대기", returning: "귀환 중",
+};
+
+export function workerCargo(g: GatherJob, now: number): number {
+  if (g.order === "move" || now >= g.doneAt || g.recalled) return g.amount;
+  const share = Math.max(0, now - g.arriveAt) / Math.max(1, g.doneAt - g.arriveAt);
+  return Math.min(g.amount, Math.floor(g.amount * share));
+}
 
 /** 일꾼 부대의 현재 위치·단계 (화면 표시용). 도로 경로가 있으면 경로를 따라 움직인다. */
 export function gatherPhase(g: GatherMovement, now: number): { phase: GatherPhaseKind; lat: number; lon: number; dir: 1 | -1 } {
-  const path: Array<[number, number]> =
-    g.path && g.path.length >= 2
-      ? g.path
-      : [
-          [g.fromLat, g.fromLon],
-          [g.lat, g.lon],
-        ];
+  const key = g.path ?? g;
+  let sample = workerSamplers.get(key);
+  if (!sample) {
+    const points = g.path && g.path.length >= 2 ? g.path.map(([lat, lon]) => ({ lat, lon })) :
+      [{ lat: g.fromLat, lon: g.fromLon }, { lat: g.lat, lon: g.lon }];
+    sample = createRouteSampler(points, distanceM);
+    workerSamplers.set(key, sample);
+  }
   if (now < g.arriveAt) {
     const t = (now - g.startedAt) / Math.max(1, g.arriveAt - g.startedAt);
-    return { phase: "going", ...pointAlong(path, t) };
+    return { phase: "going", ...sample(t) };
   }
   if (now < g.doneAt) {
-    const face = pointAlong(path, 1);
-    return { phase: "gathering", lat: g.lat, lon: g.lon, dir: face.dir };
+    const face = sample(1);
+    return { phase: g.order === "move" ? "waiting" : "gathering", lat: g.lat, lon: g.lon, dir: face.dir };
   }
   const t = (now - g.doneAt) / Math.max(1, g.returnAt - g.doneAt);
-  return { phase: "returning", ...pointAlong([...path].reverse(), t) };
+  const pos = sample(1 - t);
+  return { ...pos, phase: "returning", dir: pos.dir === 1 ? -1 : 1 };
 }

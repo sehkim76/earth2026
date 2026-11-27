@@ -22,7 +22,10 @@ export interface ScoutResult {
 
 export type TerritorySheet = "castles" | "units" | "move" | "build" | "rank";
 
+export type WorkerSelection = { slot: number } | { foreignId: string };
+
 export type MapDialog =
+  | { kind: "worker"; selection: WorkerSelection }
   | { kind: "marker"; panel: MarkerPanel }
   | { kind: "castle" | "manage"; castleKey: string }
   | { kind: "sheet"; sheet: TerritorySheet }

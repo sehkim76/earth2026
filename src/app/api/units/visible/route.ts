@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { RESOURCE_KINDS, type GatherMovement, type VisibleWorker } from "@/lib/city";
+import { RESOURCE_KINDS, type GatherJob, type VisibleWorker } from "@/lib/city";
 import prisma from "@/lib/prismadb";
 import { loadUnits, positionAtMoveTarget } from "@/lib/units";
 import {
@@ -10,7 +10,7 @@ import {
 } from "@/lib/territory";
 
 async function readVisibleWorkers(userId: string, missionKey: string, now: number): Promise<VisibleWorker[]> {
-  const rows = await prisma.$queryRaw<{ nickname: string; job: GatherMovement }[]>`
+  const rows = await prisma.$queryRaw<{ nickname: string; job: GatherJob }[]>`
     SELECT u.nickname, active.job
     FROM "TerritoryCity" c
     JOIN "MissionUser" u ON u."userId" = c."userId" AND u."ARMissionKey" = c."missionKey"
@@ -28,7 +28,7 @@ async function readVisibleWorkers(userId: string, missionKey: string, now: numbe
     const validPath = Array.isArray(path) && path.every((point) =>
       Array.isArray(point) && point.length === 2 && point.every(Number.isFinite));
     return [{
-      ownerNickname: nickname, kind, lat, lon, fromLat, fromLon, startedAt, arriveAt, doneAt, returnAt,
+      id: job.id, order: job.order, ownerNickname: nickname, kind, lat, lon, fromLat, fromLon, startedAt, arriveAt, doneAt, returnAt,
       path: validPath ? path : undefined,
     }];
   });

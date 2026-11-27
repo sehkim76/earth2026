@@ -36,6 +36,7 @@ let last: CityViewData | null = null;
 export const lastCityView = (): CityViewData | null => last;
 
 function publish(v: CityViewData): void {
+  if (last && last.now > v.now) return;
   last = v;
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent<CityViewData>(CITY_EVENT, { detail: v }));
 }
@@ -68,6 +69,7 @@ export type CityActionBody =
   | { type: "train"; troop: string; count: number }
   | { type: "assign"; commanderId: string; troops: TroopCounts }
   | { type: "gather"; nodeId: string }
+  | { type: "workerMove"; slot: number; gatherId: string | null; lat: number; lon: number }
   | { type: "recall"; gatherId: string };
 
 export const cityAction = (action: CityActionBody): ReturnType<typeof call> =>
