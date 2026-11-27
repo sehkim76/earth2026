@@ -934,12 +934,12 @@ const WALKABLE_GLOBE_SOURCE_ID = "walkable-roads";
 
 /** 지도 마커와 축성 미리보기가 공유하는 외관. */
 const CASTLE_IMAGE_BY_KIND: Record<"lord" | "noble", string> = {
-  lord: "/markers/joseon-lord-fortress.webp",
+  lord: "/markers/joseon-lord-fortress.webp?v=2",
   noble: "/markers/neutral-castle-v2.png",
 };
 
-const BANDIT_STOCKADE_IMAGE = "/markers/bandit-stockade.webp";
-const DAMAGED_LORD_CASTLE_IMAGE = "/markers/joseon-lord-fortress-damaged.webp";
+const BANDIT_STOCKADE_IMAGE = "/markers/bandit-stockade.webp?v=2";
+const DAMAGED_LORD_CASTLE_IMAGE = "/markers/joseon-lord-fortress-damaged.webp?v=2";
 
 function buildingMarkerImage(neutral: boolean, kind: string | null, damaged: boolean): string | null {
   if (neutral) return BANDIT_STOCKADE_IMAGE;
