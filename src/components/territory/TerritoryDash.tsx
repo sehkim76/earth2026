@@ -13,14 +13,6 @@ interface TerritoryMe {
   contribution: number;
 }
 
-const CLASS_LABEL: Record<string, string> = {
-  slave: "노예",
-  commoner: "평민",
-  knight: "기사",
-  noble: "귀족",
-  lord: "영주",
-};
-
 const ROLL_DIGIT_PX = 20;
 
 /** 슬롯머신식 숫자 롤러 (자릿수별 세로 릴). */
@@ -59,7 +51,7 @@ function RollingNumber({ value }: { value: number }) {
 }
 
 /** 영토전 모드 좌상단 플레이어 대시. */
-export default function TerritoryDash() {
+export default function TerritoryDash({ title }: { title: string }) {
   const [me, setMe] = useState<TerritoryMe | null>(null);
   // 금·석재·나무·철광석 (성 내정 갱신 알림으로 받는다)
   const [res, setRes] = useState<{ gold: number; stone: number; wood: number; iron: number } | null>(null);
@@ -120,7 +112,7 @@ export default function TerritoryDash() {
       <header className="flex items-center gap-2 whitespace-nowrap bg-[#1c2c28] px-2.5 py-1.5">
         <p className="text-xs font-black leading-none">영지 상황판</p>
         <span className="rounded-md bg-[#344333] px-1.5 py-0.5 text-[11px] font-black text-[#f0d99d]">
-          {CLASS_LABEL[me.class] ?? me.class}
+          {title}
         </span>
       </header>
       <div className="flex items-stretch gap-1 bg-[#263631] p-1">

@@ -71,6 +71,24 @@ export default $config({
         },
         });
 
+        if ($app.stage === "production") {
+            const engine = "libquery_engine-rhel-openssl-3.0.x.so.node";
+            new sst.aws.Cron("NationVoteDeadline", {
+                schedule: "rate(1 minute)",
+                function: {
+                    handler: "src/lib/nation-ratification.handler",
+                    runtime: "nodejs20.x",
+                    architecture: "x86_64",
+                    timeout: "60 seconds",
+                    environment: {
+                        DATABASE_URL: process.env.DATABASE_URL!,
+                        PRISMA_QUERY_ENGINE_LIBRARY: `/var/task/${engine}`,
+                    },
+                    copyFiles: [{ from: `src/generated/prisma/${engine}`, to: engine }],
+                },
+            });
+        }
+
         return {
         url: site.url,
         };

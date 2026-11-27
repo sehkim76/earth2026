@@ -127,6 +127,7 @@ import {
 } from "@/lib/walkable-overlay";
 import type { WalkableSurface } from "@/lib/walkable-surface";
 import { nodesInBounds } from "@/lib/resource-nodes";
+import { useNationCouncil } from "@/components/territory/nation-council";
 import TerritoryDash from "@/components/territory/TerritoryDash";
 import TerritoryStartPicker, { type TerritoryStart } from "@/components/TerritoryStartPicker";
 import type { AttackApproachRequest, CastleBuildDraft } from "@/components/territory/TerritoryUI";
@@ -290,6 +291,7 @@ type GeoResult = {
 };
 
 type NearbyPlayer = {
+  title?: string;
   userId: string;
   nickname: string;
   lat: number;
@@ -695,11 +697,9 @@ type TerritoryRelation = "mine" | "alliance" | "nap" | "war" | "none";
 const isTerritoryRelation = (v: unknown): v is TerritoryRelation =>
   v === "mine" || v === "alliance" || v === "nap" || v === "war" || v === "none";
 interface TerritoryDongOwner {
-  ownerId: string;
-  nickname: string;
-  /** 색 기준 (국가 id, 국가가 없으면 영주 id) */
+  /** 승인된 국가 ID */
   colorKey: string;
-  /** 범례 이름 (정식 국가명, 1인 국가는 영주 닉네임) */
+  /** 선포한 국호 */
   label: string;
   relation: TerritoryRelation;
 }
@@ -733,8 +733,6 @@ const territoryFillStyle = (
     fillOpacity: own.relation === "mine" ? 0.42 : 0.35,
   };
 };
-/** 점령 지역 채우기를 보이는 최대 줌 (이 값 미만에서만 표시) */
-const TERRITORY_FILL_MAX_ZOOM = 15;
 const CLUSTER_DISTANCE_PX = 80;
 
 const clusterByPixelDistance = (
@@ -1277,6 +1275,7 @@ export default function CurrentLocationMap({
   missionKey,
 }: CurrentLocationMapProps) {
   const router = useRouter();
+  const council = useNationCouncil(territoryEnabled);
   const locationStorageKey = `${LOCATION_CACHE_KEY_PREFIX}${locationCacheKey}`;
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1299,9 +1298,7 @@ export default function CurrentLocationMap({
     return DEFAULT_ZOOM_LEVEL;
   });
   // 점령 지역(소유 동 색 채우기)은 줌 15 미만에서만 보인다 (가까이서는 무법자·자원지 등이 잘 보이게).
-  const territoryFillVisible = zoomLevel < TERRITORY_FILL_MAX_ZOOM;
-  const territoryFillVisibleRef = useRef(territoryFillVisible);
-  territoryFillVisibleRef.current = territoryFillVisible;
+
   const [isHeadingUpMode, setIsHeadingUpMode] = useState(false);
   const [mapRotationDeg, setMapRotationDeg] = useState(0);
   const [compassIconDataUrl, setCompassIconDataUrl] = useState<string | null>(null);
@@ -1527,6 +1524,7 @@ export default function CurrentLocationMap({
     siegeGauge: number;
     mySiegeGauge: number;
   }
+  const [regions, setRegions] = useState<Array<{ dong: string; id: string; name: string; relation: TerritoryRelation }>>([]);
   const [territoryCastles, setTerritoryCastles] = useState<TerritoryOwnedCastle[]>([]);
   // 성 종류표 (지도 마커 아이콘 구분용: 영주성/귀족성). 같은 /api/castles/list 폴링에서 파생한다.
   const [castleKindMap, setCastleKindMap] = useState<Map<string, { kind: string; tier: number }>>(new Map());
@@ -1540,6 +1538,7 @@ export default function CurrentLocationMap({
     if (!territoryEnabled) {
       territoryCastlesSigRef.current = null;
       setTerritoryCastles([]);
+      setRegions([]);
       return;
     }
     let cancelled = false;
@@ -1549,10 +1548,13 @@ export default function CurrentLocationMap({
         const data = (await res.json()) as {
           ok?: unknown;
           castles?: unknown;
+          regions?: typeof regions;
         };
         if (cancelled || data?.ok !== true || !Array.isArray(data.castles)) {
           return;
         }
+        const approved = Array.isArray(data.regions) ? data.regions : [];
+        setRegions(prev => JSON.stringify(prev) === JSON.stringify(approved) ? prev : approved);
         const next: TerritoryOwnedCastle[] = [];
         const nextKinds = new Map<string, { kind: string; tier: number }>();
         const nextDamaged = new Set<string>();
@@ -1632,35 +1634,18 @@ export default function CurrentLocationMap({
       }
     };
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("nation-territory-changed", onVisible);
     return () => {
+      window.removeEventListener("nation-territory-changed", onVisible);
       cancelled = true;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [territoryEnabled]);
 
-  // 동 → 소유자 (영주성 우선). 범례용 소유자 집계.
-  // 색은 국가 단위 (국가가 없거나 1인 국가면 영주 단위와 같다).
-  const ownedDongMap = useMemo(() => {
-    const map = new Map<string, TerritoryDongOwner>();
-    for (const castle of territoryCastles) {
-      if (!castle.owner || !castle.dong) {
-        continue;
-      }
-      const prev = map.get(castle.dong);
-      if (!prev || castle.kind === "lord") {
-        const nationLabel = castle.nationName && !castle.nationSolo ? castle.nationName : null;
-        map.set(castle.dong, {
-          ownerId: castle.owner,
-          nickname: castle.ownerNickname,
-          colorKey: castle.nationId ?? castle.owner,
-          label: nationLabel ?? (castle.ownerNickname || "무명"),
-          relation: castle.relation,
-        });
-      }
-    }
-    return map;
-  }, [territoryCastles]);
+  const ownedDongMap = useMemo(() => new Map<string, TerritoryDongOwner>(
+    regions.map(r => [r.dong, { colorKey: r.id, label: r.name, relation: r.relation }]),
+  ), [regions]);
   // 행정경계 레이어 생성 시 최신 소유 현황을 읽기 위한 ref (소유 변경은 setStyle 이펙트가 반영).
   const ownedDongMapRef = useRef(ownedDongMap);
   useLayoutEffect(() => {
@@ -1898,12 +1883,7 @@ export default function CurrentLocationMap({
       return null;
     }
     const order = CLASS_ORDER_LOCAL[myTerritory.klass] ?? -1;
-    // 본거지 영주성(첫 영주성)은 계급·승수 조건이 없다. 영주성이 이미 있는 동만 막는다.
-    if (castlePlacement.home) {
-      return dongCastleCounts && dongCastleCounts.lord > 0
-        ? "이 동에는 이미 영주성이 있습니다. 영주성이 없는 동으로 이동해서 세우세요."
-        : null;
-    }
+    if (castlePlacement.home) return null;
     if (castlePlacement.kind === "noble") {
       if (myTerritory.klass !== "noble" && myTerritory.klass !== "lord") {
         return "귀족 이상만 귀족성을 축성할 수 있습니다.";
@@ -1988,6 +1968,7 @@ export default function CurrentLocationMap({
       founder_ineligible: "동 최초 영주성 창시에는 평민 이상 + 전투 승리 5회가 필요합니다.",
       funds: "금이 부족합니다.",
       limit: "축성 상한을 초과했습니다.",
+      already_home: "이미 본거지 영주성이 있습니다.",
       distance: "성과의 간격 조건을 만족하지 않습니다.",
       no_lord: "영주성이 없어 귀족성을 지을 수 없습니다.",
       accuracy: "GPS 정확도가 낮습니다. 실외로 이동하세요.",
@@ -2010,6 +1991,7 @@ export default function CurrentLocationMap({
         lon: snappedLocation.lon,
         accuracy: location?.accuracy ?? 100,
         hp: current.hp,
+        home: current.home,
       }),
     })
       .then((res) => res.json().catch(() => null))
@@ -2024,11 +2006,7 @@ export default function CurrentLocationMap({
           window.location.reload();
         } else {
           const code = typeof payload?.code === "string" ? payload.code : "";
-          backToPlacement(
-            current.home && code === "limit"
-              ? "이 동에는 이미 영주성이 있습니다. 영주성이 없는 동으로 이동해서 세우세요."
-              : (codeMessage[code] ?? "축성에 실패했습니다. 다시 시도하세요."),
-          );
+          backToPlacement(codeMessage[code] ?? "축성에 실패했습니다. 다시 시도하세요.");
         }
       })
       .catch(() => {
@@ -3654,6 +3632,8 @@ interface UnitMoveAnimation {
     return "PLAYER";
   }, [playerNickname]);
 
+  const playerMapLabel = territoryEnabled ? `${council.title} ${playerLabel}` : playerLabel;
+
   const applyZoomLevel = useCallback(
     (targetZoom: number) => {
       const range = ZOOM_RANGE_BY_STYLE[mapStyle];
@@ -4200,14 +4180,14 @@ interface UnitMoveAnimation {
       if (markerRef.current) {
         if (!markerRef.current.getTooltip()) {
           // 이름표는 캐릭터 발아래 (머리 위 부상 배지 등 상태 표시를 가리지 않게)
-          markerRef.current.bindTooltip(playerLabel, {
+          markerRef.current.bindTooltip(playerMapLabel, {
             permanent: true,
             direction: "bottom",
             offset: [0, NAME_LABEL_BELOW_Y],
             className: "map-player-label",
           });
         } else {
-          markerRef.current.setTooltipContent(playerLabel);
+          markerRef.current.setTooltipContent(playerMapLabel);
         }
 
         markerRef.current.off("click");
@@ -4226,7 +4206,7 @@ interface UnitMoveAnimation {
     location,
     mapRotationDeg,
     isHeadingUpMode,
-    playerLabel,
+    playerMapLabel,
     renderablePoiPoints,
     showMarkerPanel,
     mapStyle,
@@ -4643,8 +4623,8 @@ interface UnitMoveAnimation {
       }
       if (globePlayerMarkerRef.current) {
         if (!playerMoveTarget) globePlayerMarkerRef.current.setLngLat([center.lon, center.lat]);
-        if (globePlayerLabelRef.current && globePlayerLabelRef.current.textContent !== playerLabel) {
-          globePlayerLabelRef.current.textContent = playerLabel;
+        if (globePlayerLabelRef.current && globePlayerLabelRef.current.textContent !== playerMapLabel) {
+          globePlayerLabelRef.current.textContent = playerMapLabel;
         }
         syncGlobePlayerFacingDirection(center.lon);
       } else if (activePlayerCharacter !== null) {
@@ -4665,7 +4645,7 @@ interface UnitMoveAnimation {
         wrapper.appendChild(playerMarker.element);
         const label = document.createElement("div");
         label.className = "map-player-label";
-        label.textContent = playerLabel;
+        label.textContent = playerMapLabel;
         label.style.background = "rgba(8,47,73,0.72)";
         label.style.color = "#e0f2fe";
         label.style.fontSize = "11px";
@@ -4694,7 +4674,7 @@ interface UnitMoveAnimation {
     return () => {
       isCancelled = true;
     };
-  }, [mapStyle, isGlobeReady, location, playerLocation, activePlayerCharacter, createPlayerMarkerElement, playerLabel]);
+  }, [mapStyle, isGlobeReady, location, playerLocation, activePlayerCharacter, createPlayerMarkerElement, playerMapLabel]);
 
   useEffect(() => {
     return () => {
@@ -5340,7 +5320,7 @@ interface UnitMoveAnimation {
           (target.billboard as unknown as { width?: unknown; height?: unknown }).height = new Cesium.ConstantProperty(billboardSize) as unknown as any;
         }
         if (target.label) {
-          target.label.text = new Cesium.ConstantProperty(playerLabel);
+          target.label.text = new Cesium.ConstantProperty(playerMapLabel);
           (target.label as unknown as { pixelOffset?: unknown }).pixelOffset = new Cesium.ConstantProperty(new Cesium.Cartesian2(0, labelOffsetY)) as unknown as any;
         }
       } else {
@@ -5353,7 +5333,7 @@ interface UnitMoveAnimation {
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
           },
           label: {
-            text: playerLabel,
+            text: playerMapLabel,
             font: "11px sans-serif",
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
             outlineWidth: 2,
@@ -5389,7 +5369,7 @@ interface UnitMoveAnimation {
     return () => {
       isCancelled = true;
     };
-  }, [mapStyle, isCesiumReady, location, playerLocation, activePlayerCharacter, playerLabel, getCesiumPlayerImageAsync]);
+  }, [mapStyle, isCesiumReady, location, playerLocation, activePlayerCharacter, playerMapLabel, getCesiumPlayerImageAsync]);
 
   // 지도 위치만 매 프레임 보간한다. UI·서버 위치 갱신 주기는 독립적이다.
   useEffect(() => {
@@ -6474,7 +6454,7 @@ interface UnitMoveAnimation {
         const applyNearbyInjury = (marker: Marker, player: NearbyPlayer): void => {
           const injured = typeof player.injuredUntil === "number" && player.injuredUntil > Date.now();
           marker.getElement()?.querySelector(".player-marker-root")?.classList.toggle("player-injured", injured);
-          const label = `${player.nickname || "PLAYER"}${injured ? " · 부상" : ""}`;
+          const label = `${territoryEnabledRef.current ? (player.title ?? "부족장") + " " : ""}${player.nickname || "PLAYER"}${injured ? " · 부상" : ""}`;
           marker.setTooltipContent(label);
         };
         const nextIds = new Set(players.map((player) => player.userId));
@@ -6521,13 +6501,13 @@ interface UnitMoveAnimation {
                 const me = getPlayerLocation();
                 const dist = me ? Math.round(calculateDistance(me.lat, me.lon, latest.lat, latest.lon)) : null;
                 showMarkerPanel({
-                  title: `영주 ${name}`,
+                  title: name,
                   lines: [
-                    `영주: ${name}`,
+                    name,
                     `상태: ${injured ? "부상 중" : "활동 중"}`,
                     ...(dist !== null ? [`거리: 약 ${dist}m (영주)`] : []),
                   ],
-                  pvpTarget: { type: "lord", ownerId, targetId: "lord", name: `영주 ${name}` },
+                  pvpTarget: { type: "lord", ownerId, targetId: "lord", name },
                   lat: latest.lat,
                   lon: latest.lon,
                 });
@@ -8576,8 +8556,8 @@ const isMapPerfEnabled = (): boolean => {
       const code = feature ? readCode(feature.properties) : null;
       const isSel = code !== null && code === adminSelectedRef.current;
       const s = getBoundaryStyle(adminLevel, isSel, false);
-      // 영토전 동 수준에서는 소유자 색으로 채운다 (줌 15 미만에서만).
-      if (territoryEnabled && adminLevel === "dong" && code && territoryFillVisibleRef.current) {
+      // 건국이 성립된 동에만 국가 색을 채운다.
+      if (territoryEnabled && adminLevel === "dong" && code) {
         const own = ownedDongMapRef.current.get(code);
         if (own) {
           return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
@@ -8665,8 +8645,8 @@ const isMapPerfEnabled = (): boolean => {
       const isSel = code !== null && code === selectedAdminCode;
       const isHov = code !== null && code === hoveredAdminCode;
       const s = getBoundaryStyle(adminLevel, isSel, isHov);
-      // 영토 색 유지 (선택·호버 갱신 시에도 소유자 채우기를 덮어쓰지 않는다). 줌 15 이상이면 채우지 않는다.
-      if (territoryEnabled && adminLevel === "dong" && code && territoryFillVisible) {
+      // 선택·호버 갱신 시에도 국가 색을 유지한다.
+      if (territoryEnabled && adminLevel === "dong" && code) {
         const own = ownedDongMap.get(code);
         if (own) {
           return territoryFillStyle(own, s.strokeColor, s.strokeWeight);
@@ -8674,7 +8654,7 @@ const isMapPerfEnabled = (): boolean => {
       }
       return { color: s.strokeColor, weight: s.strokeWeight, dashArray: undefined, fillColor: s.fillColor, fillOpacity: s.fillOpacity };
     });
-  }, [selectedAdminCode, hoveredAdminCode, adminLevel, ownedDongMap, territoryEnabled, territoryFillVisible]);
+  }, [selectedAdminCode, hoveredAdminCode, adminLevel, ownedDongMap, territoryEnabled]);
 
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady) {
@@ -8811,7 +8791,11 @@ const isMapPerfEnabled = (): boolean => {
       if (!map.getLayer(ADMIN_GLOBE_FILL_LAYER_ID) || !map.getLayer(ADMIN_GLOBE_LINE_LAYER_ID)) {
         return;
       }
-      map.setPaintProperty(ADMIN_GLOBE_FILL_LAYER_ID, "fill-opacity", 0);
+      const colors = territoryEnabled && adminLevel === "dong" ? [...ownedDongMap].flatMap(([dong, r]) =>
+        [dong, territoryOwnerColor(r.colorKey)]) : [];
+      map.setPaintProperty(ADMIN_GLOBE_FILL_LAYER_ID, "fill-color", colors.length ?
+        ["match", ["get", "_normCode"], ...colors, "transparent"] : "transparent");
+      map.setPaintProperty(ADMIN_GLOBE_FILL_LAYER_ID, "fill-opacity", 0.35);
       if (selectedAdminCode) {
         map.setPaintProperty(ADMIN_GLOBE_LINE_LAYER_ID, "line-color", [
           "case",
@@ -8830,7 +8814,7 @@ const isMapPerfEnabled = (): boolean => {
         map.setPaintProperty(ADMIN_GLOBE_LINE_LAYER_ID, "line-width", 1.2);
       }
     } catch {}
-  }, [selectedAdminCode, mapStyle, isGlobeReady]);
+  }, [selectedAdminCode, mapStyle, isGlobeReady, adminGeoJson, adminLevel, territoryEnabled, ownedDongMap]);
 
   useEffect(() => {
     if (mapStyle !== "cesium" || !isCesiumReady || !adminGeoJson) {
@@ -8889,9 +8873,10 @@ const isMapPerfEnabled = (): boolean => {
         const code = typeof rawCode === "string" ? rawCode : null;
         const isSel = code !== null && code === selected;
         const s = getBoundaryStyle(adminLevel, isSel, false);
+        const region = territoryEnabled && adminLevel === "dong" && code ? ownedDongMapRef.current.get(code) : null;
         if (ent.polygon) {
           try {
-            ent.polygon.material = (s.fillColor === "transparent"
+            ent.polygon.material = (region ? Cesium.Color.fromCssColorString(territoryOwnerColor(region.colorKey)).withAlpha(0.35) : s.fillColor === "transparent"
               ? Cesium.Color.TRANSPARENT
               : Cesium.Color.fromCssColorString(s.fillColor).withAlpha(s.fillOpacity)) as unknown as CesiumTypes.PolygonGraphics["material"];
             ent.polygon.outlineColor = Cesium.Color.fromCssColorString(
@@ -8990,9 +8975,10 @@ const isMapPerfEnabled = (): boolean => {
       const isSel = code !== null && code === selectedAdminCode;
       const isHov = code !== null && code === hoveredAdminCode;
       const s = getBoundaryStyle(adminLevel, isSel, isHov);
+      const region = territoryEnabled && adminLevel === "dong" && code ? ownedDongMap.get(code) : null;
       if (ent.polygon) {
         try {
-          ent.polygon.material = (s.fillColor === "transparent"
+          ent.polygon.material = (region ? Cesium.Color.fromCssColorString(territoryOwnerColor(region.colorKey)).withAlpha(0.35) : s.fillColor === "transparent"
             ? Cesium.Color.TRANSPARENT
             : Cesium.Color.fromCssColorString(s.fillColor).withAlpha(s.fillOpacity)) as unknown as CesiumTypes.PolygonGraphics["material"];
           ent.polygon.outlineColor = Cesium.Color.fromCssColorString(
@@ -9007,7 +8993,7 @@ const isMapPerfEnabled = (): boolean => {
         } catch {}
       }
     }
-  }, [selectedAdminCode, hoveredAdminCode, adminLevel, mapStyle, isCesiumReady]);
+  }, [selectedAdminCode, hoveredAdminCode, adminLevel, mapStyle, isCesiumReady, territoryEnabled, ownedDongMap]);
 
   const handleExit = useCallback(async () => {
     await signOut({ redirect: false });
@@ -9331,7 +9317,7 @@ const isMapPerfEnabled = (): boolean => {
       <div className={`pointer-events-none absolute top-3 z-1200 ${territoryEnabled ? "left-3 right-12 flex flex-col items-start gap-2" : "left-3 flex w-auto max-w-[calc(100%-6rem)] items-center gap-1.5"}`}>
         {territoryEnabled ? (
           <>
-            <TerritoryDash />
+            <TerritoryDash title={council.title} />
             {showAdminBoundaries && selectedAdminCode ? (
               <div
                 className={cn(
@@ -9902,6 +9888,7 @@ const isMapPerfEnabled = (): boolean => {
       />
       {territoryEnabled ? (
         <TerritoryUI
+          council={council}
           playerNickname={playerLabel}
           castleKey={territoryCastleKey}
           dialog={dialog}

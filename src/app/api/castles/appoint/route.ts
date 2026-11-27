@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prismadb";
 import {
-  NOBLE_CASTLE_CAP_PER_DONG,
   currentSeasonId,
   ensureCastleSeason,
   parseCastleMeta,
@@ -23,7 +22,7 @@ type AppointBody = {
 
 /**
  * 귀족 임명/해임 + 귀족성 승인. 영주성 주체인 영주만 가능.
- * - appoint: 기사+ 대상을 귀족으로 (동당 귀족성 3 상한)
+ * - appoint: 기사+ 대상을 귀족으로
  * - dismiss: 귀족을 기사로 + 해당 귀족성 중립화 (24h 보호는 Phase 5 지도 로그와 함께)
  * - approve_castle: 승인대기 귀족성을 현역화 (castleKey=귀족성 키, target 불필요)
  */
@@ -104,18 +103,6 @@ export async function POST(request: Request) {
         }
         if (targetClass === "noble") {
           return { appointed: true as const, already: true as const };
-        }
-        const seasonId = currentSeasonId();
-        const events = await tx.aRMissionEvent.findMany({
-          where: { ARMissionKey: ctx.missionKey, EventKey: { startsWith: "castle-" } },
-          select: { string_param1: true },
-        });
-        const nobleCount = events.filter((e) => {
-          const meta = parseCastleMeta(e.string_param1);
-          return meta && meta.kind === "noble" && meta.dong === castle.meta.dong && meta.seasonId === seasonId;
-        }).length;
-        if (nobleCount >= NOBLE_CASTLE_CAP_PER_DONG) {
-          throw new Error("limit");
         }
         const updated = await tx.missionTeam.updateMany({
           where: { userId: targetUserId },

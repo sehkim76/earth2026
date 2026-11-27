@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ALLIANCE_CAP, allianceCount, ensureMyNation, parseTributePayload } from "@/lib/nations";
+import { approvedNation, ALLIANCE_CAP, allianceCount, getMyNation, parseTributePayload } from "@/lib/nations";
 import {
   clearSiegeGauges,
   conquerCastle,
@@ -32,7 +32,8 @@ export async function POST(request: Request) {
 
   try {
     const result = await withNamedLock(`diplomacy:${diplomacyId}`, async (tx) => {
-      const mine = await ensureMyNation(tx, userId, ctx.missionKey);
+      const mine = await getMyNation(tx, userId, ctx.missionKey);
+      if (!mine) throw new Error("forbidden");
       if (mine.myRole !== "leader") throw new Error("forbidden");
       const row = await tx.territoryDiplomacy.findFirst({
         where: { id: diplomacyId, missionKey: ctx.missionKey, toNationId: mine.id, status: "pending" },
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
           const castle = await ensureCastleSeason(tx, tribute.castleKey, ctx.missionKey);
           if (!castle) throw new Error("castle_not_found");
           const holder = await tx.territoryNationMember.findFirst({
-            where: { userId: castle.meta.owner ?? "", nation: { missionKey: ctx.missionKey } },
+            where: { userId: castle.meta.owner ?? "", nation: approvedNation(ctx.missionKey) },
             select: { nationId: true },
           });
           if (!holder || holder.nationId !== row.fromNationId) throw new Error("not_held");

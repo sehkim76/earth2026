@@ -41,7 +41,7 @@ import {
   settleReinforcement,
   toAutoBattleKind,
 } from "@/lib/auto-battle-server";
-import { canAttack, ensureMyNation, siegeGain } from "@/lib/nations";
+import { approvedNation, canAttack, siegeFaction, siegeGain } from "@/lib/nations";
 import {
   clearSiegeGauges,
   conquerCastle,
@@ -284,15 +284,13 @@ export async function POST(request: Request) {
           throw new BattleError("too_far", 400, tooFarMessage(dist, ATTACK_RANGE_M));
         }
         const ownerNation = await tx.territoryNationMember.findFirst({
-          where: { userId: target.targetOwnerId, nation: { missionKey: ctx.missionKey } },
+          where: { userId: target.targetOwnerId, nation: approvedNation(ctx.missionKey) },
           select: { nationId: true },
         });
         if (ownerNation) {
-          const mine = await ensureMyNation(tx, userId, ctx.missionKey);
-          if (ownerNation.nationId !== mine.id) {
-            const gate = await canAttack(tx, ctx.missionKey, mine.id, ownerNation.nationId);
-            if (!gate.ok) throw new BattleError("blocked", 409, "외교 관계상 공격할 수 없습니다.");
-          }
+          const mine = await siegeFaction(tx, userId, ctx.missionKey);
+          const gate = await canAttack(tx, ctx.missionKey, mine.id, ownerNation.nationId);
+          if (!gate.ok) throw new BattleError("blocked", 409, "외교 관계상 공격할 수 없습니다.");
         }
         const built = formationFromList(
           listCommanders(snap.ownerData, snap.ownerNickname, now),
@@ -343,7 +341,7 @@ export async function POST(request: Request) {
       if (castle.meta.owner === userId) throw new BattleError("own_castle", 409, "내 성은 공격할 수 없습니다.");
       const dist = distM(atk.leadPos.lat, atk.leadPos.lon, castle.lat, castle.lon);
       if (dist > BATTLE_PROXIMITY_M) throw new BattleError("too_far", 400, tooFarMessage(dist));
-      const mine = await ensureMyNation(tx, userId, ctx.missionKey);
+      const mine = await siegeFaction(tx, userId, ctx.missionKey);
       let defenderLeadId: string | null = null;
       let castleDefIds: Array<string | null> = [null, null, null, null, null];
       let castleOwnerTroops: Record<string, TroopCounts> = {};
@@ -375,10 +373,10 @@ export async function POST(request: Request) {
             }
           }
           const holder = await tx.territoryNationMember.findFirst({
-            where: { userId: castle.meta.owner, nation: { missionKey: ctx.missionKey } },
+            where: { userId: castle.meta.owner, nation: approvedNation(ctx.missionKey) },
             select: { nationId: true },
           });
-          if (holder && holder.nationId !== mine.id) {
+          if (holder) {
             const gate = await canAttack(tx, ctx.missionKey, mine.id, holder.nationId);
             if (!gate.ok) throw new BattleError("blocked", 409, "외교 관계상 공격할 수 없습니다.");
           }

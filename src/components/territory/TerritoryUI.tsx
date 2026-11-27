@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { gatherParties, gatherPhase, WORKER_PHASE_LABEL, type VisibleWorker } from "@/lib/city";
 import { noteServerTime, serverNow } from "@/lib/server-clock";
+import { NationCouncil, type NationCouncilState } from "@/components/territory/nation-council";
 import { territoryOwnerColor } from "@/lib/territory-colors";
 import { CITY_EVENT, fetchCity, type CityHome, type CityViewData } from "@/components/city/city-client";
 import { CityView } from "@/components/city/CityView";
@@ -109,6 +110,7 @@ interface TerritoryUIProps {
   territoryStart?: { lat: number; lon: number; sido: string; sigungu: string; dong: string } | null;
   /** 내가 주인인 성 키 (성 메뉴 "나의 성" 목록용). */
   ownedCastleKeys?: string[];
+  council: NationCouncilState;
   /** 성 키 → 이름 (목록 표시용). */
   castleNames?: Record<string, string>;
   choosingStart: boolean;
@@ -150,6 +152,7 @@ interface TrainingCastle {
 }
 
 interface CastleMember {
+  title?: string;
   userId: string;
   nickname: string;
   classId: string | null;
@@ -3407,6 +3410,11 @@ export default function TerritoryUI(props: TerritoryUIProps) {
 
   return (
     <>
+      {!dialog && props.council.snapshot?.declarations.some(d => d.status === "pending" && d.consent === null) && (
+        <button type="button" className={`${buttonPrimary} fixed bottom-28 left-3 z-[1101] border border-[#bc9957]`} onClick={() => openSheet("castles")}>
+          국가 선포 동의 요청
+        </button>
+      )}
       {notice ? (
         <div className="fixed left-1/2 top-4 z-[1300] w-max max-w-[90vw] -translate-x-1/2 rounded-[16px] bg-slate-900/95 px-4 py-1.5 text-center text-sm font-black text-white">
           {notice}
@@ -3500,9 +3508,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           <div className="joseon-sheet fixed inset-x-3 bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] z-[1200] mx-auto w-auto max-w-xl rounded-[20px] border border-[#a77b35]/75 bg-[#f2ead8] p-2 text-[#202821]" role="dialog" aria-modal="false" aria-labelledby="unit-movement-title">
             <div className="mb-1 flex items-center justify-between gap-2">
               <div>
-                <p id="unit-movement-title" className="text-base font-black text-slate-900">{isLordSelected ? "영주 이동" : "부대 이동"}</p>
+                <p id="unit-movement-title" className="text-base font-black text-slate-900">{isLordSelected ? `${props.council.title} 이동` : "부대 이동"}</p>
                 {!isSelectedUnitMoving && !isLordSelected ? (
-                  <p className="text-xs font-bold text-slate-600">{isLordSelected ? "영주 (나)" : units.find((unit) => unit.id === selectedUnit)?.name ?? "부대"}</p>
+                  <p className="text-xs font-bold text-slate-600">{isLordSelected ? `${props.council.title} (나)` : units.find((unit) => unit.id === selectedUnit)?.name ?? "부대"}</p>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -3545,7 +3553,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             {selectedUnit ? (
               <CommanderInfoCard
                 commanderId={isLordSelected ? "lord" : selectedUnit}
-                lordClass={myClass}
+                lordClass={props.council.title}
                 moving={isLordSelected ? lordActive : isSelectedUnitMoving}
                 refreshKey={(props.neutralRefreshNonce ?? 0) + commandersNonce * 100000}
               />
@@ -3791,6 +3799,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               </ul>
             );
           })()}
+          <NationCouncil council={props.council} castleKeys={props.ownedCastleKeys ?? []} names={props.castleNames} />
         </div>
       ) : null}
 
@@ -3804,8 +3813,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               수 있습니다.
             </p>
             <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
-              <li>영주가 지금 있는 동 안에, 아직 영주성이 없는 동에만 세울 수 있습니다.</li>
-              <li>다른 성과 200m 이상 떨어져야 합니다.</li>
+              <li>영주가 있는 동 안에서 위치를 정하세요. 다른 성이 있는 곳에도 세울 수 있습니다.</li>
               <li>주변 4km 안의 자원지에 일꾼을 보낼 수 있으니 자원지가 많은 곳이 좋습니다.</li>
             </ul>
             <input
@@ -3970,7 +3978,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                     className="flex-1 text-left"
                   >
                     <span className="text-sm font-black text-slate-900">
-                      영주 (나){lordActive ? " (이동 중)" : ""}
+                      {props.council.title} (나){lordActive ? " (이동 중)" : ""}
                     </span>
                   </button>
                   {lordActive ? (
@@ -4434,7 +4442,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   <ul className="flex flex-col gap-1">
                     {detail.members.slice(0, 8).map((m) => (
                       <li key={m.userId} className="text-xs text-slate-700">
-                        {m.nickname} · {m.classId}
+                        {m.nickname} · {m.title ?? "부족장"}
                         {m.isOwner ? " (주인)" : ""}
                       </li>
                     ))}
@@ -4625,7 +4633,7 @@ function ManagePanels(props: {
             <option value="">대상 선택</option>
             {members.map((m) => (
               <option key={m.userId} value={m.userId}>
-                {m.nickname} · {m.classId}
+                {m.nickname} · {m.title ?? "부족장"}
               </option>
             ))}
           </select>

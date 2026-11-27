@@ -1,3 +1,4 @@
+import { approvedNation } from "@/lib/nations";
 import type prisma from "@/lib/prismadb";
 import type { Tx } from "@/lib/territory";
 
@@ -89,7 +90,7 @@ export async function getUserRankings(
   const [users, memberships] = await Promise.all([
     client.missionUser.findMany({ where: { userId: { in: userIds } }, select: { userId: true, nickname: true } }),
     client.territoryNationMember.findMany({
-      where: { userId: { in: userIds }, nation: { missionKey, seasonId } },
+      where: { userId: { in: userIds }, nation: approvedNation(missionKey, seasonId) },
       select: { userId: true, nationId: true, nation: { select: { name: true } } },
     }),
   ]);
@@ -120,7 +121,7 @@ export async function getNationRankings(
   const client = db as typeof prisma;
   const [nations, records] = await Promise.all([
     client.territoryNation.findMany({
-      where: { missionKey, seasonId },
+      where: approvedNation(missionKey, seasonId),
       select: { id: true, name: true, members: { select: { userId: true } } },
     }),
     client.territorySeasonRecord.findMany({ where: { missionKey, seasonId } }),

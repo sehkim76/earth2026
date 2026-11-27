@@ -5,13 +5,7 @@ import { useEffect, useState } from "react";
 import { COMMANDER_KIND_LABEL } from "@/lib/battle";
 import type { CommanderListItem, CommandersResponse } from "@/lib/battle";
 
-const CLASS_LABEL: Readonly<Record<string, string>> = {
-  slave: "노예",
-  commoner: "평민",
-  knight: "기사",
-  noble: "귀족",
-  lord: "영주",
-};
+
 
 const STATE_LABEL: Readonly<Record<CommanderListItem["state"], string>> = {
   field: "출전 가능",
@@ -89,7 +83,7 @@ export function CommanderInfoCard({ commanderId, lordClass, moving, refreshKey }
   const pct = next === null ? 100 : Math.max(0, Math.min(100, ((xp - start) / Math.max(1, next - start)) * 100));
   const wins = item.wins ?? 0;
   const battles = item.battles ?? 0;
-  const kindLabel = item.id === "lord" ? `영주${lordClass ? ` · ${CLASS_LABEL[lordClass] ?? lordClass}` : ""}` : COMMANDER_KIND_LABEL[item.kind];
+  const kindLabel = item.id === "lord" ? (lordClass ?? "부족장") : COMMANDER_KIND_LABEL[item.kind];
   const status = injured
     ? `부상 ${Math.max(1, Math.ceil(((injuredUntil as number) - now) / 60_000))}분 남음`
     : moving

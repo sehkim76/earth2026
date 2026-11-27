@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ensureMyNation } from "@/lib/nations";
+import { getMyNation } from "@/lib/nations";
 import {
   clearAllianceReinforcements,
   getInfluence,
@@ -28,7 +28,8 @@ export async function POST(request: Request) {
 
   try {
     const result = await withNamedLock(`diplomacy:${diplomacyId}`, async (tx) => {
-      const mine = await ensureMyNation(tx, userId, ctx.missionKey);
+      const mine = await getMyNation(tx, userId, ctx.missionKey);
+      if (!mine) throw new Error("forbidden");
       if (mine.myRole !== "leader") throw new Error("forbidden");
       const row = await tx.territoryDiplomacy.findFirst({
         where: { id: diplomacyId, missionKey: ctx.missionKey, status: "active" },

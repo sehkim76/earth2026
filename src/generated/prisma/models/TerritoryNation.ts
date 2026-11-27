@@ -224,6 +224,7 @@ export type TerritoryNationWhereInput = {
   seasonId?: Prisma.IntFilter<"TerritoryNation"> | number
   createdAt?: Prisma.DateTimeFilter<"TerritoryNation"> | Date | string
   members?: Prisma.TerritoryNationMemberListRelationFilter
+  declaration?: Prisma.XOR<Prisma.TerritoryDeclarationNullableScalarRelationFilter, Prisma.TerritoryDeclarationWhereInput> | null
   sentDiplomacy?: Prisma.TerritoryDiplomacyListRelationFilter
   receivedDiplomacy?: Prisma.TerritoryDiplomacyListRelationFilter
 }
@@ -236,6 +237,7 @@ export type TerritoryNationOrderByWithRelationInput = {
   seasonId?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   members?: Prisma.TerritoryNationMemberOrderByRelationAggregateInput
+  declaration?: Prisma.TerritoryDeclarationOrderByWithRelationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyOrderByRelationAggregateInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyOrderByRelationAggregateInput
 }
@@ -251,6 +253,7 @@ export type TerritoryNationWhereUniqueInput = Prisma.AtLeast<{
   seasonId?: Prisma.IntFilter<"TerritoryNation"> | number
   createdAt?: Prisma.DateTimeFilter<"TerritoryNation"> | Date | string
   members?: Prisma.TerritoryNationMemberListRelationFilter
+  declaration?: Prisma.XOR<Prisma.TerritoryDeclarationNullableScalarRelationFilter, Prisma.TerritoryDeclarationWhereInput> | null
   sentDiplomacy?: Prisma.TerritoryDiplomacyListRelationFilter
   receivedDiplomacy?: Prisma.TerritoryDiplomacyListRelationFilter
 }, "id">
@@ -289,6 +292,7 @@ export type TerritoryNationCreateInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutFromNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutToNationInput
 }
@@ -301,6 +305,7 @@ export type TerritoryNationUncheckedCreateInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberUncheckedCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutFromNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutToNationInput
 }
@@ -313,6 +318,7 @@ export type TerritoryNationUpdateInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutFromNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutToNationNestedInput
 }
@@ -325,6 +331,7 @@ export type TerritoryNationUncheckedUpdateInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUncheckedUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutFromNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutToNationNestedInput
 }
@@ -391,6 +398,11 @@ export type TerritoryNationSumOrderByAggregateInput = {
   seasonId?: Prisma.SortOrder
 }
 
+export type TerritoryNationNullableScalarRelationFilter = {
+  is?: Prisma.TerritoryNationWhereInput | null
+  isNot?: Prisma.TerritoryNationWhereInput | null
+}
+
 export type TerritoryNationScalarRelationFilter = {
   is?: Prisma.TerritoryNationWhereInput
   isNot?: Prisma.TerritoryNationWhereInput
@@ -398,6 +410,22 @@ export type TerritoryNationScalarRelationFilter = {
 
 export type DateTimeFieldUpdateOperationsInput = {
   set?: Date | string
+}
+
+export type TerritoryNationCreateNestedOneWithoutDeclarationInput = {
+  create?: Prisma.XOR<Prisma.TerritoryNationCreateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedCreateWithoutDeclarationInput>
+  connectOrCreate?: Prisma.TerritoryNationCreateOrConnectWithoutDeclarationInput
+  connect?: Prisma.TerritoryNationWhereUniqueInput
+}
+
+export type TerritoryNationUpdateOneWithoutDeclarationNestedInput = {
+  create?: Prisma.XOR<Prisma.TerritoryNationCreateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedCreateWithoutDeclarationInput>
+  connectOrCreate?: Prisma.TerritoryNationCreateOrConnectWithoutDeclarationInput
+  upsert?: Prisma.TerritoryNationUpsertWithoutDeclarationInput
+  disconnect?: Prisma.TerritoryNationWhereInput | boolean
+  delete?: Prisma.TerritoryNationWhereInput | boolean
+  connect?: Prisma.TerritoryNationWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.TerritoryNationUpdateToOneWithWhereWithoutDeclarationInput, Prisma.TerritoryNationUpdateWithoutDeclarationInput>, Prisma.TerritoryNationUncheckedUpdateWithoutDeclarationInput>
 }
 
 export type TerritoryNationCreateNestedOneWithoutMembersInput = {
@@ -442,6 +470,70 @@ export type TerritoryNationUpdateOneRequiredWithoutReceivedDiplomacyNestedInput 
   update?: Prisma.XOR<Prisma.XOR<Prisma.TerritoryNationUpdateToOneWithWhereWithoutReceivedDiplomacyInput, Prisma.TerritoryNationUpdateWithoutReceivedDiplomacyInput>, Prisma.TerritoryNationUncheckedUpdateWithoutReceivedDiplomacyInput>
 }
 
+export type TerritoryNationCreateWithoutDeclarationInput = {
+  id?: string
+  missionKey: string
+  name: string
+  leaderUserId: string
+  seasonId?: number
+  createdAt?: Date | string
+  members?: Prisma.TerritoryNationMemberCreateNestedManyWithoutNationInput
+  sentDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutFromNationInput
+  receivedDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutToNationInput
+}
+
+export type TerritoryNationUncheckedCreateWithoutDeclarationInput = {
+  id?: string
+  missionKey: string
+  name: string
+  leaderUserId: string
+  seasonId?: number
+  createdAt?: Date | string
+  members?: Prisma.TerritoryNationMemberUncheckedCreateNestedManyWithoutNationInput
+  sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutFromNationInput
+  receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutToNationInput
+}
+
+export type TerritoryNationCreateOrConnectWithoutDeclarationInput = {
+  where: Prisma.TerritoryNationWhereUniqueInput
+  create: Prisma.XOR<Prisma.TerritoryNationCreateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedCreateWithoutDeclarationInput>
+}
+
+export type TerritoryNationUpsertWithoutDeclarationInput = {
+  update: Prisma.XOR<Prisma.TerritoryNationUpdateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedUpdateWithoutDeclarationInput>
+  create: Prisma.XOR<Prisma.TerritoryNationCreateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedCreateWithoutDeclarationInput>
+  where?: Prisma.TerritoryNationWhereInput
+}
+
+export type TerritoryNationUpdateToOneWithWhereWithoutDeclarationInput = {
+  where?: Prisma.TerritoryNationWhereInput
+  data: Prisma.XOR<Prisma.TerritoryNationUpdateWithoutDeclarationInput, Prisma.TerritoryNationUncheckedUpdateWithoutDeclarationInput>
+}
+
+export type TerritoryNationUpdateWithoutDeclarationInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  missionKey?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  leaderUserId?: Prisma.StringFieldUpdateOperationsInput | string
+  seasonId?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  members?: Prisma.TerritoryNationMemberUpdateManyWithoutNationNestedInput
+  sentDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutFromNationNestedInput
+  receivedDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutToNationNestedInput
+}
+
+export type TerritoryNationUncheckedUpdateWithoutDeclarationInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  missionKey?: Prisma.StringFieldUpdateOperationsInput | string
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  leaderUserId?: Prisma.StringFieldUpdateOperationsInput | string
+  seasonId?: Prisma.IntFieldUpdateOperationsInput | number
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  members?: Prisma.TerritoryNationMemberUncheckedUpdateManyWithoutNationNestedInput
+  sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutFromNationNestedInput
+  receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutToNationNestedInput
+}
+
 export type TerritoryNationCreateWithoutMembersInput = {
   id?: string
   missionKey: string
@@ -449,6 +541,7 @@ export type TerritoryNationCreateWithoutMembersInput = {
   leaderUserId: string
   seasonId?: number
   createdAt?: Date | string
+  declaration?: Prisma.TerritoryDeclarationCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutFromNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutToNationInput
 }
@@ -460,6 +553,7 @@ export type TerritoryNationUncheckedCreateWithoutMembersInput = {
   leaderUserId: string
   seasonId?: number
   createdAt?: Date | string
+  declaration?: Prisma.TerritoryDeclarationUncheckedCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutFromNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutToNationInput
 }
@@ -487,6 +581,7 @@ export type TerritoryNationUpdateWithoutMembersInput = {
   leaderUserId?: Prisma.StringFieldUpdateOperationsInput | string
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  declaration?: Prisma.TerritoryDeclarationUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutFromNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutToNationNestedInput
 }
@@ -498,6 +593,7 @@ export type TerritoryNationUncheckedUpdateWithoutMembersInput = {
   leaderUserId?: Prisma.StringFieldUpdateOperationsInput | string
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  declaration?: Prisma.TerritoryDeclarationUncheckedUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutFromNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutToNationNestedInput
 }
@@ -510,6 +606,7 @@ export type TerritoryNationCreateWithoutSentDiplomacyInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationCreateNestedOneWithoutNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutToNationInput
 }
 
@@ -521,6 +618,7 @@ export type TerritoryNationUncheckedCreateWithoutSentDiplomacyInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberUncheckedCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedCreateNestedOneWithoutNationInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutToNationInput
 }
 
@@ -537,6 +635,7 @@ export type TerritoryNationCreateWithoutReceivedDiplomacyInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyCreateNestedManyWithoutFromNationInput
 }
 
@@ -548,6 +647,7 @@ export type TerritoryNationUncheckedCreateWithoutReceivedDiplomacyInput = {
   seasonId?: number
   createdAt?: Date | string
   members?: Prisma.TerritoryNationMemberUncheckedCreateNestedManyWithoutNationInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedCreateNestedOneWithoutNationInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedCreateNestedManyWithoutFromNationInput
 }
 
@@ -575,6 +675,7 @@ export type TerritoryNationUpdateWithoutSentDiplomacyInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUpdateOneWithoutNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutToNationNestedInput
 }
 
@@ -586,6 +687,7 @@ export type TerritoryNationUncheckedUpdateWithoutSentDiplomacyInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUncheckedUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedUpdateOneWithoutNationNestedInput
   receivedDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutToNationNestedInput
 }
 
@@ -608,6 +710,7 @@ export type TerritoryNationUpdateWithoutReceivedDiplomacyInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUpdateManyWithoutFromNationNestedInput
 }
 
@@ -619,6 +722,7 @@ export type TerritoryNationUncheckedUpdateWithoutReceivedDiplomacyInput = {
   seasonId?: Prisma.IntFieldUpdateOperationsInput | number
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   members?: Prisma.TerritoryNationMemberUncheckedUpdateManyWithoutNationNestedInput
+  declaration?: Prisma.TerritoryDeclarationUncheckedUpdateOneWithoutNationNestedInput
   sentDiplomacy?: Prisma.TerritoryDiplomacyUncheckedUpdateManyWithoutFromNationNestedInput
 }
 
@@ -679,6 +783,7 @@ export type TerritoryNationSelect<ExtArgs extends runtime.Types.Extensions.Inter
   seasonId?: boolean
   createdAt?: boolean
   members?: boolean | Prisma.TerritoryNation$membersArgs<ExtArgs>
+  declaration?: boolean | Prisma.TerritoryNation$declarationArgs<ExtArgs>
   sentDiplomacy?: boolean | Prisma.TerritoryNation$sentDiplomacyArgs<ExtArgs>
   receivedDiplomacy?: boolean | Prisma.TerritoryNation$receivedDiplomacyArgs<ExtArgs>
   _count?: boolean | Prisma.TerritoryNationCountOutputTypeDefaultArgs<ExtArgs>
@@ -714,6 +819,7 @@ export type TerritoryNationSelectScalar = {
 export type TerritoryNationOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "missionKey" | "name" | "leaderUserId" | "seasonId" | "createdAt", ExtArgs["result"]["territoryNation"]>
 export type TerritoryNationInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   members?: boolean | Prisma.TerritoryNation$membersArgs<ExtArgs>
+  declaration?: boolean | Prisma.TerritoryNation$declarationArgs<ExtArgs>
   sentDiplomacy?: boolean | Prisma.TerritoryNation$sentDiplomacyArgs<ExtArgs>
   receivedDiplomacy?: boolean | Prisma.TerritoryNation$receivedDiplomacyArgs<ExtArgs>
   _count?: boolean | Prisma.TerritoryNationCountOutputTypeDefaultArgs<ExtArgs>
@@ -725,6 +831,7 @@ export type $TerritoryNationPayload<ExtArgs extends runtime.Types.Extensions.Int
   name: "TerritoryNation"
   objects: {
     members: Prisma.$TerritoryNationMemberPayload<ExtArgs>[]
+    declaration: Prisma.$TerritoryDeclarationPayload<ExtArgs> | null
     sentDiplomacy: Prisma.$TerritoryDiplomacyPayload<ExtArgs>[]
     receivedDiplomacy: Prisma.$TerritoryDiplomacyPayload<ExtArgs>[]
   }
@@ -1130,6 +1237,7 @@ readonly fields: TerritoryNationFieldRefs;
 export interface Prisma__TerritoryNationClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   members<T extends Prisma.TerritoryNation$membersArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TerritoryNation$membersArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryNationMemberPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  declaration<T extends Prisma.TerritoryNation$declarationArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TerritoryNation$declarationArgs<ExtArgs>>): Prisma.Prisma__TerritoryDeclarationClient<runtime.Types.Result.GetResult<Prisma.$TerritoryDeclarationPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   sentDiplomacy<T extends Prisma.TerritoryNation$sentDiplomacyArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TerritoryNation$sentDiplomacyArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryDiplomacyPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   receivedDiplomacy<T extends Prisma.TerritoryNation$receivedDiplomacyArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.TerritoryNation$receivedDiplomacyArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$TerritoryDiplomacyPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -1576,6 +1684,25 @@ export type TerritoryNation$membersArgs<ExtArgs extends runtime.Types.Extensions
   take?: number
   skip?: number
   distinct?: Prisma.TerritoryNationMemberScalarFieldEnum | Prisma.TerritoryNationMemberScalarFieldEnum[]
+}
+
+/**
+ * TerritoryNation.declaration
+ */
+export type TerritoryNation$declarationArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the TerritoryDeclaration
+   */
+  select?: Prisma.TerritoryDeclarationSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the TerritoryDeclaration
+   */
+  omit?: Prisma.TerritoryDeclarationOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.TerritoryDeclarationInclude<ExtArgs> | null
+  where?: Prisma.TerritoryDeclarationWhereInput
 }
 
 /**

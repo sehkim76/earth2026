@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { approvedNation } from "@/lib/nations";
 import prisma from "@/lib/prismadb";
 import {
   currentSeasonId,
@@ -22,7 +23,7 @@ export async function GET() {
 
   try {
     const seasonId = currentSeasonId();
-    const [events, gpsRows] = await Promise.all([
+    const [events, gpsRows, regions] = await Promise.all([
       prisma.aRMissionEvent.findMany({
         where: { ARMissionKey: ctx.missionKey, EventKey: { startsWith: "castle-" } },
         select: { EventKey: true, string_param1: true },
@@ -30,6 +31,10 @@ export async function GET() {
       prisma.aRMissionGPS.findMany({
         where: { ARMissionKey: ctx.missionKey, EventKey: { startsWith: "castle-" } },
         select: { EventKey: true, locationname: true },
+      }),
+      prisma.territoryDeclaration.findMany({
+        where: { missionKey: ctx.missionKey, seasonId, status: "approved" },
+        select: { dong: true, nationId: true, name: true },
       }),
     ]);
     const nameByKey = new Map(
@@ -85,7 +90,7 @@ export async function GET() {
     const siegeByCastle = new Map<string, { gauge: number; mine: number }>();
     let myNationId: string | null = null;
     try {
-      const seasonFilter = { missionKey: ctx.missionKey, seasonId: currentSeasonId() };
+      const seasonFilter = approvedNation(ctx.missionKey, seasonId);
       const memberRows = await prisma.territoryNationMember.findMany({
         where: { userId: { in: [...ownerIds, userId] }, nation: seasonFilter },
         select: { userId: true, nation: { select: { id: true, name: true, _count: { select: { members: true } } } } },
@@ -121,7 +126,7 @@ export async function GET() {
       for (const sg of sieges) {
         const cur = siegeByCastle.get(sg.castleKey) ?? { gauge: 0, mine: 0 };
         cur.gauge = Math.max(cur.gauge, sg.gauge);
-        if (myNationId && sg.attackerNationId === myNationId) cur.mine = sg.gauge;
+        if (sg.attackerNationId === (myNationId ?? `solo:${userId}`)) cur.mine = sg.gauge;
         siegeByCastle.set(sg.castleKey, cur);
       }
     } catch {
@@ -152,7 +157,9 @@ export async function GET() {
         availableForTraining: meta.owner === userId && meta.status === "active",
       });
     }
-    return NextResponse.json({ ok: true, castles, myNationId });
+    return NextResponse.json({ ok: true, castles, myNationId, regions: regions.map(r => ({
+      dong: r.dong, id: r.nationId, name: r.name, relation: relationByNation.get(r.nationId ?? "") ?? "none",
+    })) });
   } catch {
     return NextResponse.json({ ok: false, code: "failed" }, { status: 500 });
   }

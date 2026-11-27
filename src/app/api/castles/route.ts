@@ -1,19 +1,16 @@
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prismadb";
-import { findHomeCastle } from "@/lib/city-server";
+import { playerTitles } from "@/lib/nations";
+import { acquirePgLock } from "@/lib/pg-advisory-lock";
 import {
   CASTLE_MEMBER_CAP,
-  CASTLE_MIN_SEPARATION_M,
-  LORD_CASTLE_CAP_PER_DONG,
   LORD_CASTLE_COST,
   LORD_CASTLE_HP,
-  NOBLE_CASTLE_CAP_PER_DONG,
   NOBLE_CASTLE_MAX_HP,
   NOBLE_CASTLE_MIN_HP,
   NOBLE_CASTLE_PER_USER,
   NOBLE_DIST_MAX_M,
-  NOBLE_DIST_MIN_M,
   OWN_CASTLE_CAP,
   classAtLeast,
   countOwnedCastles,
@@ -57,6 +54,7 @@ type BuildBody = {
   lon?: unknown;
   accuracy?: unknown;
   hp?: unknown;
+  home?: unknown;
 };
 
 export async function POST(request: Request) {
@@ -101,65 +99,38 @@ export async function POST(request: Request) {
   // GPS 신선도는 검사하지 않는다 (위치는 지도 지정 + 동 영역 제한으로 통제).
 
   const klass: CastleClass = await refreshUserClass(prisma, userId, ctx.missionKey);
-  // 본거지 영주성: 영주성이 하나도 없으면 계급·승수·비용 없이 빈 동에 첫 영주성을 세운다 (2026-11-27).
-  const homeFounding = kind === "lord" && !(await findHomeCastle(prisma, userId, ctx.missionKey));
-
-  if (kind === "lord" && !homeFounding && !classAtLeast(klass, "commoner")) {
-    return NextResponse.json({ ok: false, code: "class_ineligible" }, { status: 403 });
-  }
-  if (kind === "noble" && klass !== "noble" && klass !== "lord") {
-    return NextResponse.json({ ok: false, code: "class_ineligible" }, { status: 403 });
-  }
-
-  const ownedTotal = await countOwnedCastles(prisma, userId, ctx.missionKey);
-  // 창시(동 최초 영주성)는 보유 상한과 무관하게 허용. 그 외는 상한 적용.
-  if (kind !== "lord") {
-    if (ownedTotal >= OWN_CASTLE_CAP[klass]) {
-      return NextResponse.json({ ok: false, code: "limit" }, { status: 403 });
-    }
-  }
-
-  // 동 폴리곤 포함 검증은 폴리곤 소스(B-1) 확정 후 추가. 현 MVP는 거리 검증만 수행한다.
   try {
     const result = await withNamedLock(
       `castle-create:${ctx.missionKey}:${dongCode}`,
       async (tx: Tx) => {
+        await acquirePgLock(tx, `castle-builder:${ctx.missionKey}:${userId}`);
         const seasonId = currentSeasonId();
         const events = await tx.aRMissionEvent.findMany({
           where: { ARMissionKey: ctx.missionKey, EventKey: { startsWith: "castle-" } },
           select: { EventKey: true, string_param1: true },
         });
-        const dongCastles = events
-          .map((e) => ({ key: e.EventKey ?? "", meta: parseCastleMeta(e.string_param1) }))
-          .filter((c) => c.meta !== null && c.meta.dong === dongCode && c.meta.seasonId === seasonId);
-
-        const lordCount = dongCastles.filter((c) => c.meta?.kind === "lord").length;
-        const nobleCount = dongCastles.filter((c) => c.meta?.kind === "noble").length;
-        const myNobleCount = dongCastles.filter(
-          (c) => c.meta?.kind === "noble" && c.meta?.owner === userId,
-        ).length;
-
-        if (kind === "lord" && lordCount >= LORD_CASTLE_CAP_PER_DONG) {
-          throw new Error("limit");
-        }
-        // 창시 경로: 동 최초 영주성은 commoner+ & 전투 승리 PROMOTION_RULES.foundLordCastle.wins+ 에게 허용.
-        // 이후 영주성은 기사 이상만 (창시자가 영주가 되므로 자연 충족).
-        if (kind === "lord" && lordCount === 0 && !homeFounding) {
-          const stats = await getUserStats(tx, userId, ctx.missionKey);
-          if (!(classAtLeast(klass, "commoner") && stats.wins >= PROMOTION_RULES.foundLordCastle.wins)) {
-            throw new Error("founder_ineligible");
+        const current = events.map(e => ({ key: e.EventKey ?? "", meta: parseCastleMeta(e.string_param1) }))
+          .filter(c => c.meta?.seasonId === seasonId);
+        const dongCastles = current.filter(c => c.meta?.dong === dongCode);
+        const lords = dongCastles.filter(c => c.meta?.kind === "lord");
+        const homeFounding = kind === "lord" && !current.some(c => c.meta?.owner === userId && c.meta.kind === "lord");
+        if (body.home === true && !homeFounding) throw new Error("already_home");
+        if (kind === "lord" && !homeFounding) {
+          if (lords.length === 0) {
+            const stats = await getUserStats(tx, userId, ctx.missionKey);
+            if (!classAtLeast(klass, "commoner") || stats.wins < PROMOTION_RULES.foundLordCastle.wins) {
+              throw new Error("founder_ineligible");
+            }
+          } else if (!classAtLeast(klass, "knight")) {
+            throw new Error("class_ineligible");
           }
-        } else if (kind === "lord" && lordCount > 0 && !classAtLeast(klass, "knight")) {
-          throw new Error("class_ineligible");
-        }
-        if (kind === "lord" && lordCount > 0) {
-          const owned = await countOwnedCastles(tx, userId, ctx.missionKey);
-          if (owned >= OWN_CASTLE_CAP[klass]) {
+          if (lords.length > 0 && await countOwnedCastles(tx, userId, ctx.missionKey) >= OWN_CASTLE_CAP[klass]) {
             throw new Error("limit");
           }
         }
         if (kind === "noble") {
-          if (nobleCount >= NOBLE_CASTLE_CAP_PER_DONG || myNobleCount >= NOBLE_CASTLE_PER_USER) {
+          if (!classAtLeast(klass, "noble")) throw new Error("class_ineligible");
+          if (dongCastles.filter(c => c.meta?.kind === "noble" && c.meta.owner === userId).length >= NOBLE_CASTLE_PER_USER) {
             throw new Error("limit");
           }
           const owned = await countOwnedCastles(tx, userId, ctx.missionKey);
@@ -168,38 +139,19 @@ export async function POST(request: Request) {
           }
         }
 
-        const gpsRows = await tx.aRMissionGPS.findMany({
-          where: { ARMissionKey: ctx.missionKey, EventKey: { startsWith: "castle-" } },
-          select: { EventKey: true, location: true },
-        });
-        const gpsByKey = new Map(gpsRows.map((g) => [g.EventKey ?? "", g.location ?? ""]));
-
-        let lordCoords: { lat: number; lon: number } | null = null;
-        for (const c of dongCastles) {
-          const coords = parseLatLon(gpsByKey.get(c.key) ?? "");
-          if (!coords) {
-            continue;
-          }
-          if (haversineM(lat, lon, coords.lat, coords.lon) < CASTLE_MIN_SEPARATION_M) {
-            throw new Error("distance");
-          }
-          if (c.meta?.kind === "lord") {
-            lordCoords = coords;
-          }
-        }
         if (kind === "noble") {
-          if (!lordCoords) {
-            throw new Error("no_lord");
-          }
-          const dist = haversineM(lat, lon, lordCoords.lat, lordCoords.lon);
-          if (dist < NOBLE_DIST_MIN_M || dist > NOBLE_DIST_MAX_M) {
-            throw new Error("distance");
-          }
+          if (lords.length === 0) throw new Error("no_lord");
+          const positions = await tx.aRMissionGPS.findMany({
+            where: { ARMissionKey: ctx.missionKey, EventKey: { in: lords.map(c => c.key) } },
+            select: { location: true },
+          });
+          if (!positions.some(row => {
+            const pos = parseLatLon(row.location);
+            return pos && haversineM(lat, lon, pos.lat, pos.lon) <= NOBLE_DIST_MAX_M;
+          })) throw new Error("distance");
         }
 
-        // 비용: 동 최초 영주성은 무료(개척 보너스)
-        const isFirstLord = kind === "lord" && lordCount === 0;
-        const cost = kind === "lord" ? (isFirstLord ? 0 : LORD_CASTLE_COST) : hp * 200;
+        const cost = kind === "lord" ? (homeFounding || lords.length === 0 ? 0 : LORD_CASTLE_COST) : hp * 200;
         const paid = await spendInfluence(tx, userId, cost);
         if (!paid) {
           throw new Error("funds");
@@ -292,7 +244,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const code =
       error instanceof Error &&
-      ["limit", "distance", "funds", "no_lord", "class_ineligible", "founder_ineligible"].includes(
+      ["already_home", "limit", "distance", "funds", "no_lord", "class_ineligible", "founder_ineligible"].includes(
         error.message
       )
         ? error.message
@@ -351,6 +303,7 @@ export async function GET(request: Request) {
         where: { userId: { in: activeMembers.map((m) => m.userId ?? "").filter(Boolean) } },
         select: { userId: true, nickname: true },
       });
+      const titles = await playerTitles(tx, ctx.missionKey, nicknames.map(n => n.userId));
       const nicknameById = new Map(nicknames.map((n) => [n.userId, n.nickname]));
       const myRow = members.find((m) => m.userId === userId);
       const myPending =
@@ -372,6 +325,7 @@ export async function GET(request: Request) {
           userId: m.userId,
           nickname: nicknameById.get(m.userId ?? "") ?? (m.userId ?? ""),
           classId: m.classId,
+          title: titles.get(m.userId ?? "") ?? "부족장",
           isOwner: m.userId === castle.meta.owner,
         })),
         capacity: CASTLE_MEMBER_CAP[castle.meta.kind],

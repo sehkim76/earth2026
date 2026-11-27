@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { ensureMyNation } from "@/lib/nations";
+import { approvedNation, getMyNation } from "@/lib/nations";
 import { loadUnits, withUnits } from "@/lib/units";
 import {
   ensureCastleSeason,
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
         where: { id: allianceId, missionKey: ctx.missionKey, type: "alliance" },
       });
       if (!alliance) throw new Error("not_found");
-      const mine = await ensureMyNation(tx, userId, ctx.missionKey);
+      const mine = await getMyNation(tx, userId, ctx.missionKey);
 
       const me = await tx.missionUser.findUnique({ where: { userId }, select: { data: true } });
       const units = loadUnits(me?.data);
@@ -91,6 +91,7 @@ export async function POST(request: Request) {
         return { action, unitId, castleKey };
       }
 
+      if (!mine) throw new Error("forbidden");
       // lend
       if (alliance.status !== "active") throw new Error("not_active");
       if (alliance.fromNationId !== mine.id && alliance.toNationId !== mine.id) throw new Error("forbidden");
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
       // 상대방 국가 소속 성에만 파견 (내 성·내 국가 성은 기존 주둔 이용).
       const holder = castle.meta.owner
         ? await tx.territoryNationMember.findFirst({
-            where: { userId: castle.meta.owner, nation: { missionKey: ctx.missionKey } },
+            where: { userId: castle.meta.owner, nation: approvedNation(ctx.missionKey) },
             select: { nationId: true },
           })
         : null;

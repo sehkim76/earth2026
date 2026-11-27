@@ -415,6 +415,8 @@ export const ModelName = {
   SubscriberTable: 'SubscriberTable',
   TerritoryNeutralTrail: 'TerritoryNeutralTrail',
   TerritoryNation: 'TerritoryNation',
+  TerritoryDeclaration: 'TerritoryDeclaration',
+  TerritoryDeclarationVote: 'TerritoryDeclarationVote',
   TerritoryNationMember: 'TerritoryNationMember',
   TerritoryDiplomacy: 'TerritoryDiplomacy',
   TerritorySiege: 'TerritorySiege',
@@ -437,7 +439,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable" | "territoryCity"
+    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryDeclaration" | "territoryDeclarationVote" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable" | "territoryCity"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1995,6 +1997,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TerritoryDeclaration: {
+      payload: Prisma.$TerritoryDeclarationPayload<ExtArgs>
+      fields: Prisma.TerritoryDeclarationFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryDeclarationFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryDeclarationFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryDeclarationFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryDeclarationFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryDeclarationFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryDeclarationCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryDeclarationCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryDeclarationCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryDeclarationDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        update: {
+          args: Prisma.TerritoryDeclarationUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryDeclarationDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryDeclarationUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryDeclarationUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryDeclarationUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationPayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryDeclarationAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryDeclaration>
+        }
+        groupBy: {
+          args: Prisma.TerritoryDeclarationGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDeclarationGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryDeclarationCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDeclarationCountAggregateOutputType> | number
+        }
+      }
+    }
+    TerritoryDeclarationVote: {
+      payload: Prisma.$TerritoryDeclarationVotePayload<ExtArgs>
+      fields: Prisma.TerritoryDeclarationVoteFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryDeclarationVoteFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryDeclarationVoteFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryDeclarationVoteFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryDeclarationVoteFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryDeclarationVoteFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryDeclarationVoteCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryDeclarationVoteCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryDeclarationVoteCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryDeclarationVoteDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        update: {
+          args: Prisma.TerritoryDeclarationVoteUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryDeclarationVoteDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryDeclarationVoteUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryDeclarationVoteUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryDeclarationVoteUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryDeclarationVotePayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryDeclarationVoteAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryDeclarationVote>
+        }
+        groupBy: {
+          args: Prisma.TerritoryDeclarationVoteGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDeclarationVoteGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryDeclarationVoteCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryDeclarationVoteCountAggregateOutputType> | number
+        }
+      }
+    }
     TerritoryNationMember: {
       payload: Prisma.$TerritoryNationMemberPayload<ExtArgs>
       fields: Prisma.TerritoryNationMemberFieldRefs
@@ -2841,6 +2991,31 @@ export const TerritoryNationScalarFieldEnum = {
 export type TerritoryNationScalarFieldEnum = (typeof TerritoryNationScalarFieldEnum)[keyof typeof TerritoryNationScalarFieldEnum]
 
 
+export const TerritoryDeclarationScalarFieldEnum = {
+  id: 'id',
+  missionKey: 'missionKey',
+  seasonId: 'seasonId',
+  dong: 'dong',
+  castleKey: 'castleKey',
+  proposerId: 'proposerId',
+  name: 'name',
+  status: 'status',
+  nationId: 'nationId',
+  createdAt: 'createdAt'
+} as const
+
+export type TerritoryDeclarationScalarFieldEnum = (typeof TerritoryDeclarationScalarFieldEnum)[keyof typeof TerritoryDeclarationScalarFieldEnum]
+
+
+export const TerritoryDeclarationVoteScalarFieldEnum = {
+  declarationId: 'declarationId',
+  userId: 'userId',
+  consent: 'consent'
+} as const
+
+export type TerritoryDeclarationVoteScalarFieldEnum = (typeof TerritoryDeclarationVoteScalarFieldEnum)[keyof typeof TerritoryDeclarationVoteScalarFieldEnum]
+
+
 export const TerritoryNationMemberScalarFieldEnum = {
   id: 'id',
   nationId: 'nationId',
@@ -3200,6 +3375,8 @@ export type GlobalOmitConfig = {
   subscriberTable?: Prisma.SubscriberTableOmit
   territoryNeutralTrail?: Prisma.TerritoryNeutralTrailOmit
   territoryNation?: Prisma.TerritoryNationOmit
+  territoryDeclaration?: Prisma.TerritoryDeclarationOmit
+  territoryDeclarationVote?: Prisma.TerritoryDeclarationVoteOmit
   territoryNationMember?: Prisma.TerritoryNationMemberOmit
   territoryDiplomacy?: Prisma.TerritoryDiplomacyOmit
   territorySiege?: Prisma.TerritorySiegeOmit

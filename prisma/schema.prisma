@@ -265,11 +265,40 @@ model TerritoryNation {
   seasonId     Int      @default(1)
   createdAt    DateTime @default(now()) @db.Timestamp(0)
   members      TerritoryNationMember[]
+  declaration TerritoryDeclaration?
   sentDiplomacy     TerritoryDiplomacy[] @relation("DiplomacyFrom")
   receivedDiplomacy TerritoryDiplomacy[] @relation("DiplomacyTo")
 
   @@index([missionKey, seasonId], map: "nation_mission_season")
   @@index([leaderUserId], map: "nation_leader")
+}
+
+/// 성이 있는 행정동의 국가 선포 및 선포 당시 유권자 명부.
+model TerritoryDeclaration {
+  id           String @id @default(cuid())
+  missionKey   String @db.VarChar(255)
+  seasonId     Int
+  dong         String @db.VarChar(64)
+  castleKey    String @db.VarChar(255)
+  proposerId   String @db.VarChar(255)
+  name         String @db.VarChar(30)
+  status       String @default("pending") @db.VarChar(16)
+  nationId     String? @unique
+  nation       TerritoryNation? @relation(fields: [nationId], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now())
+  votes        TerritoryDeclarationVote[]
+
+  @@index([missionKey, seasonId, dong, status])
+}
+
+model TerritoryDeclarationVote {
+  declarationId String
+  declaration   TerritoryDeclaration @relation(fields: [declarationId], references: [id], onDelete: Cascade)
+  userId        String @db.VarChar(255)
+  consent       Boolean?
+
+  @@id([declarationId, userId])
+  @@index([userId, consent])
 }
 
 /// 국가 구성원 (1인 국가 포함).

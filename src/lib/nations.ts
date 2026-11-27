@@ -1,8 +1,8 @@
 import prisma from "@/lib/prismadb";
-import { currentSeasonId, withNamedLock, type Tx } from "@/lib/territory";
+import { currentSeasonId, type Tx } from "@/lib/territory";
 
 // ---------------------------------------------------------------------------
-// 국가(길드) — 솔로도 1인 국가로 동등 주체
+// 동의 절차로 성립한 국가와 외교
 // ---------------------------------------------------------------------------
 
 export const ALLIANCE_CAP = 3;
@@ -27,43 +27,21 @@ export interface NationSummary {
   myRole: string | null;
 }
 
-const memberCountOf = async (db: Tx | typeof prisma, nationId: string): Promise<number> =>
-  (db as typeof prisma).territoryNationMember.count({ where: { nationId } });
+export const approvedNation = (missionKey: string, seasonId = currentSeasonId()) => ({
+  missionKey, seasonId, declaration: { is: { status: "approved" } },
+});
 
-/** 내 국가 (없으면 1인 국가 자동 생성). */
-export async function ensureMyNation(
-  db: Tx | typeof prisma,
-  userId: string,
-  missionKey: string,
-): Promise<NationSummary> {
-  const client = db as typeof prisma;
-  const existing = await client.territoryNationMember.findFirst({
-    where: { userId, nation: { missionKey, seasonId: currentSeasonId() } },
-    include: { nation: true },
+export async function playerTitles(db: Tx | typeof prisma, missionKey: string, userIds: string[]): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  if (!userIds.length) return titles;
+  const members = await db.territoryNationMember.findMany({
+    where: { userId: { in: userIds }, nation: approvedNation(missionKey) },
+    select: { userId: true, role: true },
   });
-  if (existing) {
-    const count = await memberCountOf(db, existing.nationId);
-    return {
-      id: existing.nation.id,
-      name: existing.nation.name,
-      leaderUserId: existing.nation.leaderUserId,
-      memberCount: count,
-      isSolo: count <= 1,
-      myRole: existing.role,
-    };
+  for (const member of members) {
+    if (titles.get(member.userId) !== "국왕") titles.set(member.userId, member.role === "leader" ? "국왕" : "제후");
   }
-  const me = await client.missionUser.findUnique({ where: { userId }, select: { nickname: true } });
-  const base = (me?.nickname?.trim() || "무명").slice(0, 10);
-  const nation = await client.territoryNation.create({
-    data: {
-      missionKey,
-      name: `${base}국`,
-      leaderUserId: userId,
-      seasonId: currentSeasonId(),
-      members: { create: { userId, role: "leader" } },
-    },
-  });
-  return { id: nation.id, name: nation.name, leaderUserId: userId, memberCount: 1, isSolo: true, myRole: "leader" };
+  return titles;
 }
 
 export async function getMyNation(
@@ -73,11 +51,12 @@ export async function getMyNation(
 ): Promise<NationSummary | null> {
   const client = db as typeof prisma;
   const existing = await client.territoryNationMember.findFirst({
-    where: { userId, nation: { missionKey, seasonId: currentSeasonId() } },
-    include: { nation: true },
+    where: { userId, nation: approvedNation(missionKey) },
+    orderBy: [{ role: "asc" }, { joinedAt: "asc" }, { id: "asc" }],
+    include: { nation: { include: { _count: { select: { members: true } } } } },
   });
   if (!existing) return null;
-  const count = await memberCountOf(db, existing.nationId);
+  const count = existing.nation._count.members;
   return {
     id: existing.nation.id,
     name: existing.nation.name,
@@ -88,33 +67,9 @@ export async function getMyNation(
   };
 }
 
-/** 국가 생성 (1인 국가 → 정식 국호). 리더 1인 + 즉시 1인 국가 탈퇴. */
-export async function foundNation(
-  userId: string,
-  missionKey: string,
-  name: string,
-): Promise<NationSummary> {
-  const clean = name.trim().slice(0, 30);
-  if (clean.length < 2) throw new Error("invalid_name");
-  return withNamedLock(`nation:${userId}`, async (tx) => {
-    const current = await getMyNation(tx, userId, missionKey);
-    if (current && !current.isSolo) throw new Error("already_in_nation");
-    if (current) {
-      await tx.territoryNationMember.deleteMany({ where: { nationId: current.id, userId } });
-      const left = await memberCountOf(tx, current.id);
-      if (left === 0) await tx.territoryNation.delete({ where: { id: current.id } });
-    }
-    const nation = await tx.territoryNation.create({
-      data: {
-        missionKey,
-        name: clean,
-        leaderUserId: userId,
-        seasonId: currentSeasonId(),
-        members: { create: { userId, role: "leader" } },
-      },
-    });
-    return { id: nation.id, name: nation.name, leaderUserId: userId, memberCount: 1, isSolo: false, myRole: "leader" };
-  });
+/** 무소속 영주도 개인 공성 게이지를 쌓을 수 있다. */
+export async function siegeFaction(db: Tx, userId: string, missionKey: string): Promise<{ id: string; isSolo: boolean }> {
+  return (await getMyNation(db, userId, missionKey)) ?? { id: `solo:${userId}`, isSolo: true };
 }
 
 /** 유지비: 2개까지 무료, 3개부터 초선형. */

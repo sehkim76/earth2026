@@ -151,6 +151,16 @@ export type TerritoryNeutralTrail = Prisma.TerritoryNeutralTrailModel
  */
 export type TerritoryNation = Prisma.TerritoryNationModel
 /**
+ * Model TerritoryDeclaration
+ * 성이 있는 행정동의 국가 선포 및 선포 당시 유권자 명부.
+ */
+export type TerritoryDeclaration = Prisma.TerritoryDeclarationModel
+/**
+ * Model TerritoryDeclarationVote
+ * 
+ */
+export type TerritoryDeclarationVote = Prisma.TerritoryDeclarationVoteModel
+/**
  * Model TerritoryNationMember
  * 국가 구성원 (1인 국가 포함).
  */

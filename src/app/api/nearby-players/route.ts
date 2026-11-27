@@ -3,11 +3,13 @@ import { NextResponse } from "next/server";
 
 import { authOptions } from "@/lib/auth";
 import { extractMapUserSettingsFromData } from "@/lib/map-settings";
+import { playerTitles } from "@/lib/nations";
 import prisma from "@/lib/prismadb";
 
 type NearbyPlayerResponse = {
   userId: string;
   nickname: string;
+  title: string;
   lat: number;
   lon: number;
   updatedAt: string;
@@ -118,6 +120,7 @@ export async function GET(request: Request) {
     data: unknown;
   }[];
 
+  const titles = await playerTitles(prisma, missionKey, rows.map(r => r.userId));
   const players: NearbyPlayerResponse[] = rows
     .map((row) => {
       const latValue = toNumber(row.lat);
@@ -129,6 +132,7 @@ export async function GET(request: Request) {
       return {
         userId: row.userId,
         nickname: row.nickname,
+        title: titles.get(row.userId) ?? "부족장",
         lat: latValue,
         lon: lonValue,
         updatedAt: row.updatedAt.toISOString(),

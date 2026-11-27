@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { canAttack, ensureMyNation, siegeGain } from "@/lib/nations";
+import { approvedNation, canAttack, siegeFaction, siegeGain } from "@/lib/nations";
 import prisma from "@/lib/prismadb";
 import {
   clearSiegeGauges,
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   }
   try {
     const result = await withNamedLock(`siege:${ctx.missionKey}:${castleKey}`, async (tx) => {
-      const mine = await ensureMyNation(tx, userId, ctx.missionKey);
+      const mine = await siegeFaction(tx, userId, ctx.missionKey);
       const castle = await ensureCastleSeason(tx, castleKey, ctx.missionKey);
       if (!castle) throw new Error("castle_not_found");
       if (castle.meta.status !== "active") throw new Error("castle_pending");
@@ -52,10 +52,10 @@ export async function POST(request: Request) {
       // 수비 측 국가를 찾아 외교 게이트 검사 (국가 없으면 중립 → 공격 가능).
       if (castle.meta.owner) {
         const defender = await tx.territoryNationMember.findFirst({
-          where: { userId: castle.meta.owner, nation: { missionKey: ctx.missionKey } },
+          where: { userId: castle.meta.owner, nation: approvedNation(ctx.missionKey) },
           select: { nationId: true },
         });
-        if (defender && defender.nationId !== mine.id) {
+        if (defender) {
           const gate = await canAttack(tx, ctx.missionKey, mine.id, defender.nationId);
           if (!gate.ok) throw new Error(`blocked:${gate.reason}`);
         }

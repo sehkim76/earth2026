@@ -1,3 +1,4 @@
+import { approvedNation } from "@/lib/nations";
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prismadb";
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
   const limit = Math.max(1, Math.min(50, Number(params.get("limit") ?? 20) || 20));
   const seasonId = currentSeasonId();
   const myNation = await prisma.territoryNationMember.findFirst({
-    where: { userId, nation: { missionKey: ctx.missionKey, seasonId } },
+    where: { userId, nation: approvedNation(ctx.missionKey, seasonId) },
     select: { nationId: true },
   });
   const myNationId = myNation?.nationId ?? null;

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 
 import {
+  approvedNation,
   ALLIANCE_CAP,
   allianceCount,
   canAttack,
-  ensureMyNation,
+  getMyNation,
   expiryFor,
   parseTributePayload,
   type DiplomacyType,
@@ -21,7 +22,8 @@ export async function GET() {
   if (!userId) return NextResponse.json({ ok: false, code: "login" }, { status: 401 });
   const ctx = await resolveTerritoryContext(userId);
   if (!ctx) return territoryDisabledResponse();
-  const mine = await ensureMyNation(prisma, userId, ctx.missionKey);
+  const mine = await getMyNation(prisma, userId, ctx.missionKey);
+  if (!mine) return NextResponse.json({ ok: true, nationId: null, diplomacy: [] });
   await prisma.territoryDiplomacy.updateMany({
     where: { missionKey: ctx.missionKey, status: "active", expiresAt: { lt: new Date() } },
     data: { status: "expired", decidedAt: new Date() },
@@ -52,10 +54,11 @@ export async function POST(request: Request) {
   }
   const type = body.type;
 
-  const mine = await ensureMyNation(prisma, userId, ctx.missionKey);
+  const mine = await getMyNation(prisma, userId, ctx.missionKey);
+  if (!mine) return NextResponse.json({ ok: false, code: "forbidden" }, { status: 403 });
   if (mine.id === toNationId) return NextResponse.json({ ok: false, code: "self" }, { status: 400 });
   const target = await prisma.territoryNation.findFirst({
-    where: { id: toNationId, missionKey: ctx.missionKey },
+    where: { id: toNationId, ...approvedNation(ctx.missionKey) },
     select: { id: true },
   });
   if (!target) return NextResponse.json({ ok: false, code: "not_found" }, { status: 404 });

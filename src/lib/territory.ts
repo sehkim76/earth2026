@@ -46,8 +46,6 @@ export const LORD_CASTLE_HP = 5;
 export const NOBLE_CASTLE_MIN_HP = 2;
 export const NOBLE_CASTLE_MAX_HP = 3;
 
-export const LORD_CASTLE_CAP_PER_DONG = 1;
-export const NOBLE_CASTLE_CAP_PER_DONG = 3;
 export const NOBLE_CASTLE_PER_USER = 1;
 
 export const CASTLE_MEMBER_CAP: Record<"lord" | "noble", number> = {
@@ -64,8 +62,6 @@ export const OWN_CASTLE_CAP: Record<CastleClass, number> = {
 };
 
 export const JOIN_RADIUS_M = 100;
-export const CASTLE_MIN_SEPARATION_M = 200;
-export const NOBLE_DIST_MIN_M = 500;
 export const NOBLE_DIST_MAX_M = 2000;
 export const TRANSFER_COOLDOWN_DAYS = 30;
 export const JOIN_APPROVAL_EXPIRE_HOURS = 48;
