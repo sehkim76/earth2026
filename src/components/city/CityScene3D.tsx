@@ -21,12 +21,13 @@ export interface CitySceneLot {
 
 interface CityScene3DProps {
   lots: CitySceneLot[];
+  siege: { active: boolean; wallLevel: number };
   selected: BuildingKey | null;
   onSelect: (key: BuildingKey) => void;
 }
 
 /** 성 안 3D 마당 (three.js). 이름표는 3D 위치를 따라다니는 HTML. */
-export default function CityScene3D({ lots, selected, onSelect }: CityScene3DProps): ReactElement {
+export default function CityScene3D({ lots, siege: { active, wallLevel }, selected, onSelect }: CityScene3DProps): ReactElement {
   const hostRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<CityWorld | null>(null);
   const labelsRef = useRef(new Map<BuildingKey, HTMLDivElement>());
@@ -57,6 +58,10 @@ export default function CityScene3D({ lots, selected, onSelect }: CityScene3DPro
     // lotSig가 바뀔 때만 다시 짓는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lotSig]);
+
+  useEffect(() => {
+    worldRef.current?.setSiege(active, wallLevel);
+  }, [active, wallLevel]);
 
   useEffect(() => {
     worldRef.current?.setSelected(selected);

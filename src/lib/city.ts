@@ -265,6 +265,16 @@ export interface GatherJob {
   path?: Array<[number, number]>;
 }
 
+export const CITY_SIEGE_DURATION_MS = 20 * 60_000;
+
+export interface CitySiege {
+  castleKey: string;
+  at: number;
+  by: string;
+  defended: boolean;
+  conquered: boolean;
+}
+
 export interface CityState {
   v: 1;
   res: { stone: number; wood: number; iron: number };
@@ -283,6 +293,7 @@ export interface CityState {
   settledAt: number;
   /** 아직 지급하지 않은 금 소수점 */
   goldAcc: number;
+  siege?: CitySiege;
 }
 
 export function newCityState(now: number): CityState {
@@ -346,6 +357,10 @@ export function parseCityState(raw: unknown, now: number): CityState {
   if (isObj(raw.assigned)) for (const [id, v] of Object.entries(raw.assigned)) assigned[id] = readTroops(v);
   const nodeUsed: Record<string, number> = {};
   if (isObj(raw.nodeUsed)) for (const [id, v] of Object.entries(raw.nodeUsed)) nodeUsed[id] = Math.max(0, num(v));
+  const siege = job<CitySiege>(raw.siege, (o) =>
+    typeof o.castleKey === "string" && num(o.at) > 0 && typeof o.by === "string" &&
+    typeof o.defended === "boolean" && typeof o.conquered === "boolean",
+  );
   return {
     v: 1,
     res: { stone: Math.max(0, num(res.stone, base.res.stone)), wood: Math.max(0, num(res.wood, base.res.wood)), iron: Math.max(0, num(res.iron, base.res.iron)) },
@@ -360,6 +375,7 @@ export function parseCityState(raw: unknown, now: number): CityState {
     nodeUsed,
     settledAt: num(raw.settledAt, now),
     goldAcc: Math.max(0, num(raw.goldAcc)),
+    ...(siege ? { siege } : {}),
   };
 }
 

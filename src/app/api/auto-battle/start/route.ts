@@ -25,7 +25,7 @@ import {
   type AutoUnitKind,
 } from "@/lib/auto-battle";
 import { troopLosses, troopTotal, wallDefense, type TroopCounts } from "@/lib/city";
-import { applyTroopLosses, findHomeCastle, readTroopBonuses } from "@/lib/city-server";
+import { applyTroopLosses, findHomeCastle, readTroopBonuses, recordSiegeOnHome } from "@/lib/city-server";
 import { loadUnits } from "@/lib/units";
 import { recordBattleResult } from "@/lib/records";
 import {
@@ -348,6 +348,10 @@ export async function POST(request: Request) {
       let castleDefIds: Array<string | null> = [null, null, null, null, null];
       let castleOwnerTroops: Record<string, TroopCounts> = {};
       const reinforcedLenders: Array<{ lenderUserId: string; unitId: string }> = [];
+      const ownerId = castle.meta.owner;
+      const home = ownerId && castle.meta.kind === "lord"
+        ? await findHomeCastle(tx, ownerId, ctx.missionKey)
+        : null;
       if (castle.meta.owner) {
         const ownerRow = await tx.missionUser.findUnique({
           where: { userId: castle.meta.owner },
@@ -362,15 +366,12 @@ export async function POST(request: Request) {
           castleOwnerTroops = ownerTroops.troops;
           applyTroopBonuses(defender, castleDefIds, ownerTroops.bonus);
           // 성벽: 본거지 영주성을 지킬 때 성주 편성(원군 제외)에 체력·공격력 가산
-          if (ownerTroops.wallLevel > 0) {
-            const home = await findHomeCastle(tx, castle.meta.owner, ctx.missionKey);
-            if (home?.castleKey === target.castleKey) {
-              const w = wallDefense(ownerTroops.wallLevel);
-              for (const slot of defender) {
-                if (!slot) continue;
-                slot.bonusHp = (slot.bonusHp ?? 0) + w.hp;
-                slot.bonusAtk = (slot.bonusAtk ?? 0) + w.atk;
-              }
+          if (ownerTroops.wallLevel > 0 && home?.castleKey === target.castleKey) {
+            const w = wallDefense(ownerTroops.wallLevel);
+            for (const slot of defender) {
+              if (!slot) continue;
+              slot.bonusHp = (slot.bonusHp ?? 0) + w.hp;
+              slot.bonusAtk = (slot.bonusAtk ?? 0) + w.atk;
             }
           }
           const holder = await tx.territoryNationMember.findFirst({
@@ -437,6 +438,10 @@ export async function POST(request: Request) {
         defender, defenderName, defenderTier, defenderSkill, siege, influence, battleId, seed,
         defenderLead: null as null,
         reinforced: reinforcedLenders,
+        _siegeHome: ownerId && home?.castleKey === target.castleKey ? {
+          ownerId,
+          record: { castleKey: target.castleKey, at: now, by: user.nickname?.trim() || "다른 플레이어", defended: !settled.victory, conquered },
+        } : null,
         _troopLoss: {
           atk: troopLossesFor(settled.result.remaining[0], atkIds, myTroops.troops),
           defOwner: castle.meta.owner ?? null,
@@ -445,7 +450,14 @@ export async function POST(request: Request) {
       };
     });
 
-    const { _troopLoss: troopLoss, ...publicResult } = result;
+    const { _troopLoss: troopLoss, _siegeHome: siegeHome, ...publicResult } = result;
+    if (siegeHome) {
+      try {
+        await recordSiegeOnHome(siegeHome.ownerId, ctx.missionKey, siegeHome.record);
+      } catch (error) {
+        console.error(`[auto-battle] home siege record failed owner=${siegeHome.ownerId}`, error);
+      }
+    }
     // 병력 손실 반영 (전투 트랜잭션이 끝난 뒤 각자 성 잠금으로)
     try {
       await applyTroopLosses(userId, troopLoss.atk);

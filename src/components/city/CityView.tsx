@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import {
   BUILDINGS,
   BUILDING_BY_KEY,
+  CITY_SIEGE_DURATION_MS,
   FORGE_ATK_PCT,
   KEEP_HP_PCT,
   TROOP_BUILDING_PCT,
@@ -113,6 +114,26 @@ export function CityView({ open, onClose }: CityViewProps) {
     return () => window.clearInterval(id);
   }, [open, view, reload]);
 
+  useEffect(() => {
+    if (!open || tab !== "buildings" || busy) return;
+    let pending = false;
+    let cancelled = false;
+    const id = window.setInterval(async () => {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
+      try {
+        const r = await fetchCity();
+        if (r.ok && !cancelled) setView((current) => !current || r.view.now >= current.now ? r.view : current);
+      } finally {
+        pending = false;
+      }
+    }, 15_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [open, tab, busy]);
+
   const act = async (body: Parameters<typeof cityAction>[0]): Promise<boolean> => {
     if (busy) return false;
     setBusy(true);
@@ -131,6 +152,9 @@ export function CityView({ open, onClose }: CityViewProps) {
 
   const now = serverNow(view);
   const s = view?.state ?? null;
+  const siege = s?.siege;
+  const activeSiege = siege && !siege.conquered && siege.castleKey === view?.home?.castleKey &&
+    now - siege.at < CITY_SIEGE_DURATION_MS ? siege : null;
   const goldNow = view?.gold ?? 0;
   const cap = s ? storageCap(s.buildings.storehouse) : 0;
   const rates = s ? productionPerHour(s) : null;
@@ -235,8 +259,21 @@ export function CityView({ open, onClose }: CityViewProps) {
           <p className="py-10 text-center text-sm font-bold text-[#f3e8ce]">성 안을 불러오는 중…</p>
         ) : tab === "buildings" ? (
           <>
-            <CityScene3D lots={sceneLots} selected={selected} onSelect={setSelected} />
+            <CityScene3D
+              lots={sceneLots}
+              siege={{ active: !!activeSiege, wallLevel: s.buildings.wall }}
+              selected={selected}
+              onSelect={setSelected}
+            />
             <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-center gap-1">
+              {activeSiege ? (
+                <div className="w-full max-w-sm rounded-xl border border-orange-400/65 bg-red-950/90 px-3 py-2 text-orange-50">
+                  <p className="text-xs font-black">
+                    {activeSiege.by}님의 공성 공격 · {now - activeSiege.at < 60_000 ? "방금 전" : `${Math.floor((now - activeSiege.at) / 60_000)}분 전`}
+                  </p>
+                  <p className="mt-0.5 text-[11px]">{activeSiege.defended ? "수비대가 공격을 막아냈습니다." : "공격군이 이번 전투에서 승리했습니다."}</p>
+                </div>
+              ) : null}
               {s.build ? (
                 <div className="w-full max-w-sm rounded-xl bg-black/60 px-3 py-1.5 text-[#f3e8ce] backdrop-blur-sm">
                   <p className="text-xs font-black">

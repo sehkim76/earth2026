@@ -4,6 +4,7 @@ import * as THREE from "three";
 
 import type { BuildingKey } from "@/lib/city";
 import { LOTS, WALK_PATHS, WALL, buildLot, buildStaticWorld, createMaterials, type Mats } from "@/components/city/city-scene-models";
+import { createSiegeScene } from "@/components/city/city-scene-siege";
 
 export interface SceneLotState {
   key: BuildingKey;
@@ -18,6 +19,7 @@ export interface CityWorldOptions {
 }
 
 export interface CityWorld {
+  setSiege: (active: boolean, wallLevel: number) => void;
   setLots: (lots: SceneLotState[]) => void;
   setSelected: (key: BuildingKey | null) => void;
   /** 그 건물로 카메라를 옮긴다 */
@@ -342,6 +344,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
 
   // ── 매 프레임 ──
+  let siege: ReturnType<typeof createSiegeScene> | null = null;
   let raf = 0;
   let last = performance.now();
   const clock0 = last;
@@ -351,6 +354,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = (now - clock0) / 1000;
+    siege?.animate(t);
 
     if (pointers.size === 0 && (Math.abs(vel.x) > 0.002 || Math.abs(vel.z) > 0.002)) {
       cam.tx += vel.x;
@@ -432,6 +436,20 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
 
   return {
+    setSiege(active, wallLevel) {
+      const wasActive = siege !== null;
+      siege?.dispose();
+      siege = active ? createSiegeScene(wallLevel, tex.smoke) : null;
+      if (!siege) return;
+      scene.add(siege.group);
+      if (!wasActive) {
+        const narrow = host.clientWidth / Math.max(1, host.clientHeight) < 0.75;
+        cam.tx = narrow ? 15 : 0;
+        cam.tz = WALL.z1 + (narrow ? 2 : 0);
+        cam.dist = Math.min(cam.dist, 76);
+        placeCamera();
+      }
+    },
     setLots(next) {
       for (const l of next) {
         const sig = `${l.level}|${l.building ? 1 : 0}`;
@@ -477,6 +495,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       canvas.removeEventListener("wheel", onWheel);
       for (const entry of lots.values()) clearLot(entry);
       lots.clear();
+      siege?.dispose();
       disposeTree(scene, new Set());
       smokeMatBase.dispose();
       for (const tx of tex.all) tx.dispose();

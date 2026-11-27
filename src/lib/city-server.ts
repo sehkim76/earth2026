@@ -41,6 +41,7 @@ import {
   upgradeMs,
   workerSpeedMps,
   type BuildingKey,
+  type CitySiege,
   type CityState,
   type Cost,
   type TechKey,
@@ -476,5 +477,16 @@ export async function applyTroopLosses(userId: string, losses: Record<string, Tr
       if (troopTotal(cur) === 0) delete state.assigned[id];
     }
     await tx.territoryCity.update({ where: { userId }, data: { data: state as unknown as object, updatedAt: new Date(now) } });
+  });
+}
+
+/** 최근 본거지 공격을 전투 정산과 같은 성 잠금 아래 기록한다. */
+export async function recordSiegeOnHome(userId: string, missionKey: string, siege: CitySiege): Promise<void> {
+  await withNamedLock(`city:${userId}`, async (tx) => {
+    const now = Date.now();
+    const state = await loadCityRow(tx, userId, missionKey, now);
+    if (state.siege && state.siege.at > siege.at) return;
+    state.siege = siege;
+    await saveCityRow(tx, userId, state, now);
   });
 }
