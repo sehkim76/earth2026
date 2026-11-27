@@ -411,9 +411,7 @@ function FormationPicker({ target, leadId, onCancel, onStarted }: PickerProps) {
                 {enemy.map((e, i) =>
                   e ? (
                     <div key={i} className="flex w-[18%] min-w-[56px] flex-col items-center rounded bg-black/30 px-0.5 py-0.5">
-                      {tier === 3 && i === 0 ? (
-                        <span aria-hidden="true" className="tiger-cub-sprite inline-block size-8" />
-                      ) : <PixelArt name="cmd-outlaw" scale={1} />}
+                      <span aria-hidden="true" className="outlaw-animal-sprite inline-block size-8" data-outlaw-tier={tier} />
                       <span className="text-[9px] font-bold leading-tight">
                         {KIND_SHORT[e.kind]} Lv.{e.level}
                       </span>

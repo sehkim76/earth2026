@@ -293,22 +293,25 @@
   background-image: url("/markers/soldier_walk_sheet.png");
 }
 
-/* 무법자는 항상 걷기 사이클 (idle 프레임 없음). */
-.territory-outlaw {
-  background-image: url("/markers/outlaw_walk_sheet.png");
-}
-
-.tiger-cub-sprite {
-  background-image: url("/markers/tiger-cub-walk.webp");
+.outlaw-animal-sprite {
   background-repeat: no-repeat;
   background-size: 800% 100%;
   background-position: 0 0;
 }
-.tiger-cub-sprite[data-walk="0"] {
-  animation: none;
+.outlaw-animal-sprite[data-outlaw-tier="1"] {
+  background-image: url("/markers/boar-piglet-walk.webp");
+  animation-duration: 800ms;
 }
+.outlaw-animal-sprite[data-outlaw-tier="2"] {
+  background-image: url("/markers/bear-cub-walk.webp");
+  animation-duration: 1120ms;
+}
+.outlaw-animal-sprite[data-outlaw-tier="3"] {
+  background-image: url("/markers/tiger-cub-walk.webp");
+}
+.territory-outlaw[data-walk="0"] { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .territory-outlaw.tiger-cub-sprite { animation: none; }
+  .territory-outlaw { animation: none; }
 }
 
 /* 영주 캐릭터 24프레임 시트 (프레임 198px, 표시 66px). 90ms/프레임 = 2160ms 주기. */

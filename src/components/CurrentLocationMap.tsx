@@ -75,7 +75,7 @@ import { OUTLAW_AUTO_ADVICE, OUTLAW_AUTO_LEVEL } from "@/lib/auto-battle";
 import { difficultyOf } from "@/lib/auto-battle-estimate";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
-import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawMapName, outlawTierForId } from "@/lib/battle/outlaw";
+import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
 import { AutoBattleHost } from "@/components/battle/AutoBattleHost";
 import type { MapDialog, MarkerPanel } from "@/components/territory/map-dialog";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
@@ -476,7 +476,8 @@ const getAdminFeatureBbox = (feature: object): AdminFeatureBbox | null => {
 const TERRITORY_SPRITE_SHEET_URLS = [
   "/markers/soldier_idle_sheet.png",
   "/markers/soldier_walk_sheet.png",
-  "/markers/outlaw_walk_sheet.png",
+  "/markers/boar-piglet-walk.webp",
+  "/markers/bear-cub-walk.webp",
   "/markers/tiger-cub-walk.webp",
 ];
 const TERRITORY_SPRITE_CYCLE_MS = 960;
@@ -525,9 +526,9 @@ const territorySoldierAnimationMarkup = (): string => {
   return `<span class="territory-soldier-idle" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
 };
 
-const territoryOutlawAnimationMarkup = (tier: 1 | 2 | 3 | undefined): string => {
+const territoryOutlawAnimationMarkup = (tier: 1 | 2 | 3): string => {
   ensureTerritorySpriteSheetsPreloaded();
-  return `<span class="territory-outlaw${tier === 3 ? " tiger-cub-sprite" : ""}" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
+  return `<span class="territory-outlaw outlaw-animal-sprite" data-outlaw-tier="${tier}" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
 };
 
 type PlayerMarkerVisual = {
@@ -5533,7 +5534,7 @@ interface OtherUnitMoveAnim {
         const key = `wild:${wildId}`;
         nearby.add(key);
         if (entered || nearbyInfoKeysRef.current.has(key)) continue;
-        const name = `${outlawMapName(outlawTierForId(wildId))} #${wildId}`;
+        const name = `${OUTLAW_TIER_LABEL[outlawTierForId(wildId)]} #${wildId}`;
         entered = {
           title: name,
           lines: [`이름: ${name}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
@@ -7083,14 +7084,17 @@ interface OtherUnitMoveAnim {
         }
         continue;
       }
+      const isNeutralMark = mark.id.startsWith("neutral-");
+      const sprite = isNeutralMark
+        ? territoryOutlawAnimationMarkup(mark.outlawTier ?? outlawTierForId(Number(mark.id.slice("neutral-".length))))
+        : territorySoldierAnimationMarkup();
       const icon = L.divIcon({
         className: "map-unit-marker",
-        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""}${mark.id.startsWith("neutral-") && outlawDiffClass(mark.outlawWinRate) ? ` ${outlawDiffClass(mark.outlawWinRate)}` : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup(mark.outlawTier) : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
+        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""}${isNeutralMark && outlawDiffClass(mark.outlawWinRate) ? ` ${outlawDiffClass(mark.outlawWinRate)}` : ""} map-rotation-upright">${sprite}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
         iconSize: [72, 68],
         iconAnchor: [36, 26],
       });
       // 무법자: 탭하면 정보 패널 (15m 인접 시 공격 버튼).
-      const isNeutralMark = mark.id.startsWith("neutral-");
       const isEnemyUnitMark = !mark.mine && !isNeutralMark && !!mark.ownerId;
       const marker = L.marker([mark.lat, mark.lon], { icon, interactive: mark.mine || isNeutralMark || isEnemyUnitMark }).addTo(unitLayerRef.current);
       if (mark.mine) {
@@ -7165,7 +7169,7 @@ interface OtherUnitMoveAnim {
             tapLoc && Number.isFinite(tapLoc.lat) && Number.isFinite(tapLoc.lon)
               ? Math.max(0, Math.round(calculateDistance(tapLoc.lat, tapLoc.lon, liveLat, liveLon)))
               : null;
-          const name = `${outlawMapName(outlawTierForId(wildId))} #${wildId}`;
+          const name = `${OUTLAW_TIER_LABEL[outlawTierForId(wildId)]} #${wildId}`;
           showMarkerPanel({
             title: name,
             lines: [
@@ -9340,7 +9344,7 @@ const isMapPerfEnabled = (): boolean => {
                     setAttackApproach({
                       target: { type: "outlaw", wildId },
                       trackId: `neutral-${wildId}`,
-                      name: outlawMapName(outlawTierForId(wildId)),
+                      name: OUTLAW_TIER_LABEL[outlawTierForId(wildId)],
                       nonce: Date.now(),
                     });
                   }

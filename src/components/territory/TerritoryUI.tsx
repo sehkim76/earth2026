@@ -10,7 +10,7 @@ import { CityView } from "@/components/city/CityView";
 import type { BattleTargetRequest } from "@/components/battle/BattleHost";
 import { ATTACK_RANGE_M, OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
 import { estimateWinRate, recommendFormation, type EstimateCommander } from "@/lib/auto-battle-estimate";
-import { outlawMapName, outlawTierForId } from "@/lib/battle/outlaw";
+import { OUTLAW_TIER_LABEL, outlawTierForId } from "@/lib/battle/outlaw";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -949,7 +949,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       const tier = outlawTierForId(row.id);
       return {
         id: `neutral-${row.id}`,
-        name: `${outlawMapName(tier)} Lv.${OUTLAW_AUTO_LEVEL[tier]}`,
+        name: `${OUTLAW_TIER_LABEL[tier]} Lv.${OUTLAW_AUTO_LEVEL[tier]}`,
         outlawTier: tier,
         outlawWinRate: outlawWinRatesRef.current?.[tier] ?? null,
         lat: row.lat,

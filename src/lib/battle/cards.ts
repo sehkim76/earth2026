@@ -1,6 +1,7 @@
 // 첫 카드 세트 (24장) + 토큰 + 시작 덱 / 무법자 덱 / 성 기본 수비대 덱.
 // 이름·문구는 모두 이 게임 세계관(영주·성·부대·병종·무법자) 고유의 것이다.
 
+import { OUTLAW_TIER_LABEL } from "@/lib/battle/outlaw";
 import type { CardClass, CardDef } from "./types";
 
 /** 여분 마나 카드 id (후공 보정, 덱에는 넣지 않는다) */
@@ -514,7 +515,7 @@ export interface OutlawPreset {
 export const OUTLAW_PRESETS: Readonly<Record<OutlawTier, OutlawPreset>> = {
   1: {
     tier: 1,
-    name: "떠돌이 무법자",
+    name: OUTLAW_TIER_LABEL[1],
     level: 1,
     hp: 8,
     deck: [
@@ -532,7 +533,7 @@ export const OUTLAW_PRESETS: Readonly<Record<OutlawTier, OutlawPreset>> = {
   },
   2: {
     tier: 2,
-    name: "무법자 패거리",
+    name: OUTLAW_TIER_LABEL[2],
     level: 1,
     hp: 9,
     deck: [
@@ -550,7 +551,7 @@ export const OUTLAW_PRESETS: Readonly<Record<OutlawTier, OutlawPreset>> = {
   },
   3: {
     tier: 3,
-    name: "아기 호랑이",
+    name: OUTLAW_TIER_LABEL[3],
     level: 1,
     hp: 11,
     deck: [

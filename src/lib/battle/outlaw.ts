@@ -6,14 +6,10 @@ import { nextRandom, seedToRng } from "./rng";
 
 /** 등급 이름 (OUTLAW_PRESETS 이름과 맞춘다) */
 export const OUTLAW_TIER_LABEL: Readonly<Record<OutlawTier, string>> = {
-  1: "떠돌이 무법자",
-  2: "무법자 패거리",
+  1: "아기 멧돼지",
+  2: "아기곰",
   3: "아기 호랑이",
 };
-
-export function outlawMapName(tier: OutlawTier): string {
-  return tier === 3 ? OUTLAW_TIER_LABEL[3] : "무법자";
-}
 
 /** 등급 별 표시 */
 export const OUTLAW_TIER_STARS: Readonly<Record<OutlawTier, string>> = {

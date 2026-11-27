@@ -495,7 +495,6 @@ export function AutoBattleScene({ result, onFinished }: AutoBattleSceneProps) {
       return <div key={idx} className="w-[30%] max-w-[96px]" />;
     }
     const pct = u.maxHp > 0 ? Math.max(0, Math.min(100, (u.hp / u.maxHp) * 100)) : 0;
-    const art = side === 1 && enemyIsOutlaw ? "cmd-outlaw" : `cmd-${u.kind}`;
     const isLead = idx === leadIdx(sides[side]);
     return (
       <div
@@ -510,9 +509,9 @@ export function AutoBattleScene({ result, onFinished }: AutoBattleSceneProps) {
           data-sprite
           className={`relative rounded-full ${side === 0 ? "bg-sky-400/15" : "bg-red-500/15"} px-1 pt-0.5 transition-transform duration-500 ${u.alive ? "" : "rotate-[80deg] translate-y-2"}`}
         >
-          {side === 1 && result.defenderTier === 3 && isLead ? (
-            <span aria-hidden="true" className="tiger-cub-sprite inline-block size-16" />
-          ) : <PixelArt name={art} scale={2} />}
+          {side === 1 && enemyIsOutlaw ? (
+            <span aria-hidden="true" className="outlaw-animal-sprite inline-block size-16" data-outlaw-tier={result.defenderTier} />
+          ) : <PixelArt name={`cmd-${u.kind}`} scale={2} />}
           {isLead ? (
             <span className="absolute -right-1 -top-1 rounded bg-amber-300 px-1 text-[9px] font-black leading-tight text-black">선두</span>
           ) : null}
