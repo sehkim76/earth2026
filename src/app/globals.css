@@ -298,6 +298,19 @@
   background-image: url("/markers/outlaw_walk_sheet.png");
 }
 
+.tiger-cub-sprite {
+  background-image: url("/markers/tiger-cub-walk.webp");
+  background-repeat: no-repeat;
+  background-size: 800% 100%;
+  background-position: 0 0;
+}
+.tiger-cub-sprite[data-walk="0"] {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .territory-outlaw.tiger-cub-sprite { animation: none; }
+}
+
 /* 영주 캐릭터 24프레임 시트 (프레임 198px, 표시 66px). 90ms/프레임 = 2160ms 주기. */
 .player-walk-sprite {
   display: block;

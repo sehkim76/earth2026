@@ -75,7 +75,7 @@ import { OUTLAW_AUTO_ADVICE, OUTLAW_AUTO_LEVEL } from "@/lib/auto-battle";
 import { difficultyOf } from "@/lib/auto-battle-estimate";
 import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
-import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
+import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawMapName, outlawTierForId } from "@/lib/battle/outlaw";
 import { AutoBattleHost } from "@/components/battle/AutoBattleHost";
 import type { MapDialog, MarkerPanel } from "@/components/territory/map-dialog";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
@@ -477,6 +477,7 @@ const TERRITORY_SPRITE_SHEET_URLS = [
   "/markers/soldier_idle_sheet.png",
   "/markers/soldier_walk_sheet.png",
   "/markers/outlaw_walk_sheet.png",
+  "/markers/tiger-cub-walk.webp",
 ];
 const TERRITORY_SPRITE_CYCLE_MS = 960;
 const territorySpriteSheetImages: HTMLImageElement[] = [];
@@ -524,9 +525,9 @@ const territorySoldierAnimationMarkup = (): string => {
   return `<span class="territory-soldier-idle" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
 };
 
-const territoryOutlawAnimationMarkup = (): string => {
+const territoryOutlawAnimationMarkup = (tier: 1 | 2 | 3 | undefined): string => {
   ensureTerritorySpriteSheetsPreloaded();
-  return `<span class="territory-outlaw" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
+  return `<span class="territory-outlaw${tier === 3 ? " tiger-cub-sprite" : ""}" aria-hidden="true" style="animation-delay:${territorySpritePhaseDelay()}"></span>`;
 };
 
 type PlayerMarkerVisual = {
@@ -5532,9 +5533,10 @@ interface OtherUnitMoveAnim {
         const key = `wild:${wildId}`;
         nearby.add(key);
         if (entered || nearbyInfoKeysRef.current.has(key)) continue;
+        const name = `${outlawMapName(outlawTierForId(wildId))} #${wildId}`;
         entered = {
-          title: `무법자 #${wildId}`,
-          lines: [`이름: 무법자 #${wildId}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
+          title: name,
+          lines: [`이름: ${name}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
           wildId,
           lat: wildPos.lat,
           lon: wildPos.lon,
@@ -7083,7 +7085,7 @@ interface OtherUnitMoveAnim {
       }
       const icon = L.divIcon({
         className: "map-unit-marker",
-        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""}${mark.id.startsWith("neutral-") && outlawDiffClass(mark.outlawWinRate) ? ` ${outlawDiffClass(mark.outlawWinRate)}` : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup() : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
+        html: `<div class="unit-pin${mark.mine ? "" : " unit-pin-enemy"}${mark.selected ? " unit-pin-selected" : ""}${mark.injured ? " unit-injured" : ""}${mark.id.startsWith("neutral-") && outlawDiffClass(mark.outlawWinRate) ? ` ${outlawDiffClass(mark.outlawWinRate)}` : ""} map-rotation-upright">${mark.id.startsWith("neutral-") ? territoryOutlawAnimationMarkup(mark.outlawTier) : territorySoldierAnimationMarkup()}<span class="unit-pin-label">${esc(mark.name)}</span></div>`,
         iconSize: [72, 68],
         iconAnchor: [36, 26],
       });
@@ -7163,10 +7165,11 @@ interface OtherUnitMoveAnim {
             tapLoc && Number.isFinite(tapLoc.lat) && Number.isFinite(tapLoc.lon)
               ? Math.max(0, Math.round(calculateDistance(tapLoc.lat, tapLoc.lon, liveLat, liveLon)))
               : null;
+          const name = `${outlawMapName(outlawTierForId(wildId))} #${wildId}`;
           showMarkerPanel({
-            title: `무법자 #${wildId}`,
+            title: name,
             lines: [
-              `이름: 무법자 #${wildId}`,
+              `이름: ${name}`,
               ...outlawTierLines(wildId, freshMark.outlawWinRate),
               "상태: 배회 중",
               ...(tapDist !== null ? [`거리: 약 ${tapDist}m (플레이어)`] : []),
@@ -9337,7 +9340,7 @@ const isMapPerfEnabled = (): boolean => {
                     setAttackApproach({
                       target: { type: "outlaw", wildId },
                       trackId: `neutral-${wildId}`,
-                      name: "무법자",
+                      name: outlawMapName(outlawTierForId(wildId)),
                       nonce: Date.now(),
                     });
                   }

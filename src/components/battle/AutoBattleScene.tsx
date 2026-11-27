@@ -510,7 +510,9 @@ export function AutoBattleScene({ result, onFinished }: AutoBattleSceneProps) {
           data-sprite
           className={`relative rounded-full ${side === 0 ? "bg-sky-400/15" : "bg-red-500/15"} px-1 pt-0.5 transition-transform duration-500 ${u.alive ? "" : "rotate-[80deg] translate-y-2"}`}
         >
-          <PixelArt name={art} scale={2} />
+          {side === 1 && result.defenderTier === 3 && isLead ? (
+            <span aria-hidden="true" className="tiger-cub-sprite inline-block size-16" />
+          ) : <PixelArt name={art} scale={2} />}
           {isLead ? (
             <span className="absolute -right-1 -top-1 rounded bg-amber-300 px-1 text-[9px] font-black leading-tight text-black">선두</span>
           ) : null}

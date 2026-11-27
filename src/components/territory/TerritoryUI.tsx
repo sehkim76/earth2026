@@ -10,7 +10,7 @@ import { CityView } from "@/components/city/CityView";
 import type { BattleTargetRequest } from "@/components/battle/BattleHost";
 import { ATTACK_RANGE_M, OUTLAW_AUTO_LEVEL, outlawFormation } from "@/lib/auto-battle";
 import { estimateWinRate, recommendFormation, type EstimateCommander } from "@/lib/auto-battle-estimate";
-import { outlawTierForId } from "@/lib/battle/outlaw";
+import { outlawMapName, outlawTierForId } from "@/lib/battle/outlaw";
 import { UNIT_TRAINING_DURATION_MS, UNIT_SPEED_MPS, movePolyline, positionAtMoveTarget } from "@/lib/units";
 import type { UnitMoveTarget } from "@/lib/units";
 import {
@@ -945,28 +945,31 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     };
   }, [commandersNonce]);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
-    rows.map((row) => ({
-      id: `neutral-${row.id}`,
-      name: `무법자 Lv.${OUTLAW_AUTO_LEVEL[outlawTierForId(row.id)]}`,
-      outlawTier: outlawTierForId(row.id),
-      outlawWinRate: outlawWinRatesRef.current?.[outlawTierForId(row.id)] ?? null,
-      lat: row.lat,
-      lon: row.lon,
-      mine: false as const,
-      moving: row.moving,
-      selected: false as const,
-      moveTarget: {
-        fromLat: row.fromLat,
-        fromLon: row.fromLon,
-        lat: row.destLat,
-        lon: row.destLon,
-        startedAt: row.startedAt,
-        endsAt: row.endsAt,
-        via: null,
-        path: row.path && row.path.length >= 2 ? row.path : null,
-        pathIdx: row.path && row.path.length >= 2 ? (row.pathIdx ?? null) : null,
-      },
-    }));
+    rows.map((row) => {
+      const tier = outlawTierForId(row.id);
+      return {
+        id: `neutral-${row.id}`,
+        name: `${outlawMapName(tier)} Lv.${OUTLAW_AUTO_LEVEL[tier]}`,
+        outlawTier: tier,
+        outlawWinRate: outlawWinRatesRef.current?.[tier] ?? null,
+        lat: row.lat,
+        lon: row.lon,
+        mine: false as const,
+        moving: row.moving,
+        selected: false as const,
+        moveTarget: {
+          fromLat: row.fromLat,
+          fromLon: row.fromLon,
+          lat: row.destLat,
+          lon: row.destLon,
+          startedAt: row.startedAt,
+          endsAt: row.endsAt,
+          via: null,
+          path: row.path && row.path.length >= 2 ? row.path : null,
+          pathIdx: row.path && row.path.length >= 2 ? (row.pathIdx ?? null) : null,
+        },
+      };
+    });
   // getPlayerLocation은 부모가 영주 이동 중 수백 ms마다 새로 만들 수 있으므로
   // ref로 최신 함수를 참조한다 (콜백 identity가 바뀌어 폴링이 재시작되지 않게).
   const getPlayerLocationRef = useRef(props.getPlayerLocation);

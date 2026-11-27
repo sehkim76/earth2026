@@ -550,7 +550,7 @@ export const OUTLAW_PRESETS: Readonly<Record<OutlawTier, OutlawPreset>> = {
   },
   3: {
     tier: 3,
-    name: "무법자 두목",
+    name: "아기 호랑이",
     level: 1,
     hp: 11,
     deck: [
