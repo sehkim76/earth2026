@@ -13,6 +13,8 @@ export interface CitySceneLot {
   building: boolean;
   /** 훈련 중 */
   training: boolean;
+  researching: boolean;
+  operating: boolean;
   /** 공사·훈련 진행률 0~100 */
   progress: number;
   /** 남은 시간 글자 */
@@ -61,9 +63,9 @@ export default function CityScene3D({ lots, district, siege: { active, wallLevel
     };
   }, []);
 
-  const lotSig = lots.map((l) => `${l.key}:${l.level}:${l.building ? 1 : 0}`).join(",");
+  const lotSig = lots.map((l) => `${l.key}:${l.level}:${l.building ? 1 : 0}:${l.operating ? 1 : 0}`).join(",");
   useEffect(() => {
-    worldRef.current?.setLots(lots.map((l) => ({ key: l.key, level: l.level, building: l.building })));
+    worldRef.current?.setLots(lots.map((l) => ({ key: l.key, level: l.level, building: l.building, operating: l.operating })));
     // lotSig가 바뀔 때만 다시 짓는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lotSig]);
@@ -117,13 +119,13 @@ export default function CityScene3D({ lots, district, siege: { active, wallLevel
                 selected === l.key ? "scale-110" : ""
               }`}
             >
-              {l.building || l.training ? (
+              {l.building || l.training || l.researching ? (
                 <span
                   className={`mb-0.5 flex items-center gap-1 rounded-full px-1.5 py-[1px] text-[10px] font-black tabular-nums text-white ${
                     l.building ? "bg-[#c9852a]" : "bg-[#8e2f2f]"
                   }`}
                 >
-                  {l.building ? "공사" : "훈련"}
+                  {l.building ? "공사" : l.researching ? "연구" : "훈련"}
                   {l.remain ? <span>{l.remain}</span> : null}
                 </span>
               ) : null}
@@ -137,7 +139,7 @@ export default function CityScene3D({ lots, district, siege: { active, wallLevel
                 </span>
                 <span className="px-1.5 py-1">{l.name}</span>
               </span>
-              {l.building || l.training ? (
+              {l.building || l.training || l.researching ? (
                 <span className="mt-0.5 h-1 w-14 overflow-hidden rounded bg-black/60">
                   <span
                     className={`block h-full ${l.building ? "bg-[#f0d99d]" : "bg-[#e88a7a]"}`}

@@ -8,6 +8,7 @@ import {
   BUILDINGS,
   BUILDING_BY_KEY,
   CITY_SIEGE_DURATION_MS,
+  GOLD_CAP,
   FORGE_ATK_PCT,
   KEEP_HP_PCT,
   TROOP_BUILDING_PCT,
@@ -203,17 +204,28 @@ export function CityView({ open, onClose }: CityViewProps) {
 
   const progress = (start: number, end: number): number => Math.max(0, Math.min(100, ((now - start) / Math.max(1, end - start)) * 100));
 
+  const producing = (kind: ResourceKind): boolean =>
+    (rates?.[kind] ?? 0) > 0 && liveRes(kind) < (kind === "gold" ? GOLD_CAP : cap);
+
   const sceneLots: CitySceneLot[] = s
     ? BUILDINGS.map((b) => {
         const build = s.build?.key === b.key ? s.build : null;
         const train = b.trains ? s.training[b.trains] : undefined;
-        const job = build ?? train ?? null;
+        const research = b.key === "academy" && s.research && s.research.endsAt > now ? s.research : null;
+        const training = !!train && train.endsAt > now;
+        const operating = training || !!research || (b.produces ? producing(b.produces) : false) ||
+          (b.key === "camp" && s.gathers.some((g) => g.returnAt > now)) ||
+          (b.key === "storehouse" && (["stone", "wood", "iron"] as const).some(producing)) ||
+          (b.key === "keep" && Object.values(s.assigned).some((troops) => troopTotal(troops) > 0));
+        const job = build ?? research ?? (training ? train : null);
         return {
           key: b.key,
           name: b.name,
           level: s.buildings[b.key],
           building: !!build,
-          training: !build && !!train,
+          training: !build && training,
+          researching: !build && !!research,
+          operating: operating && s.buildings[b.key] > 0,
           progress: job ? progress(job.startedAt, job.endsAt) : 0,
           remain: job ? fmtRemain(job.endsAt - now) : null,
         };

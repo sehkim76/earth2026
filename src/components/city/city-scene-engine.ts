@@ -7,10 +7,13 @@ import { LOTS, WALK_PATHS, WALL, buildLot, buildStaticWorld, createMaterials, ty
 import { createCityInterface } from "@/components/city/city-scene-interface";
 import { createSiegeScene } from "@/components/city/city-scene-siege";
 
+import { createCityOperation, type CityOperation } from "@/components/city/city-scene-operations";
+
 export interface SceneLotState {
   key: BuildingKey;
   level: number;
   building: boolean;
+  operating: boolean;
 }
 
 export interface CityWorldOptions {
@@ -43,6 +46,7 @@ interface LotEntry {
   top: number;
   smoke: SmokePuff[];
   animated: THREE.Object3D[];
+  operation: CityOperation | null;
 }
 
 interface SmokePuff {
@@ -429,6 +433,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       f.rotation.z = Math.sin(t * 3.1 + ph) * 0.05;
     }
     for (const entry of lots.values()) {
+      entry.operation?.animate(reducedMotion.matches ? 0.4 : t);
       for (const o of entry.animated) {
         if (typeof o.userData.wave === "number") {
           const ph = o.userData.wave as number;
@@ -501,6 +506,21 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
   };
   raf = requestAnimationFrame(animate);
 
+  const setOperation = (entry: LotEntry, lot: SceneLotState): void => {
+    // 성벽 수비는 독립된 공성 장면이 담당한다.
+    if (lot.key === "wall") return;
+    if (lot.operating && lot.level > 0) {
+      if (!entry.operation) {
+        entry.operation = createCityOperation(lot.key, mats);
+        entry.group.add(entry.operation.group);
+      }
+    } else if (entry.operation) {
+      entry.operation.group.removeFromParent();
+      disposeTree(entry.operation.group, sharedMats);
+      entry.operation = null;
+    }
+  };
+
   const clearLot = (entry: LotEntry): void => {
     lotRoot.remove(entry.group);
     disposeTree(entry.group, sharedMats);
@@ -542,7 +562,10 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
       for (const l of next) {
         const sig = `${l.level}|${l.building ? 1 : 0}`;
         const cur = lots.get(l.key);
-        if (cur && cur.sig === sig) continue;
+        if (cur && cur.sig === sig) {
+          setOperation(cur, l);
+          continue;
+        }
         if (cur) clearLot(cur);
         const built = buildLot(l.key, l.level, l.building, mats);
         const lot = LOTS[l.key];
@@ -553,7 +576,9 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
           if (typeof o.userData.wave === "number" || typeof o.userData.pulse === "number" || typeof o.userData.hammerPhase === "number") animated.push(o);
         });
         const smoke = built.smoke.flatMap((v) => makeSmoke(v.clone().add(new THREE.Vector3(lot.x, 0, lot.z))));
-        lots.set(l.key, { sig, group: built.group, top: built.top, smoke, animated });
+        const entry: LotEntry = { sig, group: built.group, top: built.top, smoke, animated, operation: null };
+        lots.set(l.key, entry);
+        setOperation(entry, l);
       }
     },
     setSelected(key) {
