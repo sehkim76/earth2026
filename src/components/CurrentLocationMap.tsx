@@ -120,7 +120,9 @@ import {
 } from "@/lib/walkable-client";
 import {
   createWalkableCanvasLayer,
-  getWalkableCompositeUrls,
+  getWalkableComposite,
+  WALKABLE_BORDER_COLOR,
+  WALKABLE_BORDER_WIDTH_PX,
 } from "@/lib/walkable-overlay";
 import TerritoryDash from "@/components/territory/TerritoryDash";
 import TerritoryStartPicker, { type TerritoryStart } from "@/components/TerritoryStartPicker";
@@ -217,6 +219,8 @@ type GlobeMapLike = {
       | {
           type: "geojson";
           data: unknown;
+          tolerance?: number;
+          maxzoom?: number;
         }
       | {
           type: "image";
@@ -3084,11 +3088,12 @@ interface OtherUnitMoveAnim {
   const mapInstanceRef = useRef<RotatableLeafletMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const circleRef = useRef<Circle | null>(null);
-  const walkableLayerRef = useRef<{ remove: () => void } | null>(null);
+  const walkableLayerRef = useRef<ReturnType<typeof createWalkableCanvasLayer> | null>(null);
   // 기반 타일 레이어 (팬 방향 프리페치용).
   const baseTileLayersRef = useRef<Array<{ getTileUrl: (coords: { x: number; y: number; z: number }) => string }>>([]);
   const walkableTilesRef = useRef<GridFull[]>([]);
   const walkableGlobeIdsRef = useRef<string[]>([]);
+  const cesiumWalkableBordersRef = useRef<CesiumTypes.Primitive | null>(null);
   const cesiumWalkableEntitiesRef = useRef<CesiumTypes.Entity[]>([]);
   const pointsLayerRef = useRef<LayerGroup | null>(null);
   const nearbyPlayersLayerRef = useRef<LayerGroup | null>(null);
@@ -3966,6 +3971,8 @@ interface OtherUnitMoveAnim {
         navigator.geolocation.clearWatch(watchIdRef.current);
         watchIdRef.current = null;
       }
+      walkableLayerRef.current?.remove();
+      walkableLayerRef.current = null;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -4815,6 +4822,8 @@ interface OtherUnitMoveAnim {
       cesiumViewerRef.current = null;
       cesiumPlayerEntityRef.current = null;
       cesiumPoiEntitiesRef.current = [];
+      cesiumWalkableEntitiesRef.current = [];
+      cesiumWalkableBordersRef.current = null;
       cesiumEntityPointMapRef.current.clear();
       cesiumEntityClusterMapRef.current.clear();
       cesiumHtmlOverlayRef.current?.remove();
@@ -5619,12 +5628,13 @@ interface OtherUnitMoveAnim {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerLocation, walkableTick]);
 
-  // ---- 영토전 도보 가능 영역 오버레이: 위성(Leaflet, 단일 캔버스) ----
+  // ---- 영토전 도보 가능 영역 오버레이: 위성(Leaflet, 채움 캔버스와 SVG 윤곽) ----
   useEffect(() => {
     const L = leafletRef.current;
     const map = mapInstanceRef.current;
     if (mapStyle !== "satellite" || !isMapReady || !map || !L) {
       if (mapStyle !== "satellite") {
+        walkableLayerRef.current?.remove();
         walkableLayerRef.current = null;
         walkableTilesRef.current = [];
       }
@@ -5660,11 +5670,11 @@ interface OtherUnitMoveAnim {
     setWalkableLoadingOnce(false);
     walkableTilesRef.current = tiles;
     const sig = `satellite:${tiles.map((grid) => grid.key).sort().join(",")}`;
-    const layer = walkableLayerRef.current as unknown as { refresh?: () => void } | null;
-    if (sig === walkableBuiltSigRef.current) {
+    const layer = walkableLayerRef.current;
+    if (layer && sig === walkableBuiltSigRef.current) {
       // 타일 집합이 같으면 레이어가 스스로 판단해 덧붙이거나 건너뛴다.
       try {
-        layer?.refresh?.();
+        layer.refresh();
       } catch {}
       return;
     }
@@ -5683,21 +5693,15 @@ interface OtherUnitMoveAnim {
       } catch {}
     }
     try {
-      if (layer?.refresh) {
+      if (layer) {
         layer.refresh();
       } else {
-        if (walkableLayerRef.current) {
-          try {
-            walkableLayerRef.current.remove();
-          } catch {}
-          walkableLayerRef.current = null;
-        }
         const created = createWalkableCanvasLayer(
-          L as never,
+          L,
           () => walkableTilesRef.current,
           WALKABLE_GRID_OPACITY,
           WALKABLE_BORDER_OPACITY,
-        ) as { addTo: (map: unknown) => void; remove: () => void };
+        );
         created.addTo(map);
         walkableLayerRef.current = created;
       }
@@ -5705,7 +5709,7 @@ interface OtherUnitMoveAnim {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapStyle, isMapReady, territoryEnabled, walkableTick, location, playerWalkableDongKey, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
-  // ---- 영토전 도보 가능 영역 오버레이: 글로브(MapLibre, 래스터 이미지) ----
+  // ---- 영토전 도보 가능 영역 오버레이: 글로브(MapLibre, 래스터 채움과 벡터 윤곽) ----
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady || !globeMapRef.current) {
       return;
@@ -5746,12 +5750,12 @@ interface OtherUnitMoveAnim {
     }
     setWalkableLoadingOnce(false);
     const tileSig = `globe:${tiles.map((grid) => grid.key).sort().join(",")}`;
-    const composite = getWalkableCompositeUrls(tiles, () => {
+    const composite = getWalkableComposite(tiles, () => {
       setWalkableTick((tick) => tick + 1);
     });
     // 타일 집합도 같고 그릴 준비 상태도 같으면 건너뛴다 (이미지 디코드 완료 시 tick으로 재진입).
-    const drawnSig = composite ? `${tileSig}|${composite.fillUrl.length}:${composite.borderUrl.length}` : `${tileSig}|pending`;
-    if (drawnSig === walkableBuiltSigRef.current) {
+    const drawnSig = composite ? `${tileSig}|${composite.key}` : `${tileSig}|pending`;
+    if (drawnSig === walkableBuiltSigRef.current && (!composite || map.getLayer(`${WALKABLE_GLOBE_SOURCE_ID}-border-layer`))) {
       return;
     }
     walkableBuiltSigRef.current = drawnSig;
@@ -5776,18 +5780,19 @@ interface OtherUnitMoveAnim {
       });
       walkableGlobeIdsRef.current.push(sourceId);
       const borderSourceId = `${WALKABLE_GLOBE_SOURCE_ID}-border`;
-      map.addSource(borderSourceId, { type: "image", url: composite.borderUrl, coordinates });
+      map.addSource(borderSourceId, { type: "geojson", data: composite.border, tolerance: 0, maxzoom: 20 });
       map.addLayer({
         id: `${borderSourceId}-layer`,
-        type: "raster",
+        type: "line",
         source: borderSourceId,
-        paint: { "raster-opacity": WALKABLE_BORDER_OPACITY, "raster-fade-duration": 0 },
+        layout: { "line-join": "round", "line-cap": "round" },
+        paint: { "line-color": WALKABLE_BORDER_COLOR, "line-width": WALKABLE_BORDER_WIDTH_PX, "line-opacity": WALKABLE_BORDER_OPACITY },
       });
       walkableGlobeIdsRef.current.push(borderSourceId);
     } catch {}
   }, [mapStyle, isGlobeReady, territoryEnabled, walkableTick, location, playerLocation, selectedAdminCode, adminGeoJson, moveTargetCenter, zoomLevel]);
 
-  // ---- 영토전 도보 가능 영역 오버레이: 3D(Cesium, 래스터 이미지) ----
+  // ---- 영토전 도보 가능 영역 오버레이: 3D(Cesium, 래스터 채움과 폴리라인) ----
   useEffect(() => {
     if (mapStyle !== "cesium" || !isCesiumReady || !cesiumViewerRef.current) {
       return;
@@ -5797,6 +5802,10 @@ interface OtherUnitMoveAnim {
       return;
     }
     const clearWalkableEntities = (): void => {
+      if (cesiumWalkableBordersRef.current) {
+        viewer.scene.primitives.remove(cesiumWalkableBordersRef.current);
+        cesiumWalkableBordersRef.current = null;
+      }
       for (const entity of cesiumWalkableEntitiesRef.current) {
         try {
           viewer.entities.remove(entity);
@@ -5824,14 +5833,13 @@ interface OtherUnitMoveAnim {
     }
     setWalkableLoadingOnce(false);
     const tileSig = `cesium:${tiles.map((grid) => grid.key).sort().join(",")}`;
-    const composite = getWalkableCompositeUrls(tiles, () => {
+    const composite = getWalkableComposite(tiles, () => {
       setWalkableTick((tick) => tick + 1);
     });
-    const drawnSig = composite ? `${tileSig}|${composite.fillUrl.length}:${composite.borderUrl.length}` : `${tileSig}|pending`;
+    const drawnSig = composite ? `${tileSig}|${composite.key}` : `${tileSig}|pending`;
     if (drawnSig === walkableBuiltSigRef.current && cesiumWalkableEntitiesRef.current.length > 0) {
       return;
     }
-    walkableBuiltSigRef.current = drawnSig;
     let cancelled = false;
     void (async () => {
       let Cesium: typeof import("cesium");
@@ -5860,18 +5868,27 @@ interface OtherUnitMoveAnim {
             },
           }),
         );
-        cesiumWalkableEntitiesRef.current.push(
-          viewer.entities.add({
-            rectangle: {
-              coordinates: Cesium.Rectangle.fromDegrees(composite.west, composite.south, composite.east, composite.north),
-              material: new Cesium.ImageMaterialProperty({
-                image: composite.borderUrl,
-                transparent: true,
-                color: Cesium.Color.WHITE.withAlpha(WALKABLE_BORDER_OPACITY),
-              }),
-            },
-          }),
-        );
+        if (composite.border.coordinates.length > 0) {
+          const color = Cesium.Color.fromCssColorString(WALKABLE_BORDER_COLOR).withAlpha(WALKABLE_BORDER_OPACITY);
+          const geometryInstances = composite.border.coordinates.map(line => new Cesium.GeometryInstance({
+            geometry: new Cesium.PolylineGeometry({
+              positions: line.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat, 1)),
+              width: WALKABLE_BORDER_WIDTH_PX,
+              arcType: Cesium.ArcType.RHUMB,
+              granularity: Cesium.Math.toRadians(0.01),
+              vertexFormat: Cesium.PolylineColorAppearance.VERTEX_FORMAT,
+            }),
+            attributes: { color: Cesium.ColorGeometryInstanceAttribute.fromColor(color) },
+          }));
+          const borders = new Cesium.Primitive({
+            geometryInstances,
+            appearance: new Cesium.PolylineColorAppearance({ translucent: true }),
+            allowPicking: false,
+          });
+          viewer.scene.primitives.add(borders);
+          cesiumWalkableBordersRef.current = borders;
+        }
+        walkableBuiltSigRef.current = drawnSig;
       } catch {}
     })();
     return () => {

@@ -1006,3 +1006,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.walkable-road-outline {
+  vector-effect: non-scaling-stroke;
+}

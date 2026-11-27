@@ -446,7 +446,7 @@ const contourCache = new Map<string, WalkableContour[]>();
 const CONTOUR_CACHE_LIMIT = 8;
 
 /** 윤곽 조회 (캐시, 없으면 빌드). */
-const getWalkableContours = (needsPaint: GridFull[]): WalkableContour[] => {
+export const getWalkableContours = (needsPaint: GridFull[]): WalkableContour[] => {
   const contourSig = needsPaint.map((grid) => grid.key).sort().join(",");
   let contours = contourCache.get(contourSig);
   if (!contours) {
