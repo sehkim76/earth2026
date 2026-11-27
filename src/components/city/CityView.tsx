@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 
 import {
   BUILDINGS,
@@ -41,6 +42,13 @@ import {
 
 import { BuildingIcon, ResourceIcon } from "@/components/city/CityIcons";
 import { cityAction, fetchCity, fmtNum, fmtRemain, type CityViewData } from "@/components/city/city-client";
+import type { CitySceneLot } from "@/components/city/CityScene3D";
+
+// three.js는 성 화면을 열 때만 불러온다
+const CityScene3D = dynamic(() => import("@/components/city/CityScene3D"), {
+  ssr: false,
+  loading: () => <p className="absolute inset-0 grid place-items-center text-sm font-bold text-[#f3e8ce]">성 안 풍경을 그리는 중…</p>,
+});
 
 type Tab = "buildings" | "research" | "troops" | "workers";
 
@@ -144,6 +152,23 @@ export function CityView({ open, onClose }: CityViewProps) {
 
   const progress = (start: number, end: number): number => Math.max(0, Math.min(100, ((now - start) / Math.max(1, end - start)) * 100));
 
+  const sceneLots: CitySceneLot[] = s
+    ? BUILDINGS.map((b) => {
+        const build = s.build?.key === b.key ? s.build : null;
+        const train = b.trains ? s.training[b.trains] : undefined;
+        const job = build ?? train ?? null;
+        return {
+          key: b.key,
+          name: b.name,
+          level: s.buildings[b.key],
+          building: !!build,
+          training: !build && !!train,
+          progress: job ? progress(job.startedAt, job.endsAt) : 0,
+          remain: job ? fmtRemain(job.endsAt - now) : null,
+        };
+      })
+    : [];
+
   return createPortal(
     <div className="fixed inset-0 z-[3800] flex flex-col bg-[#1b1510] text-[#2b2118]" role="dialog" aria-label="영주성">
       {/* 머리: 성 이름 + 자원 */}
@@ -195,66 +220,33 @@ export function CityView({ open, onClose }: CityViewProps) {
         ))}
       </nav>
 
-      <main className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_50%_30%,#6d7a4a_0%,#4a5634_60%,#323b24_100%)] p-2 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+      <main
+        className={
+          tab === "buildings" && view && s
+            ? "relative min-h-0 flex-1 overflow-hidden bg-[#86b553]"
+            : "min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_50%_30%,#6d7a4a_0%,#4a5634_60%,#323b24_100%)] p-2 pb-[calc(env(safe-area-inset-bottom)+1rem)]"
+        }
+      >
         {!view || !s ? (
           <p className="py-10 text-center text-sm font-bold text-[#f3e8ce]">성 안을 불러오는 중…</p>
         ) : tab === "buildings" ? (
           <>
-            {s.build ? (
-              <div className="mb-2 rounded-xl bg-black/45 px-3 py-2 text-[#f3e8ce]">
-                <p className="text-xs font-black">
-                  공사 중: {BUILDING_BY_KEY[s.build.key].name} → Lv.{s.build.toLevel} · {fmtRemain(s.build.endsAt - now)}
-                </p>
-                <div className="mt-1 h-2 overflow-hidden rounded bg-black/50">
-                  <div className="h-full bg-[linear-gradient(90deg,#c9852a,#f0d99d)]" style={{ width: `${progress(s.build.startedAt, s.build.endsAt)}%` }} />
-                </div>
-              </div>
-            ) : (
-              <p className="mb-2 rounded-xl bg-black/35 px-3 py-1.5 text-center text-xs font-bold text-[#f3e8ce]">
-                건물을 눌러 짓거나 올리세요. 한 번에 한 건물씩 공사합니다.
-              </p>
-            )}
-            {/* 마당: 성벽 안 건물 칸 */}
-            <div className="rounded-2xl border-4 border-[#8a7a5e] bg-[repeating-linear-gradient(45deg,rgba(255,255,255,0.03)_0_10px,transparent_10px_20px)] p-2 shadow-[inset_0_0_0_2px_#5d513e]">
-              {(["core", "production", "research", "military"] as const).map((cat) => (
-                <section key={cat} className="mb-2 last:mb-0">
-                  <p className="mb-1 px-1 text-[11px] font-black text-[#f3e8ce]/85">
-                    {cat === "core" ? "중심" : cat === "production" ? "생산" : cat === "research" ? "연구" : "군사"}
+            <CityScene3D lots={sceneLots} selected={selected} onSelect={setSelected} />
+            <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col items-center gap-1">
+              {s.build ? (
+                <div className="w-full max-w-sm rounded-xl bg-black/60 px-3 py-1.5 text-[#f3e8ce] backdrop-blur-sm">
+                  <p className="text-xs font-black">
+                    공사 중: {BUILDING_BY_KEY[s.build.key].name} → Lv.{s.build.toLevel} · {fmtRemain(s.build.endsAt - now)}
                   </p>
-                  <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
-                    {BUILDINGS.filter((b) => b.category === cat).map((b) => {
-                      const lv = s.buildings[b.key];
-                      const building = s.build?.key === b.key;
-                      const training = b.trains ? s.training[b.trains] : undefined;
-                      return (
-                        <button
-                          key={b.key}
-                          type="button"
-                          onClick={() => setSelected(b.key)}
-                          className={`relative flex flex-col items-center rounded-xl border-2 px-1 pb-1 pt-1.5 text-center transition active:scale-95 ${
-                            selected === b.key
-                              ? "border-[#f0d99d] bg-[#fff4d8]"
-                              : lv > 0
-                                ? "border-[#5d513e] bg-[#e8dcc0]"
-                                : "border-dashed border-[#c8bea8]/70 bg-[#e8dcc0]/45"
-                          }`}
-                        >
-                          <span className={lv > 0 ? "" : "opacity-45 grayscale"}>
-                            <BuildingIcon kind={b.key} size={42} />
-                          </span>
-                          <span className="text-[11px] font-black leading-tight">{b.name}</span>
-                          <span className="text-[10px] font-bold text-[#7a5a1e]">{lv > 0 ? `Lv.${lv}` : "미건설"}</span>
-                          {building ? (
-                            <span className="absolute right-1 top-1 rounded bg-[#c9852a] px-1 text-[9px] font-black text-white">공사</span>
-                          ) : training ? (
-                            <span className="absolute right-1 top-1 rounded bg-[#8e2f2f] px-1 text-[9px] font-black text-white">훈련</span>
-                          ) : null}
-                        </button>
-                      );
-                    })}
+                  <div className="mt-1 h-1.5 overflow-hidden rounded bg-black/50">
+                    <div className="h-full bg-[linear-gradient(90deg,#c9852a,#f0d99d)]" style={{ width: `${progress(s.build.startedAt, s.build.endsAt)}%` }} />
                   </div>
-                </section>
-              ))}
+                </div>
+              ) : (
+                <p className="rounded-full bg-black/50 px-3 py-1 text-center text-[11px] font-bold text-[#f3e8ce] backdrop-blur-sm">
+                  끌어서 둘러보기 · 두 손가락으로 확대 · 건물을 눌러 짓기/올리기
+                </p>
+              )}
             </div>
             {selected ? (
               <BuildingSheet
