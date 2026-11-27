@@ -907,10 +907,10 @@ const isNeutralEventKey = (eventKey?: string | null): boolean =>
   (eventKey ?? "").trim().startsWith(NEUTRAL_EVENT_PREFIX);
 
 const buildNeutralPanel = (label?: string, eventKey?: string, lat?: number, lon?: number): MarkerPanel => ({
-  title: "중립성",
+  title: "산적 산채",
   lines: [
-    `이름: ${label?.trim() || "중립성"}`,
-    "유형: 중립성",
+    `이름: ${label?.trim() || "산적 산채"}`,
+    "유형: 산적 산채 (중립)",
     "상태: 점령 불가·공격 가능",
   ],
   eventKey: eventKey?.trim() || undefined,
@@ -932,15 +932,25 @@ const WALKABLE_GRID_OPACITY = 0.5;
 const WALKABLE_BORDER_OPACITY = 0.9;
 const WALKABLE_GLOBE_SOURCE_ID = "walkable-roads";
 
-/** 축성 종류별 고스트/핀 이미지. */
+/** 지도 마커와 축성 미리보기가 공유하는 외관. */
 const CASTLE_IMAGE_BY_KIND: Record<"lord" | "noble", string> = {
-  lord: "/markers/lord-castle-v2.png",
+  lord: "/markers/joseon-lord-fortress.webp",
   noble: "/markers/neutral-castle-v2.png",
 };
 
-const appendDamagedLordCastleAnimation = (element: HTMLElement): void => {
+const BANDIT_STOCKADE_IMAGE = "/markers/bandit-stockade.webp";
+const DAMAGED_LORD_CASTLE_IMAGE = "/markers/joseon-lord-fortress-damaged.webp";
+
+function buildingMarkerImage(neutral: boolean, kind: string | null, damaged: boolean): string | null {
+  if (neutral) return BANDIT_STOCKADE_IMAGE;
+  if (kind === "lord") return damaged ? DAMAGED_LORD_CASTLE_IMAGE : CASTLE_IMAGE_BY_KIND.lord;
+  if (kind === "noble") return CASTLE_IMAGE_BY_KIND.noble;
+  return null;
+}
+
+const appendBuildingMarkerImage = (element: HTMLElement, src: string): void => {
   const image = document.createElement("img");
-  image.src = "/markers/lord-castle-damaged-1.png";
+  image.src = src;
   image.alt = "";
   image.style.width = "54px";
   image.style.height = "54px";
@@ -4468,54 +4478,31 @@ interface OtherUnitMoveAnim {
         } else {
           const point = cluster.points[0];
           const isNeutralPoi = isNeutralEventKey(point.eventKey);
-          const isCastlePoi = castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble";
-          const isCenterPoi = isNeutralPoi || isCastlePoi;
+          const buildingImage = buildingMarkerImage(isNeutralPoi, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey));
+          const isCenterPoi = buildingImage !== null;
           const element = document.createElement("div");
           element.style.width = isCenterPoi ? "54px" : "30px";
           element.style.height = isCenterPoi ? "54px" : "30px";
           element.style.overflow = "visible";
           element.style.cursor = "pointer";
-          if (territoryEnabled && castleKindOf(point.eventKey) === "lord" && isCastleDamaged(point.eventKey)) {
-            // 내구도가 깎인 영주성은 손상 이미지로 표시한다.
-            appendDamagedLordCastleAnimation(element);
+          if (buildingImage) {
+            appendBuildingMarkerImage(element, buildingImage);
+          } else if (territoryEnabled) {
+            appendTerritorySoldierAnimation(element);
+          } else if (unvisitedDataUrl) {
+            const spin = document.createElement("div");
+            spin.className = "three-poi-marker-spin";
+            const image = document.createElement("img");
+            image.src = unvisitedDataUrl;
+            image.alt = "";
+            image.className = "three-poi-marker";
+            spin.appendChild(image);
+            element.appendChild(spin);
           } else {
-            const unvisitedDataUrl = createThreePoiMarkerDataUrl("unvisited");
-            if (isNeutralEventKey(point.eventKey)) {
-              const castleImg = document.createElement("img");
-              castleImg.src = "/markers/neutral-castle-v2-short.png";
-              castleImg.alt = "";
-              castleImg.style.width = "54px";
-              castleImg.style.height = "54px";
-              castleImg.style.filter = "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
-              element.appendChild(castleImg);
-            } else if (castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble") {
-              const kind = castleKindOf(point.eventKey);
-              const kindImg = document.createElement("img");
-              kindImg.src = kind === "lord" ? "/markers/lord-castle-v2.png" : "/markers/neutral-castle-v2.png";
-              kindImg.alt = "";
-              kindImg.style.width = "54px";
-              kindImg.style.height = "54px";
-              kindImg.style.filter = "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
-              element.style.width = "54px";
-              element.style.height = "54px";
-              element.appendChild(kindImg);
-            } else if (territoryEnabled) {
-              appendTerritorySoldierAnimation(element);
-            } else if (unvisitedDataUrl) {
-              const spin = document.createElement("div");
-              spin.className = "three-poi-marker-spin";
-              const image = document.createElement("img");
-              image.src = unvisitedDataUrl;
-              image.alt = "";
-              image.className = "three-poi-marker";
-              spin.appendChild(image);
-              element.appendChild(spin);
-            } else {
-              const fallback = document.createElement("div");
-              fallback.className = "three-poi-marker-fallback";
-              fallback.setAttribute("aria-hidden", "true");
-              element.appendChild(fallback);
-            }
+            const fallback = document.createElement("div");
+            fallback.className = "three-poi-marker-fallback";
+            fallback.setAttribute("aria-hidden", "true");
+            element.appendChild(fallback);
           }
           if (point.label) {
             const label = document.createElement("div");
@@ -5161,8 +5148,8 @@ interface OtherUnitMoveAnim {
         } else {
           const point = cluster.points[0];
           const isNeutralCesium = isNeutralEventKey(point.eventKey);
-          const isCastleCesium = castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble";
-          const isCenterCesium = isNeutralCesium || isCastleCesium;
+          const buildingImage = buildingMarkerImage(isNeutralCesium, castleKindOf(point.eventKey), territoryEnabled && isCastleDamaged(point.eventKey));
+          const isCenterCesium = buildingImage !== null;
           const element = document.createElement("div");
           element.style.position = "absolute";
           element.style.width = isCenterCesium ? "54px" : "30px";
@@ -5173,28 +5160,8 @@ interface OtherUnitMoveAnim {
             : "translate(-50%, -100%)";
           element.style.pointerEvents = "auto";
           element.style.cursor = "pointer";
-          if (territoryEnabled && castleKindOf(point.eventKey) === "lord" && isCastleDamaged(point.eventKey)) {
-            // 내구도가 깎인 영주성은 손상 이미지로 표시한다.
-            appendDamagedLordCastleAnimation(element);
-          } else if (isNeutralEventKey(point.eventKey)) {
-            const castleImg = document.createElement("img");
-            castleImg.src = "/markers/neutral-castle-v2-short.png";
-            castleImg.alt = "";
-            castleImg.style.width = "54px";
-            castleImg.style.height = "54px";
-            castleImg.style.filter = "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
-            element.appendChild(castleImg);
-          } else if (castleKindOf(point.eventKey) === "lord" || castleKindOf(point.eventKey) === "noble") {
-            const kind = castleKindOf(point.eventKey);
-            const kindImg = document.createElement("img");
-            kindImg.src = kind === "lord" ? "/markers/lord-castle-v2.png" : "/markers/neutral-castle-v2.png";
-            kindImg.alt = "";
-            kindImg.style.width = "54px";
-            kindImg.style.height = "54px";
-            kindImg.style.filter = "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
-            element.style.width = "54px";
-            element.style.height = "54px";
-            element.appendChild(kindImg);
+          if (buildingImage) {
+            appendBuildingMarkerImage(element, buildingImage);
           } else if (territoryEnabled) {
             appendTerritorySoldierAnimation(element);
           } else {
@@ -8105,7 +8072,7 @@ const isMapPerfEnabled = (): boolean => {
     if (!poiNeutralIconRef.current) {
       poiNeutralIconRef.current = L.divIcon({
         className: "neutral-poi-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="/markers/neutral-castle-v2-short.png" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
+        html: `<div class="map-rotation-upright"><img src="${BANDIT_STOCKADE_IMAGE}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
         iconSize: [54, 54],
         iconAnchor: [27, 27],
       });
@@ -8115,7 +8082,7 @@ const isMapPerfEnabled = (): boolean => {
     if (!poiLordIconRef.current) {
       poiLordIconRef.current = L.divIcon({
         className: "castle-lord-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="/markers/lord-castle-v2.png" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
+        html: `<div class="map-rotation-upright"><img src="${CASTLE_IMAGE_BY_KIND.lord}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
         iconSize: [54, 54],
         iconAnchor: [27, 27],
       });
@@ -8125,7 +8092,7 @@ const isMapPerfEnabled = (): boolean => {
     if (!damagedLordCastleIconRef.current) {
       damagedLordCastleIconRef.current = L.divIcon({
         className: "castle-lord-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="/markers/lord-castle-damaged-1.png" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
+        html: `<div class="map-rotation-upright"><img src="${DAMAGED_LORD_CASTLE_IMAGE}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
         iconSize: [54, 54],
         iconAnchor: [27, 27],
       });
@@ -8135,7 +8102,7 @@ const isMapPerfEnabled = (): boolean => {
     if (!poiNobleIconRef.current) {
       poiNobleIconRef.current = L.divIcon({
         className: "castle-noble-marker-shell",
-        html: `<div class="map-rotation-upright"><img src="/markers/neutral-castle-v2.png" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
+        html: `<div class="map-rotation-upright"><img src="${CASTLE_IMAGE_BY_KIND.noble}" alt="" style="width:54px;height:54px;filter:drop-shadow(0 2px 3px rgba(0,0,0,0.55))" /></div>`,
         iconSize: [54, 54],
         iconAnchor: [27, 27],
       });
