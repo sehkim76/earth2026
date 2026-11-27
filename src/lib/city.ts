@@ -271,7 +271,7 @@ export interface CitySiege {
   castleKey: string;
   at: number;
   by: string;
-  defended: boolean;
+  defended: boolean | null;
   conquered: boolean;
 }
 
@@ -359,7 +359,7 @@ export function parseCityState(raw: unknown, now: number): CityState {
   if (isObj(raw.nodeUsed)) for (const [id, v] of Object.entries(raw.nodeUsed)) nodeUsed[id] = Math.max(0, num(v));
   const siege = job<CitySiege>(raw.siege, (o) =>
     typeof o.castleKey === "string" && num(o.at) > 0 && typeof o.by === "string" &&
-    typeof o.defended === "boolean" && typeof o.conquered === "boolean",
+    (typeof o.defended === "boolean" || o.defended === null) && typeof o.conquered === "boolean",
   );
   return {
     v: 1,

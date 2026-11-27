@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { findHomeCastle, recordSiegeOnHome } from "@/lib/city-server";
 import {
   UNIT_SPEED_MPS,
   loadUnits,
@@ -447,6 +448,11 @@ export async function POST(request: Request) {
         if (attempts >= SIEGE_DAILY_CAP) {
           throw new Error("daily_cap");
         }
+        const ownerId = castle.meta.owner;
+        const home = ownerId && castle.meta.kind === "lord" ? await findHomeCastle(tx, ownerId, ctx.missionKey) : null;
+        const attacker = home?.castleKey === castleKey
+          ? await tx.missionUser.findUnique({ where: { userId }, select: { nickname: true } })
+          : null;
         const damage = await applyUnitTouch(tx, ctx.missionKey, castle, userId, unitId);
         await persist();
         return {
@@ -455,6 +461,16 @@ export async function POST(request: Request) {
           hp: damage.hp,
           maxHp: damage.maxHp,
           conquered: damage.conquered,
+          _siegeHome: ownerId && home?.castleKey === castleKey ? {
+            ownerId,
+            record: {
+              castleKey,
+              at: now,
+              by: attacker?.nickname?.trim() || "다른 플레이어",
+              defended: null,
+              conquered: damage.conquered,
+            },
+          } : null,
         };
       }
 
@@ -522,6 +538,17 @@ export async function POST(request: Request) {
       };
     });
 
+    if (result && "_siegeHome" in result) {
+      const { _siegeHome: siegeHome, ...publicResult } = result;
+      if (siegeHome) {
+        try {
+          await recordSiegeOnHome(siegeHome.ownerId, ctx.missionKey, siegeHome.record);
+        } catch (error) {
+          console.error(`[units/act] home siege record failed owner=${siegeHome.ownerId}`, error);
+        }
+      }
+      return NextResponse.json({ ok: true, unitId, servantId: unitId, ...publicResult });
+    }
     if (result && typeof result === "object" && "recalled" in result) {
       return NextResponse.json({ ok: false, code: "recall" }, { status: 400 });
     }

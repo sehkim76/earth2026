@@ -271,7 +271,11 @@ export function CityView({ open, onClose }: CityViewProps) {
                   <p className="text-xs font-black">
                     {activeSiege.by}님의 공성 공격 · {now - activeSiege.at < 60_000 ? "방금 전" : `${Math.floor((now - activeSiege.at) / 60_000)}분 전`}
                   </p>
-                  <p className="mt-0.5 text-[11px]">{activeSiege.defended ? "수비대가 공격을 막아냈습니다." : "공격군이 이번 전투에서 승리했습니다."}</p>
+                  {activeSiege.defended !== null ? (
+                    <p className="mt-0.5 text-[11px]">
+                      {activeSiege.defended ? "수비대가 공격을 막아냈습니다." : "공격군이 이번 전투에서 승리했습니다."}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {s.build ? (
