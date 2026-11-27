@@ -433,6 +433,12 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
         if (typeof o.userData.wave === "number") {
           const ph = o.userData.wave as number;
           o.rotation.y = Math.sin(t * 2.2 + ph) * 0.35 + 0.2;
+        } else if (typeof o.userData.hammerPhase === "number") {
+          const phase = o.userData.hammerPhase;
+          const beat = (t * (0.88 + phase * 0.22) + phase) % 1;
+          // 천천히 들어 올리고 짧게 내려친 뒤 목재 위에서 잠시 쉰다.
+          const lift = THREE.MathUtils.smoothstep(beat, 0.08, 0.7) * (1 - THREE.MathUtils.smoothstep(beat, 0.7, 0.85));
+          o.rotation.x = reducedMotion.matches ? -0.35 : -1.96 * lift;
         } else if (typeof o.userData.pulse === "number") {
           const ph = o.userData.pulse as number;
           o.scale.setScalar(0.88 + Math.sin(t * 3 + ph * 5) * 0.12);
@@ -544,7 +550,7 @@ export function createCityWorld(host: HTMLElement, opts: CityWorldOptions): City
         lotRoot.add(built.group);
         const animated: THREE.Object3D[] = [];
         built.group.traverse((o) => {
-          if (typeof o.userData.wave === "number" || typeof o.userData.pulse === "number") animated.push(o);
+          if (typeof o.userData.wave === "number" || typeof o.userData.pulse === "number" || typeof o.userData.hammerPhase === "number") animated.push(o);
         });
         const smoke = built.smoke.flatMap((v) => makeSmoke(v.clone().add(new THREE.Vector3(lot.x, 0, lot.z))));
         lots.set(l.key, { sig, group: built.group, top: built.top, smoke, animated });

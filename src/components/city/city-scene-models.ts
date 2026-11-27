@@ -1334,6 +1334,40 @@ function emptyLot(c: Ctx, lot: LotDef): number {
   return 2;
 }
 
+/** 작업대 쪽(+z)을 바라보는 목수. 어깨를 축으로 소매와 망치가 함께 움직인다. */
+function carpenter(c: Ctx, x: number, y: number, z: number, facing: number, phase: number): void {
+  const m = c.m;
+  const body = newCtx(m);
+  for (const side of [-1, 1]) {
+    box(body, 0.16, 0.45, 0.19, m.plaster, side * 0.14, 0.09, 0);
+    box(body, 0.18, 0.11, 0.29, m.woodDark, side * 0.14, 0, 0.05);
+  }
+  cyl(body, 0.22, 0.31, 0.64, phase < 0.5 ? m.bracket : m.lintel, 0, 0.44, 0, 8);
+  cyl(body, 0.27, 0.28, 0.08, m.woodDark, 0, 0.69, 0, 8);
+  ball(body, 0.21, m.mud, 0, 1.25, 0.03, 0.93, 1.05, 0.9);
+  cyl(body, 0.20, 0.21, 0.09, m.plaster, 0, 1.31, 0.03, 10);
+  ball(body, 0.16, m.dark, 0, 1.41, 0.02, 1.05, 0.62, 1);
+  box(body, 0.16, 0.18, 0.37, m.plaster, -0.23, 0.83, 0.12);
+  const figure = bake(body.s);
+  const tool = newCtx(m);
+  box(tool, 0.19, 0.18, 0.36, m.plaster, 0, -0.13, 0.13);
+  ball(tool, 0.085, m.mud, 0, -0.04, 0.33);
+  box(tool, 0.073, 0.08, 0.55, m.woodDark, 0, -0.075, 0.54);
+  box(tool, 0.33, 0.23, 0.20, m.iron, 0, -0.12, 0.79);
+  const arm = bake(tool.s);
+  arm.position.set(0.23, 1.05, 0.02);
+  arm.userData.hammerPhase = phase;
+  figure.add(arm);
+  // 타격 지점에 고정된 비계 이음목.
+  const post = new THREE.Mesh(new THREE.BoxGeometry(0.31, 0.93, 0.32), m.plank);
+  post.position.set(0.23, 0.465, 0.81);
+  figure.add(post);
+  figure.position.set(x, y, z);
+  figure.rotation.y = facing;
+  figure.scale.setScalar(1.55);
+  c.d.add(figure);
+}
+
 /** 공사 중: 비계 + 자재 */
 function scaffold(c: Ctx, lot: LotDef, h: number): void {
   const m = c.m;
@@ -1353,6 +1387,10 @@ function scaffold(c: Ctx, lot: LotDef, h: number): void {
     box(c, 0.5, 0.12, d, m.plank, w / 2, ly, 0);
     box(c, 0.5, 0.12, d, m.plank, -w / 2, ly, 0);
   }
+  const platform = h * 0.35;
+  box(c, 2.4, 0.15, 1.65, m.plank, w * 0.24, platform, d / 2 + 0.68);
+  carpenter(c, w * 0.24, platform + 0.15, d / 2 + 1.29, Math.PI, 0.08);
+  carpenter(c, w / 2 + 1.24, 0, -d * 0.26, -Math.PI / 2, 0.61);
   for (let i = 0; i < 3; i++) logPiece(c, 0.2, 2.4, m.plank, w / 2 + 1.0, i * 0.36, d / 2 - 0.4 - i * 0.05, Math.PI / 2);
   box(c, 1.0, 0.5, 0.7, m.stoneLight, -w / 2 - 0.9, 0, d / 2 - 0.6);
 }
@@ -1418,6 +1456,8 @@ export function buildLot(key: BuildingKey, level: number, building: boolean, m: 
       const sc = newCtx(m);
       scaffold(sc, { x: 0, z: 0, w: 14, d: 6 }, 7);
       c.s.add(sc.s);
+      c.d.add(sc.d);
+      sc.d.position.set(lot.x, 0, lot.z);
       sc.s.position.set(lot.x, 0, lot.z);
     }
     top = Math.max(top, 4);
