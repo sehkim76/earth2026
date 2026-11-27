@@ -77,7 +77,7 @@ import { positionAtMoveTarget, type UnitMoveTarget } from "@/lib/units";
 import { neutralLegSubpath } from "@/lib/neutral-leg";
 import { OUTLAW_TIER_LABEL, OUTLAW_TIER_STARS, outlawTierForId } from "@/lib/battle/outlaw";
 import { AutoBattleHost } from "@/components/battle/AutoBattleHost";
-import type { CastleBattleRequest } from "@/components/battle/AutoBattleHost";
+import type { MapDialog, MarkerPanel } from "@/components/territory/map-dialog";
 import type { OutlawBattleRequest } from "@/components/battle/BattleHost";
 import { serverNow } from "@/lib/server-clock";
 import {
@@ -298,6 +298,53 @@ type NearbyPlayerMarkerEntry = {
   selectedCharacter: PlayerCharacter;
 };
 
+interface UnitMoveTargetMark {
+  fromLat: number;
+  fromLon: number;
+  lat: number;
+  lon: number;
+  startedAt: number;
+  endsAt: number;
+  path?: Array<{ lat: number; lon: number }> | null;
+  /** 무법자: 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (서버 진행 인덱스). */
+  pathIdx?: number | null;
+}
+
+// 저장 경로에서 표시용 점 목록 추출.
+const wildPathPoints = (t: UnitMoveTargetMark | null | undefined): Array<{ lat: number; lon: number }> | null => {
+  const stored = t?.path;
+  if (Array.isArray(stored) && stored.length >= 2) {
+    const pts: Array<{ lat: number; lon: number }> = [];
+    for (const pt of stored) {
+      if (
+        typeof pt === "object" &&
+        pt !== null &&
+        Number.isFinite((pt as { lat?: unknown }).lat) &&
+        Number.isFinite((pt as { lon?: unknown }).lon)
+      ) {
+        pts.push({
+          lat: (pt as { lat: number }).lat,
+          lon: (pt as { lon: number }).lon,
+        });
+      }
+    }
+    return pts.length >= 2 ? pts : null;
+  }
+  if (
+    t &&
+    Number.isFinite(t.fromLat) &&
+    Number.isFinite(t.fromLon) &&
+    Number.isFinite(t.lat) &&
+    Number.isFinite(t.lon)
+  ) {
+    return [
+      { lat: t.fromLat, lon: t.fromLon },
+      { lat: t.lat, lon: t.lon },
+    ];
+  }
+  return null;
+};
+
 type Status = "idle" | "loading" | "success" | "error";
 
 type LocationPermissionState = "granted" | "prompt" | "denied" | "unsupported" | null;
@@ -324,20 +371,6 @@ type CurrentLocationMapProps = {
 /** Leaflet 지도가 중심·줌을 받아 좌표 변환을 할 수 있는 상태인가 (_loaded 는 setView 후 true). */
 const isLeafletMapLoaded = (map: unknown): boolean =>
   !!map && (map as { _loaded?: unknown })._loaded === true;
-
-type MarkerPanel = {
-  title: string;
-  lines: string[];
-  wildId?: number;
-  /** 다른 영주의 부대·영주 (공격 버튼) */
-  pvpTarget?: { type: "unit" | "lord"; ownerId: string; targetId: string; name: string };
-  /** 자원지 (일꾼 보내기 버튼) */
-  resourceNodeId?: string;
-  eventKey?: string;
-  isProximity?: boolean;
-  lat?: number;
-  lon?: number;
-};
 
 // 플레이어 캐릭터 걷기 프레임 (정적 에셋, CDN 캐시). 파일명은 000~023 고정.
 const WALKING_FRAMES_STATIC_DIR = "/map-assets/walking";
@@ -1223,7 +1256,14 @@ export default function CurrentLocationMap({
   const [location, setLocation] = useState<GeoResult | null>(null);
   const [tileError, setTileError] = useState<string | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
-  const [markerPanel, setMarkerPanel] = useState<MarkerPanel | null>(null);
+  const [dialog, setDialog] = useState<MapDialog | null>(null);
+  const openDialog = useCallback((next: MapDialog, onlyIfIdle = false): void => {
+    setDialog((current) => current?.kind === "battle" || (onlyIfIdle && current !== null) ? current : next);
+  }, []);
+  const closeDialog = useCallback((kind: MapDialog["kind"]): void => {
+    setDialog((current) => current?.kind === kind ? null : current);
+  }, []);
+  const markerPanel = dialog?.kind === "marker" ? dialog.panel : null;
   const [showPanelEventKey, setShowPanelEventKey] = useState(false);
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     if (initialSettings.mapStyle === "globe") return GLOBE_DEFAULT_ZOOM;
@@ -1240,14 +1280,14 @@ export default function CurrentLocationMap({
   const [edgeIndicatorIconDataUrl, setEdgeIndicatorIconDataUrl] = useState<string | null>(null);
   // 영토전 시작 위치 (GPS 미사용 모드). 없으면 선택 모달이 뜬다.
   const [territoryStart, setTerritoryStart] = useState<TerritoryStart | null>(null);
-  const [startPickerOpen, setStartPickerOpen] = useState(false);
+  const startPickerOpen = dialog?.kind === "start";
   useEffect(() => {
     try {
       setTerritoryStart(readTerritoryStart(locationCacheKey));
     } catch {
       setTerritoryStart(null);
     }
-    setStartPickerOpen(false);
+    setDialog(null);
   }, [locationCacheKey]);
   // 영주(플레이어) 이동 주문 (부대와 동일한 이동 지시 방식, 클라이언트 권위).
   // 주문 종료(도착/중지) 후에는 그 자리 정착 지점에서 머문다. 정착지와 진행 중
@@ -1381,7 +1421,6 @@ export default function CurrentLocationMap({
   // 약 100m 격자 좌표 (위치 변화에 둔감해도 되는 이펙트의 의존성용).
   const playerGridLat = playerLocation ? Math.round(playerLocation.lat * 1000) : null;
   const playerGridLon = playerLocation ? Math.round(playerLocation.lon * 1000) : null;
-  const [proximityMarkerInfo, setProximityMarkerInfo] = useState<MarkerPanel | null>(null);
   // ?vdebug=1 뷰포트 진단 오버레이 (아이폰 UI 잘림 원인 특정용).
   const [viewportDebugLines, setViewportDebugLines] = useState<string[]>([]);
   useEffect(() => {
@@ -1438,7 +1477,8 @@ export default function CurrentLocationMap({
     };
   }, []);
   const [clusterUnits, setClusterUnits] = useState<ClusterUnit[]>([]);
-  const [territoryCastleKey, setTerritoryCastleKey] = useState<string | null>(null);
+  const territoryCastleKey = dialog?.kind === "castle" || dialog?.kind === "manage" ? dialog.castleKey : null;
+  const openCastle = useCallback((castleKey: string): void => openDialog({ kind: "castle", castleKey }), [openDialog]);
 
   // 영토 색칠용 성 소유 현황 (동 → 소유자). 30초 폴링.
   interface TerritoryOwnedCastle {
@@ -1989,17 +2029,7 @@ export default function CurrentLocationMap({
   const clearUnitMarkerSelection = useCallback((): void => {
     setUnitMarkerSelection(null);
   }, []);
-interface UnitMoveTargetMark {
-  fromLat: number;
-  fromLon: number;
-  lat: number;
-  lon: number;
-  startedAt: number;
-  endsAt: number;
-  path?: Array<{ lat: number; lon: number }> | null;
-  /** 무법자: 현재 다리 목적지가 놓인 경로 구간의 끝 정점 인덱스 (서버 진행 인덱스). */
-  pathIdx?: number | null;
-}
+
 
 interface PoiMarkerEntry {
   marker: Marker;
@@ -2040,42 +2070,13 @@ interface OtherUnitMoveAnim {
   const unitFacingRef = useRef<Map<string, { lon: number; left: boolean }>>(new Map());
   const [unitMovePath, setUnitMovePath] = useState<Array<{ lat: number; lon: number }> | null>(null);
   // 무법자 이동경로 (클릭 시 빨간 점선).
-  const [wildRoutePath, setWildRoutePath] = useState<Array<{ lat: number; lon: number }> | null>(null);
-  const [wildRouteWildId, setWildRouteWildId] = useState<number | null>(null);
-  // 저장 경로에서 표시용 점 목록 추출.
-  const wildPathPoints = (t: UnitMoveTargetMark | null | undefined): Array<{ lat: number; lon: number }> | null => {
-    const stored = t?.path;
-    if (Array.isArray(stored) && stored.length >= 2) {
-      const pts: Array<{ lat: number; lon: number }> = [];
-      for (const pt of stored) {
-        if (
-          typeof pt === "object" &&
-          pt !== null &&
-          Number.isFinite((pt as { lat?: unknown }).lat) &&
-          Number.isFinite((pt as { lon?: unknown }).lon)
-        ) {
-          pts.push({
-            lat: (pt as { lat: number }).lat,
-            lon: (pt as { lon: number }).lon,
-          });
-        }
-      }
-      return pts.length >= 2 ? pts : null;
-    }
-    if (
-      t &&
-      Number.isFinite(t.fromLat) &&
-      Number.isFinite(t.fromLon) &&
-      Number.isFinite(t.lat) &&
-      Number.isFinite(t.lon)
-    ) {
-      return [
-        { lat: t.fromLat, lon: t.fromLon },
-        { lat: t.lat, lon: t.lon },
-      ];
-    }
-    return null;
-  };
+  const wildRouteId = markerPanel?.isProximity ? undefined : markerPanel?.wildId;
+  const wildRoutePath = useMemo(() => {
+    if (wildRouteId === undefined) return null;
+    const mark = unitMarks.find((unit) => unit.id === `neutral-${wildRouteId}`);
+    return wildPathPoints(mark?.moveTarget ?? null);
+  }, [wildRouteId, unitMarks]);
+
   const wildRouteLayerRef = useRef<LayerGroup | null>(null);
   const unitMovePathLayerRef = useRef<LayerGroup | null>(null);
   // 경로 화살표 재배치용 imperative redraw (줌·이동 시 setState 없이 갱신해 전체 리렌더 방지).
@@ -2231,7 +2232,7 @@ interface OtherUnitMoveAnim {
   const [moveTargetCenter, setMoveTargetCenter] = useState<{ lat: number; lon: number } | null>(null);
 
   const [edgeIndicators, setEdgeIndicators] = useState<EdgeIndicator[]>([]);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const showSettingsModal = dialog?.kind === "settings";
   const [selectedCharacter, setSelectedCharacter] = useState<PlayerCharacter>(initialSettings.selectedCharacter);
   const [mapStyle, setMapStyle] = useState<MapStyle>(initialSettings.mapStyle);
   const [showAdminBoundaries, setShowAdminBoundaries] = useState(false);
@@ -2345,17 +2346,17 @@ interface OtherUnitMoveAnim {
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
   const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
   // 무법자 토벌(카드 전투) 요청과, 전투 중인 무법자 (패널을 닫아도 고정 해제 신호를 보내지 않는다).
-  const [outlawBattleRequest, setOutlawBattleRequest] = useState<OutlawBattleRequest | null>(null);
+  const outlawBattleRequest = dialog?.kind === "outlawFormation" ? dialog.request : null;
   const battleWildRef = useRef<number | null>(null);
-  const clearOutlawBattleRequest = useCallback(() => setOutlawBattleRequest(null), []);
+  const clearOutlawBattleRequest = useCallback(() => closeDialog("outlawFormation"), [closeDialog]);
   // 「토벌」·「공격」: 공격 거리 밖이면 지휘관이 먼저 다가간다 (TerritoryUI가 처리 후 onAttackReady).
   const [attackApproach, setAttackApproach] = useState<AttackApproachRequest | null>(null);
   const clearAttackApproach = useCallback(() => setAttackApproach(null), []);
   // 추적(추적 이동·토벌 이동) 중인 대상 id. 추적 중인 무법자는 패널이 열려 있어도 멈추지 않는다.
   const [chasedTrackIds, setChasedTrackIds] = useState<string[]>([]);
   // 성 공성(오토배틀) 요청 + 전투 후 성 상세 갱신.
-  const [castleBattleRequest, setCastleBattleRequest] = useState<CastleBattleRequest | null>(null);
-  const clearCastleBattleRequest = useCallback(() => setCastleBattleRequest(null), []);
+  const castleBattleRequest = dialog?.kind === "castleFormation" ? dialog.request : null;
+  const clearCastleBattleRequest = useCallback(() => closeDialog("castleFormation"), [closeDialog]);
   const [castleRefreshNonce, setCastleRefreshNonce] = useState(0);
   useEffect(() => {
     if (!territoryEnabled || !isMapReady || !adminGeoJson || !Array.isArray(adminGeoJson.features) || !playerLocationRef.current) {
@@ -3526,20 +3527,10 @@ interface OtherUnitMoveAnim {
 
   const showMarkerPanel = useCallback((panel: MarkerPanel) => {
     setShowPanelEventKey(false);
-    setMarkerPanel(panel);
-  }, []);
+    openDialog({ kind: "marker", panel });
+  }, [openDialog]);
 
-  const closeMarkerPanel = useCallback(() => {
-    const panel = markerPanelRef.current;
-    // 자동 인식으로 뜬 무법자 패널을 닫으면 범위 밖으로 나갈 때까지 재오픈하지 않는다.
-    if (panel?.isProximity && panel.wildId !== undefined) {
-      dismissedWildRef.current.add(panel.wildId);
-    }
-    setShowPanelEventKey(false);
-    setMarkerPanel(null);
-    setWildRoutePath(null);
-    setWildRouteWildId(null);
-  }, []);
+  const closeMarkerPanel = useCallback((): void => closeDialog("marker"), [closeDialog]);
 
   // 무법자 다이얼로그가 열린 동안 해당 개체를 서버에서 멈춘다 (닫으면 재개).
   // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL(서버 300초) 만료 후 자동 재개된다.
@@ -4401,7 +4392,7 @@ interface OtherUnitMoveAnim {
       const eventKey = point.eventKey?.trim() ?? "";
       // 영토 미션의 성 마커는 영토 시트(W2)로 연결한다.
       if (territoryEnabled && eventKey.startsWith("castle-")) {
-        setTerritoryCastleKey(eventKey);
+        openCastle(eventKey);
         return;
       }
       showMarkerPanel({
@@ -4602,7 +4593,7 @@ interface OtherUnitMoveAnim {
       }
       clearGlobeMarkers();
     };
-  }, [mapStyle, isGlobeReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt]);
+  }, [mapStyle, isGlobeReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt, openCastle]);
 
   useEffect(() => {
     if (mapStyle !== "globe" || !isGlobeReady || !globeMapRef.current) {
@@ -5016,7 +5007,7 @@ interface OtherUnitMoveAnim {
       const eventKey = point.eventKey?.trim() ?? "";
       // 영토 미션의 성 마커는 영토 시트(W2)로 연결한다.
       if (territoryEnabled && eventKey.startsWith("castle-")) {
-        setTerritoryCastleKey(eventKey);
+        openCastle(eventKey);
         return;
       }
       showMarkerPanel({
@@ -5305,7 +5296,7 @@ interface OtherUnitMoveAnim {
       clearCesiumHtmlMarkers();
       clearCesiumPoiEntities();
     };
-  }, [mapStyle, isCesiumReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, createCesiumClusterDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt]);
+  }, [mapStyle, isCesiumReady, markerPoiPoints, showMarkerPanel, createThreePoiMarkerDataUrl, createCesiumClusterDataUrl, castleKindMap, castleDamagedKeys, territoryEnabled, placeCastleAt, openCastle]);
 
   useEffect(() => {
     if (mapStyle !== "cesium" || !isCesiumReady) {
@@ -5436,19 +5427,7 @@ interface OtherUnitMoveAnim {
     };
   }, []);
 
-  const proximityMarkerInfoRef = useRef<MarkerPanel | null>(null);
-  const markerPanelRef = useRef<MarkerPanel | null>(null);
-  // 사용자가 닫은 무법자 자동 패널 재오픈 억제 (wildId 집합).
-  // 인식범위 안에 있는 동안은 자동 표시하지 않고, 범위 밖으로 나가면 해제한다.
-  const dismissedWildRef = useRef<Set<number>>(new Set());
-
-  useEffect(() => {
-    proximityMarkerInfoRef.current = proximityMarkerInfo;
-  }, [proximityMarkerInfo]);
-
-  useEffect(() => {
-    markerPanelRef.current = markerPanel;
-  }, [markerPanel]);
+  const nearbyInfoKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
     const isStyleReady =
@@ -5460,179 +5439,137 @@ interface OtherUnitMoveAnim {
     }
 
     // 축성 위치 지정 중에는 근접 패널을 열지 않는다.
-    if (placementRef.current) {
+    if (placementRef.current || (territoryEnabled && !territoryStart)) {
       return;
     }
 
-    let playerLat = playerLocation.lat;
-    let playerLon = playerLocation.lon;
+    const playerLat = playerLocation.lat;
+    const playerLon = playerLocation.lon;
 
     const NEUTRAL_PROXIMITY_THRESHOLD_M = 15;
-    let nearestMarker: MarkerPanel | null = null;
-
-    if (!nearestMarker) {
-      // 무법자: 플레이어 본체 또는 아군 부대가 15m 이내면 공격 패널 자동 표시.
-      // 마커 좌표는 최대 15초 전이므로 다리 보간으로 현재 위치를 계산한다.
-      const nowMs = Date.now();
-      const livePos = (m: { lat: number; lon: number; moveTarget: UnitMoveTargetMark | null }): { lat: number; lon: number } => {
-        const t = m.moveTarget;
-        if (!t || !Number.isFinite(t.lat) || !Number.isFinite(t.lon)) {
-          return { lat: m.lat, lon: m.lon };
-        }
-        try {
-          const pos = positionAtMoveTarget(
-            {
-              fromLat: t.fromLat,
-              fromLon: t.fromLon,
-              lat: t.lat,
-              lon: t.lon,
-              startedAt: t.startedAt,
-              endsAt: t.endsAt,
-              via: null,
-              path: t.path ?? null,
-            },
-            nowMs,
-          );
-          return { lat: pos.lat, lon: pos.lon };
-        } catch {
-          return { lat: m.lat, lon: m.lon };
-        }
-      };
-      // 무법자 표시 위치: 저장 경로 중 현재 다리 구간을 따라 보간한다.
-      // (구간 기준이므로 전체 경로 매핑 시의 가짜 왕복이 생기지 않는다.)
-      const wildLivePos = (m: { lat: number; lon: number; moveTarget: UnitMoveTargetMark | null }): { lat: number; lon: number } => {
-        const t = m.moveTarget;
-        if (!t || !Number.isFinite(t.lat) || !Number.isFinite(t.lon)) {
-          return { lat: m.lat, lon: m.lon };
-        }
-        try {
-          const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
-          const pos = positionAtMoveTarget(
-            {
-              fromLat: t.fromLat,
-              fromLon: t.fromLon,
-              lat: t.lat,
-              lon: t.lon,
-              startedAt: t.startedAt,
-              endsAt: t.endsAt,
-              via: null,
-              path: sub,
-            },
-            // 무법자 다리 시각은 서버 시계 기준이다.
-            serverNow(),
-          );
-          return { lat: pos.lat, lon: pos.lon };
-        } catch {
-          return { lat: m.lat, lon: m.lon };
-        }
-      };
-      for (const mark of unitMarks) {
-        if (!mark.id.startsWith("neutral-")) {
-          continue;
-        }
-        if (!Number.isFinite(mark.lat) || !Number.isFinite(mark.lon)) {
-          continue;
-        }
-        const wildId = Number.parseInt(mark.id.slice("neutral-".length), 10);
-        if (!Number.isFinite(wildId)) {
-          continue;
-        }
-        if (dismissedWildRef.current.has(wildId)) {
-          // 닫은 무법자는 인식범위 안에 있는 동안 자동 표시하지 않는다.
-          // 범위 밖으로 나가면 억제를 해제해 다음 조우 때 다시 알린다.
-          const wildPos = wildLivePos(mark);
-          const stillNear =
-            calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon) <=
-              WILD_ATTACK_RANGE_M ||
-            unitMarks.some((m) => {
-              if (!m.mine || !Number.isFinite(m.lat) || !Number.isFinite(m.lon)) {
-                return false;
-              }
-              const p = livePos(m);
-              return (
-                calculateDistance(p.lat, p.lon, wildPos.lat, wildPos.lon) <= WILD_ATTACK_RANGE_M
-              );
-            });
-          if (!stillNear) {
-            dismissedWildRef.current.delete(wildId);
+    const nearby = new Set<string>();
+    let entered: MarkerPanel | undefined;
+    // 무법자: 플레이어 본체 또는 아군 부대가 15m 이내면 공격 패널 자동 표시.
+    // 마커 좌표는 최대 15초 전이므로 다리 보간으로 현재 위치를 계산한다.
+    const nowMs = Date.now();
+    const livePos = (m: { lat: number; lon: number; moveTarget: UnitMoveTargetMark | null }): { lat: number; lon: number } => {
+      const t = m.moveTarget;
+      if (!t || !Number.isFinite(t.lat) || !Number.isFinite(t.lon)) {
+        return { lat: m.lat, lon: m.lon };
+      }
+      try {
+        const pos = positionAtMoveTarget(
+          {
+            fromLat: t.fromLat,
+            fromLon: t.fromLon,
+            lat: t.lat,
+            lon: t.lon,
+            startedAt: t.startedAt,
+            endsAt: t.endsAt,
+            via: null,
+            path: t.path ?? null,
+          },
+          nowMs,
+        );
+        return { lat: pos.lat, lon: pos.lon };
+      } catch {
+        return { lat: m.lat, lon: m.lon };
+      }
+    };
+    // 무법자 표시 위치: 저장 경로 중 현재 다리 구간을 따라 보간한다.
+    // (구간 기준이므로 전체 경로 매핑 시의 가짜 왕복이 생기지 않는다.)
+    const wildLivePos = (m: { lat: number; lon: number; moveTarget: UnitMoveTargetMark | null }): { lat: number; lon: number } => {
+      const t = m.moveTarget;
+      if (!t || !Number.isFinite(t.lat) || !Number.isFinite(t.lon)) {
+        return { lat: m.lat, lon: m.lon };
+      }
+      try {
+        const sub = neutralLegSubpath(t.fromLat, t.fromLon, t.lat, t.lon, t.path ?? null, t.pathIdx ?? null);
+        const pos = positionAtMoveTarget(
+          {
+            fromLat: t.fromLat,
+            fromLon: t.fromLon,
+            lat: t.lat,
+            lon: t.lon,
+            startedAt: t.startedAt,
+            endsAt: t.endsAt,
+            via: null,
+            path: sub,
+          },
+          // 무법자 다리 시각은 서버 시계 기준이다.
+          serverNow(),
+        );
+        return { lat: pos.lat, lon: pos.lon };
+      } catch {
+        return { lat: m.lat, lon: m.lon };
+      }
+    };
+    for (const mark of unitMarks) {
+      if (!mark.id.startsWith("neutral-")) {
+        continue;
+      }
+      if (!Number.isFinite(mark.lat) || !Number.isFinite(mark.lon)) {
+        continue;
+      }
+      const wildId = Number.parseInt(mark.id.slice("neutral-".length), 10);
+      if (!Number.isFinite(wildId)) {
+        continue;
+      }
+      const wildPos = wildLivePos(mark);
+      const playerNear =
+        calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon) <= WILD_ATTACK_RANGE_M;
+      const unitNear =
+        !playerNear &&
+        unitMarks.some((m) => {
+          if (!m.mine || !Number.isFinite(m.lat) || !Number.isFinite(m.lon)) {
+            return false;
           }
-          continue;
-        }
-        const wildPos = wildLivePos(mark);
-        const playerNear =
-          calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon) <= WILD_ATTACK_RANGE_M;
-        const unitNear =
-          !playerNear &&
-          unitMarks.some((m) => {
-            if (!m.mine || !Number.isFinite(m.lat) || !Number.isFinite(m.lon)) {
-              return false;
-            }
-            const p = livePos(m);
-            return calculateDistance(p.lat, p.lon, wildPos.lat, wildPos.lon) <= WILD_ATTACK_RANGE_M;
-          });
-        if (playerNear || unitNear) {
-          const proxDist = Math.max(0, Math.round(calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon)));
-          nearestMarker = {
-            title: `무법자 #${wildId}`,
-            lines: [`이름: 무법자 #${wildId}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
-            wildId,
-            lat: wildPos.lat,
-            lon: wildPos.lon,
-            isProximity: true,
-          };
-          break;
-        }
+          const p = livePos(m);
+          return calculateDistance(p.lat, p.lon, wildPos.lat, wildPos.lon) <= WILD_ATTACK_RANGE_M;
+        });
+      if (playerNear || unitNear) {
+        const proxDist = Math.max(0, Math.round(calculateDistance(playerLat, playerLon, wildPos.lat, wildPos.lon)));
+        const key = `wild:${wildId}`;
+        nearby.add(key);
+        if (entered || nearbyInfoKeysRef.current.has(key)) continue;
+        entered = {
+          title: `무법자 #${wildId}`,
+          lines: [`이름: 무법자 #${wildId}`, ...outlawTierLines(wildId, mark.outlawWinRate), "상태: 배회 중", `거리: 약 ${proxDist}m (플레이어)`],
+          wildId,
+          lat: wildPos.lat,
+          lon: wildPos.lon,
+          isProximity: true,
+        };
       }
     }
 
-    if (!nearestMarker) {
-      // 중립성: 15m 이내면 정보 패널 자동 표시 (성은 근접 패널을 띄우지 않는다).
-      for (const point of renderablePoiPoints) {
-        if (!isNeutralEventKey(point.eventKey)) {
-          continue;
-        }
-        const distance = calculateDistance(playerLat, playerLon, point.lat, point.lon);
-        if (distance <= NEUTRAL_PROXIMITY_THRESHOLD_M) {
-          nearestMarker = {
-            ...buildNeutralPanel(point.label, point.eventKey),
-            isProximity: true,
-          };
-          break;
-        }
+    // 중립성: 15m 이내면 정보 패널 자동 표시 (성은 근접 패널을 띄우지 않는다).
+    for (const point of renderablePoiPoints) {
+      if (!isNeutralEventKey(point.eventKey)) {
+        continue;
+      }
+      const distance = calculateDistance(playerLat, playerLon, point.lat, point.lon);
+      if (distance <= NEUTRAL_PROXIMITY_THRESHOLD_M) {
+        const key = `castle:${point.eventKey}`;
+        nearby.add(key);
+        if (entered || nearbyInfoKeysRef.current.has(key)) continue;
+        entered = {
+          ...buildNeutralPanel(point.label, point.eventKey, point.lat, point.lon),
+          isProximity: true,
+        };
       }
     }
 
-    const currentProximityInfo = proximityMarkerInfoRef.current;
-    const currentMarkerPanel = markerPanelRef.current;
-    const currentIsProximity = Boolean(currentProximityInfo?.isProximity);
-    
-    if (nearestMarker) {
-      const shouldSyncProximityInfo =
-        !currentProximityInfo ||
-        currentProximityInfo.title !== nearestMarker.title ||
-        currentProximityInfo.lines[0] !== nearestMarker.lines[0];
-
-      if (shouldSyncProximityInfo) {
-        setProximityMarkerInfo(nearestMarker);
-      }
-
-      if (!currentMarkerPanel || currentMarkerPanel.isProximity) {
-        const shouldSyncMarkerPanel =
-          !currentMarkerPanel ||
-          currentMarkerPanel.title !== nearestMarker.title ||
-          currentMarkerPanel.lines[0] !== nearestMarker.lines[0];
-
-        if (shouldSyncMarkerPanel) {
-          setMarkerPanel(nearestMarker);
-        }
-      }
-    } else if (currentProximityInfo && currentIsProximity) {
-      setProximityMarkerInfo(null);
-      if (currentMarkerPanel?.isProximity) {
-        setMarkerPanel(null);
+    nearbyInfoKeysRef.current = nearby;
+    if (entered) {
+      showMarkerPanel(entered);
+    } else if (markerPanel?.isProximity) {
+      const key = markerPanel.wildId !== undefined ? `wild:${markerPanel.wildId}` : `castle:${markerPanel.eventKey}`;
+      if (!nearby.has(key)) {
+        setDialog((current) => current?.kind === "marker" && current.panel === markerPanel ? null : current);
       }
     }
-  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, playerLocation]);
+  }, [location, isMapReady, isGlobeReady, isCesiumReady, mapStyle, renderablePoiPoints, unitMarks, playerLocation, markerPanel, showMarkerPanel, territoryEnabled, territoryStart]);
 
   // ---- 영토전 도보 가능 영역: 현재 동 + 인접 동 + 선택 동 로드 ----
   useEffect(() => {
@@ -6794,9 +6731,9 @@ interface OtherUnitMoveAnim {
   // 공격 거리 안에 들어왔다: 영주가 선두면 서버 위치 판정을 위해 현재 위치를 바로 기록한 뒤 편성 창을 연다.
   const handleAttackReady = useCallback(
     (target: OutlawBattleRequest["target"], leadId: string): void => {
-      // 무법자 패널은 열어 둔다: 열린 동안 서버가 무법자를 멈춰 두어 편성하는 사이 멀어지지 않는다.
+      // 편성 창이 열리면 pickerWildId가 무법자 정지 상태를 이어받는다.
       const open = (): void => {
-        setOutlawBattleRequest({ target, nonce: Date.now(), leadId });
+        openDialog({ kind: "outlawFormation", request: { target, nonce: Date.now(), leadId } });
       };
       const pos = leadId === "lord" ? getPlayerLocation() : null;
       if (!pos) {
@@ -6811,7 +6748,7 @@ interface OtherUnitMoveAnim {
         .catch(() => undefined)
         .finally(open);
     },
-    [getPlayerLocation],
+    [getPlayerLocation, openDialog],
   );
 
   // 추적 대상(무법자·남의 부대·남의 영주)의 현재 위치. 이동 중이면 애니메이션과 같은 수식으로 계산한다
@@ -7226,8 +7163,6 @@ interface OtherUnitMoveAnim {
             tapLoc && Number.isFinite(tapLoc.lat) && Number.isFinite(tapLoc.lon)
               ? Math.max(0, Math.round(calculateDistance(tapLoc.lat, tapLoc.lon, liveLat, liveLon)))
               : null;
-          setWildRouteWildId(wildId);
-          setWildRoutePath(wildPathPoints(freshMark.moveTarget as UnitMoveTargetMark | null));
           showMarkerPanel({
             title: `무법자 #${wildId}`,
             lines: [
@@ -7263,7 +7198,7 @@ interface OtherUnitMoveAnim {
         `[perf] outlaw removed=${removedOutlaws.length} marks=${unitMarks.length} zoom=${zoomLevel} ids=${removedOutlaws.slice(0, 5).join(",")}`,
       );
     }
-  }, [territoryEnabled, isMapReady, unitMarks, zoomLevel, handleUnitMarkerClick, showMarkerPanel]);
+  }, [territoryEnabled, isMapReady, unitMarks, zoomLevel, handleUnitMarkerClick, showMarkerPanel, applyHostileInstant, getPlayerLocation, getTrackTargetPosition]);
 
   // 영토전: 타인 부대 이동을 서버 주문서 기준으로 직접 애니메이션한다.
   // 서버 권위: 주문서에 확정 경로(path)가 들어있어 보는 쪽 재계산이 필요 없다.
@@ -7550,16 +7485,6 @@ interface OtherUnitMoveAnim {
     drawDirectedPath(wildRouteLayerRef.current, L, map, wildRoutePath ?? [], "#ef4444");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [territoryEnabled, isMapReady, wildRoutePath, zoomLevel]);
-
-  // 패널이 열린 무법자의 경로가 바뀌면(새 목적지·새 경로) 점선을 갱신한다.
-  useEffect(() => {
-    if (wildRouteWildId === null) {
-      return;
-    }
-    const mark = unitMarks.find((m) => m.id === `neutral-${wildRouteWildId}`);
-    setWildRoutePath(wildPathPoints(mark?.moveTarget ?? null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitMarks]);
 
 // ?nowalk=1 이동가능영역 오버레이 kill 스위치 (성능 A/B용 — URL 바뀌어도 유지).
 const isWalkableDisabled = (): boolean => {
@@ -7965,11 +7890,13 @@ const isMapPerfEnabled = (): boolean => {
       workers.forEach((worker) => worker.remove());
     };
   }, [territoryEnabled, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, visibleWorkers]);
-  const sendWorkers = useCallback(async (nodeId: string): Promise<void> => {
+  const sendWorkers = useCallback(async (panel: MarkerPanel): Promise<void> => {
+    const nodeId = panel.resourceNodeId;
+    if (!nodeId) return;
     const r = await cityAction({ type: "gather", nodeId });
     setPlacementNotice({ id: Date.now(), message: r.ok ? "일꾼 부대를 보냈습니다." : r.message });
     if (r.ok) {
-      setMarkerPanel(null);
+      setDialog((current) => current?.kind === "marker" && current.panel === panel ? null : current);
     }
   }, []);
 
@@ -8465,7 +8392,7 @@ const isMapPerfEnabled = (): boolean => {
               if (!ownedCastleKeys.includes(eventKey)) {
                 applyHostileInstant(poiMarker, eventKey);
               }
-              setTerritoryCastleKey(eventKey);
+              openCastle(eventKey);
               return;
             }
             showMarkerPanel({
@@ -8553,7 +8480,7 @@ const isMapPerfEnabled = (): boolean => {
     //   addedCount,
     //   layerCount: pointsLayerRef.current?.getLayers().length ?? 0,
     // });
-  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, territoryEnabled, placeCastleAt, castleKindMap, castleDamagedKeys, poiLoadRetry]);
+  }, [createThreePoiMarkerDataUrl, isMapReady, markerPoiPoints, showMarkerPanel, zoomLevel, territoryEnabled, placeCastleAt, castleKindMap, castleDamagedKeys, poiLoadRetry, openCastle]);
 
   // 축성 위치 지정: 위성 지도 클릭으로 확정 단계 진입.
   useEffect(() => {
@@ -9311,6 +9238,8 @@ const isMapPerfEnabled = (): boolean => {
 
       {markerPanel ? (
         <div
+          role="dialog"
+          aria-labelledby="map-marker-dialog-title"
           className={
             territoryEnabled
               ? (() => {
@@ -9349,7 +9278,7 @@ const isMapPerfEnabled = (): boolean => {
                 </div>
               ) : null}
             </div>
-            <p className="min-w-0 flex-1 truncate text-sm font-bold text-amber-50">{markerPanel.title}</p>
+            <p id="map-marker-dialog-title" className="min-w-0 flex-1 truncate text-sm font-bold text-amber-50">{markerPanel.title}</p>
           </div>
           <div className="space-y-1.5 px-4 py-3">
             {markerPanel.lines.map((line, index) => {
@@ -9393,10 +9322,7 @@ const isMapPerfEnabled = (): boolean => {
             {territoryEnabled && markerPanel.resourceNodeId ? (
               <button
                 type="button"
-                onClick={() => {
-                  const id = markerPanel.resourceNodeId;
-                  if (id) void sendWorkers(id);
-                }}
+                onClick={() => void sendWorkers(markerPanel)}
                 className="whitespace-nowrap rounded-lg border border-emerald-300/60 bg-[linear-gradient(#3f7a4a,#1f4a28)] px-4 py-1.5 text-xs font-bold text-white transition hover:brightness-110"
               >
                 일꾼 보내기
@@ -9686,7 +9612,7 @@ const isMapPerfEnabled = (): boolean => {
             type="button"
             aria-label="설정"
             onClick={() => {
-              setShowSettingsModal(true);
+              openDialog({ kind: "settings" });
             }}
             className="pointer-events-auto mt-2 flex h-8 w-8 items-center justify-center rounded-xl border border-white/25 bg-black/55 text-white backdrop-blur-xl shadow-[0_10px_24px_rgba(0,0,0,0.34)] transition active:translate-y-0.5"
           >
@@ -9749,7 +9675,7 @@ const isMapPerfEnabled = (): boolean => {
                 type="button"
                 aria-label="설정 닫기"
                 onClick={() => {
-                  setShowSettingsModal(false);
+                  closeDialog("settings");
                 }}
                 className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-300 text-slate-700 transition active:scale-95"
               >
@@ -9790,8 +9716,7 @@ const isMapPerfEnabled = (): boolean => {
                   <button
                     type="button"
                     onClick={() => {
-                      setStartPickerOpen(true);
-                      setShowSettingsModal(false);
+                      openDialog({ kind: "start" });
                     }}
                     className="flex w-full items-center justify-between rounded-2xl border border-slate-300 bg-white px-4 py-4 text-left transition"
                   >
@@ -10056,9 +9981,9 @@ const isMapPerfEnabled = (): boolean => {
               writeTerritoryStart(locationCacheKey, start);
             } catch {}
             setTerritoryStart(start);
-            setStartPickerOpen(false);
+            closeDialog("start");
           }}
-          onClose={() => setStartPickerOpen(false)}
+          onClose={() => closeDialog("start")}
         />
       ) : null}
       <AutoBattleHost
@@ -10069,10 +9994,11 @@ const isMapPerfEnabled = (): boolean => {
         onCastleRequestDone={clearCastleBattleRequest}
         onBattleStarted={(wildId) => {
           battleWildRef.current = wildId;
-          closeMarkerPanel();
+          openDialog({ kind: "battle" });
         }}
         onBattleFinished={() => {
           battleWildRef.current = null;
+          closeDialog("battle");
           setNeutralRefreshNonce((n) => n + 1);
           // 전투 결과(부상·승리 수)를 반영한다.
           setTerritoryMeNonce((n) => n + 1);
@@ -10083,8 +10009,10 @@ const isMapPerfEnabled = (): boolean => {
       {territoryEnabled ? (
         <TerritoryUI
           castleKey={territoryCastleKey}
-          onCloseCastle={() => setTerritoryCastleKey(null)}
-          onOpenCastle={setTerritoryCastleKey}
+          dialog={dialog}
+          openDialog={openDialog}
+          closeDialog={closeDialog}
+          onOpenCastle={openCastle}
           castlePoints={castlePoints}
           myLocation={playerLocation}
           getMapCenter={getTerritoryCenter}
@@ -10111,10 +10039,10 @@ const isMapPerfEnabled = (): boolean => {
           onAttackReady={handleAttackReady}
           onLordSelectedChange={setLordSelected}
           onCastleBattle={(castleKey, name) =>
-            setCastleBattleRequest({ target: { type: "castle", castleKey, name }, nonce: Date.now() })
+            openDialog({ kind: "castleFormation", request: { target: { type: "castle", castleKey, name }, nonce: Date.now() } })
           }
           castleRefreshNonce={castleRefreshNonce}
-          markerDialogOpen={territoryEnabled && markerPanel !== null}
+          choosingStart={!territoryStart}
           dongCode={selectedAdminCode}
           playerDongCode={playerDongCode}
           wildSeeds={wildSeeds}

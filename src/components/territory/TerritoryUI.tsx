@@ -21,6 +21,7 @@ import {
   snapToNearestWalkableLocation,
 } from "@/lib/walkable-client";
 
+import type { MapDialog, TerritorySheet } from "@/components/territory/map-dialog";
 import { CommanderInfoCard } from "@/components/territory/CommanderInfoCard";
 
 export interface TerritoryCastlePoint {
@@ -48,7 +49,9 @@ export interface TrackTarget {
 
 interface TerritoryUIProps {
   castleKey: string | null;
-  onCloseCastle: () => void;
+  dialog: MapDialog | null;
+  openDialog: (dialog: MapDialog, onlyIfIdle?: boolean) => void;
+  closeDialog: (kind: MapDialog["kind"]) => void;
   onOpenCastle: (key: string) => void;
   castlePoints: TerritoryCastlePoint[];
   myLocation: { lat: number; lon: number; accuracy?: number } | null;
@@ -106,8 +109,7 @@ interface TerritoryUIProps {
   ownedCastleKeys?: string[];
   /** 성 키 → 이름 (목록 표시용). */
   castleNames?: Record<string, string>;
-  /** 마커 다이얼로그가 열려 있으면 하단 기능 UI를 숨긴다 (상태는 유지). */
-  markerDialogOpen: boolean;
+  choosingStart: boolean;
   /** 영주 선택 상태 변경 알림 (플레이어 마커 선택 테두리용). */
   onLordSelectedChange?: (selected: boolean) => void;
   /** 성 공성 전투 진입 (오토배틀). */
@@ -182,7 +184,6 @@ interface CastleDetail {
   cooldownSec: number;
 }
 
-type Sheet = null | "castles" | "units" | "move" | "build" | "manage" | "rank";
 
 interface RankUserRow {
   userId: string;
@@ -399,7 +400,9 @@ function TerritoryActionIcon({ name }: { name: TerritoryActionIconName }) {
 export default function TerritoryUI(props: TerritoryUIProps) {
   const {
     castleKey,
-    onCloseCastle,
+    dialog,
+    openDialog,
+    closeDialog,
     onOpenCastle,
     onUnitMarks,
     onVisibleWorkers,
@@ -471,7 +474,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     },
     [onMovePath, onMoveDestination],
   );
-  const [sheet, setSheet] = useState<Sheet>(null);
+  const sheet = dialog?.kind === "sheet" ? dialog.sheet : dialog?.kind === "manage" ? "manage" : null;
+  const openSheet = useCallback((sheet: TerritorySheet): void => openDialog({ kind: "sheet", sheet }), [openDialog]);
   const [rankScope, setRankScope] = useState<"user" | "nation">("user");
   const [rankRows, setRankRows] = useState<{
     users: RankUserRow[];
@@ -514,11 +518,11 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
   }, []);
   const [notice, setNotice] = useState<string | null>(null);
-  const [actionDialog, setActionDialog] = useState<{ title: string; message: string } | null>(null);
-  const [scoutResult, setScoutResult] = useState<{
-    unitName: string;
-    castles: { castleKey: string; name: string; distance: number; mine: boolean }[];
-  } | null>(null);
+  const actionDialog = dialog?.kind === "action" ? dialog : null;
+  const showActionDialog = useCallback((message: { title: string; message: string }): void => {
+    openDialog({ kind: "action", ...message });
+  }, [openDialog]);
+  const scoutResult = dialog?.kind === "scout" ? dialog.result : null;
   const [units, setUnits] = useState<UnitInfo[]>([]);
   const [unitCap, setUnitCap] = useState(0);
   const [unitTrainingName, setUnitTrainingName] = useState("");
@@ -603,7 +607,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   // 단일 체인 구간 길이 상한 (m). 초과분은 다음 구간으로 넘긴다.
   const CHAIN_LEG_M = 5000;
   const [moveNow, setMoveNow] = useState<number | null>(null);
-  const [detail, setDetail] = useState<CastleDetail | null>(null);
+  const [loadedDetail, setDetail] = useState<CastleDetail | null>(null);
+  const detail = loadedDetail?.castleKey === castleKey ? loadedDetail : null;
+  const detailRequestRef = useRef<symbol | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [buildName, setBuildName] = useState("");
@@ -833,14 +839,17 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   };
   const lordInjuredUntilRef = useRef<number | null>(null);
   // ── 영주성 내정: 상태 폴링(상황판·지도도 같은 값을 받음), 성 안 화면, 첫 영주성 세우기 안내 ──
-  const [cityOpen, setCityOpen] = useState(false);
   const [cityHome, setCityHome] = useState<CityHome | null>(null);
   const [cityLoaded, setCityLoaded] = useState(false);
-  const [homePromptDismissed, setHomePromptDismissed] = useState(false);
+  const firstCityView = useRef(true);
   const [homeName, setHomeName] = useState("나의 영주성");
   useEffect(() => {
     const on = (e: Event): void => {
       const v = (e as CustomEvent<CityViewData>).detail;
+      if (firstCityView.current) {
+        firstCityView.current = false;
+        if (!v.home) openDialog({ kind: "homePrompt" }, true);
+      }
       setCityHome(v.home);
       setCityLoaded(true);
     };
@@ -857,15 +866,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", load);
     };
-  }, []);
+  }, [openDialog]);
   const openCity = (): void => {
-    if (cityLoaded && !cityHome) {
-      setHomePromptDismissed(false);
-      return;
-    }
-    onCloseCastle();
-    setSheet(null);
-    setCityOpen(true);
+    openDialog({ kind: cityLoaded && !cityHome ? "homePrompt" : "city" });
   };
   const startHomePlacement = (): void => {
     const name = homeName.trim() || "나의 영주성";
@@ -876,7 +879,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       dong: (props.playerDongCode ?? props.dongCode ?? "").trim(),
       home: true,
     });
-    setHomePromptDismissed(true);
+    closeDialog("homePrompt");
   };
   const [outlawWinRates, setOutlawWinRates] = useState<Record<1 | 2 | 3, number | null> | null>(null);
   const outlawWinRatesRef = useRef(outlawWinRates);
@@ -1355,29 +1358,24 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     };
   }, [units, otherUnitMarks, neutralUnits, movingUnitIds, selectedUnit, sheet, onUnitMarks, injuryTick, outlawWinRates]);
 
-  // 마지막 선택 우선: 성이 새로 열리면 시트를 닫는다 (상태는 유지).
-  const prevCastleKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (castleKey && castleKey !== prevCastleKeyRef.current) {
-      setSheet(null);
-    }
-    prevCastleKeyRef.current = castleKey;
-  }, [castleKey]);
-
   const refreshDetail = useCallback(
     async (key: string) => {
+      const request = Symbol();
+      detailRequestRef.current = request;
       setDetailLoading(true);
       try {
         const data = await callApi<CastleDetail>(
           `/api/castles?castleKey=${encodeURIComponent(key)}`,
         );
+        if (detailRequestRef.current !== request) return;
         setDetail(data);
         setManageJoinMode(data.joinMode);
       } catch (error) {
+        if (detailRequestRef.current !== request) return;
         flash(messageOf(error));
         setDetail(null);
       } finally {
-        setDetailLoading(false);
+        if (detailRequestRef.current === request) setDetailLoading(false);
       }
     },
     [flash],
@@ -1386,10 +1384,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   useEffect(() => {
     if (castleKey) {
       void refreshDetail(castleKey);
-      setSheet(null);
     } else {
       setDetail(null);
     }
+    return () => { detailRequestRef.current = null; };
   }, [castleKey, refreshDetail]);
 
   // 전투 종료 후 성 상세 갱신 (게이지·점령 반영).
@@ -1418,7 +1416,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const runAction = useCallback(
     async (fn: () => Promise<string | null>) => {
       if (busy) {
-        setActionDialog({
+        showActionDialog({
           title: "요청을 처리할 수 없습니다",
           message: "다른 작업을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
         });
@@ -1431,12 +1429,12 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           flash(message);
         }
       } catch (error) {
-        setActionDialog({ title: "요청을 처리할 수 없습니다", message: messageOf(error) });
+        showActionDialog({ title: "요청을 처리할 수 없습니다", message: messageOf(error) });
       } finally {
         setBusy(false);
       }
     },
-    [busy, flash],
+    [busy, flash, showActionDialog],
   );
 
   const playerLoc = props.getPlayerLocation();
@@ -1541,7 +1539,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           ];
         });
         const unitName = units.find((u) => u.id === unitId)?.name ?? "부대";
-        setScoutResult({ unitName, castles });
+        openDialog({ kind: "scout", result: { unitName, castles } });
         return null;
       }
       if (action === "defend") {
@@ -1556,7 +1554,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const startUnitTraining = async (castleKeyArg?: string, castleNameArg?: string): Promise<void> => {
     const targetCastle = castleKeyArg ?? selectedTrainingCastle;
     if (!targetCastle) {
-      setActionDialog({
+      showActionDialog({
         title: "훈련할 성을 선택해 주세요",
         message: "부대는 선택한 보유 성에서 훈련을 시작하고, 완성된 뒤 그곳에서 활동합니다.",
       });
@@ -1575,7 +1573,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         trainingCastles.find((castle) => castle.castleKey === targetCastle)?.name;
       flash(`${castleName ?? "보유 성"}에서 부대 훈련을 시작했습니다. 30분 후 성에 배치됩니다.`);
     } catch (error) {
-      setActionDialog({ title: "부대 훈련을 시작할 수 없습니다", message: messageOf(error) });
+      showActionDialog({ title: "부대 훈련을 시작할 수 없습니다", message: messageOf(error) });
     } finally {
       setBusy(false);
     }
@@ -1898,7 +1896,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     props.onLordSetBase?.({ lat: playerPos.lat, lon: playerPos.lon });
     setSelectedUnit(LORD_UNIT_ID);
     panToLocation(playerPos.lat, playerPos.lon);
-    setSheet("move");
+    openSheet("move");
   };
 
   const stopLordMovement = (): void => {
@@ -2001,7 +1999,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         });
         if (!quiet) {
           setSelectedUnit(LORD_UNIT_ID);
-          setSheet("move");
+          openSheet("move");
         }
         return "ok";
       }
@@ -2051,7 +2049,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         if (quiet) {
           return "fail";
         }
-        setActionDialog({
+        showActionDialog({
           title: "영주를 이동할 수 없습니다",
           message: "길이 막혔습니다. 이동가능 영역으로 연결된 목적지를 선택해 주세요.",
         });
@@ -2085,13 +2083,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       publishRouteLive(LORD_UNIT_ID, line, { lat: toLat, lon: toLon }, true);
       if (!quiet) {
         setSelectedUnit(LORD_UNIT_ID);
-        setSheet("move");
+        openSheet("move");
       }
       setMoveNow(Date.now());
       return "ok";
     } catch (error) {
       if (!quiet) {
-        setActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
+        showActionDialog({ title: "영주 이동을 시작할 수 없습니다", message: messageOf(error) });
       }
       return "fail";
     } finally {
@@ -2359,7 +2357,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       if (!marchSegs || !movingUnitIdsRef.current.has(unitId)) {
         // 사용자 중지가 아니면(예외·예상 밖 중단 포함) 반드시 사유를 알린다.
         if (movingUnitIdsRef.current.has(unitId) || !stopRequestedRef.current.has(unitId)) {
-          setActionDialog(
+          showActionDialog(
             budgetHit
               ? {
                   title: "길찾기가 시간 안에 끝나지 않았습니다",
@@ -2375,7 +2373,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         return fail;
       }
       if (partial && !strictEnd) {
-        setActionDialog({
+        showActionDialog({
           title: "갈 수 있는 곳까지만 이동합니다",
           message: "목적지까지 연결된 길이 없어 이동가능한 마지막 지점에서 멈춥니다.",
         });
@@ -2396,7 +2394,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     const smoothed = smoothPathLatLon(full);
     if (smoothed.length === 0 || !movingUnitIdsRef.current.has(unitId)) {
       if (movingUnitIdsRef.current.has(unitId) || !stopRequestedRef.current.has(unitId)) {
-        setActionDialog({
+        showActionDialog({
           title: "부대를 이동할 수 없습니다",
           message: "길이 막혔습니다. 이동가능 영역으로 연결된 목적지를 선택해 주세요.",
         });
@@ -2709,7 +2707,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         orderEndsAt = target.endsAt;
       } catch (error) {
         await refreshUnits();
-        setActionDialog({ title: "부대 이동을 시작할 수 없습니다", message: messageOf(error) });
+        showActionDialog({ title: "부대 이동을 시작할 수 없습니다", message: messageOf(error) });
         return fail;
       }
     }
@@ -2718,7 +2716,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     // 이동 명령 후에도 다이얼로그를 유지해 길찾기 스피너·진행률을 표시한다.
     // (닫으면 선택 테두리·진행률·이동중지 버튼이 함께 사라진다)
     setSelectedUnit(unitId);
-    setSheet("move");
+    openSheet("move");
     // 4단계: 다듬어진 전체 경로를 단일 애니메이션으로 행군한다.
     // (서버 권위 위치와 동일한 수식으로 렌더링만 한다 — 중간 동기화 POST 없음)
     const lastPos = await animateUnitAlongPath(
@@ -2871,7 +2869,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     } catch (error) {
       // runMoveChain 내 예상 밖 예외는 finally로 조용히 사라지므로 여기서 반드시 알린다.
       if (!stopRequestedRef.current.has(unitId)) {
-        setActionDialog({ title: "부대 이동 중 오류가 발생했습니다", message: messageOf(error) });
+        showActionDialog({ title: "부대 이동 중 오류가 발생했습니다", message: messageOf(error) });
       }
     } finally {
       setFindingPathUnitId((current) => (current === unitId ? null : current));
@@ -3014,7 +3012,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         action: "move",
       });
     } catch (error) {
-      setActionDialog({ title: "이동 중지를 실패했습니다", message: messageOf(error) });
+      showActionDialog({ title: "이동 중지를 실패했습니다", message: messageOf(error) });
       return;
     }
     clearRoute(unitId);
@@ -3104,14 +3102,14 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     }
     const unit = units.find((item) => item.id === unitId);
     if (!unit || unit.state !== "field") {
-      setActionDialog({
+      showActionDialog({
         title: "부대를 이동할 수 없습니다",
         message: unit?.state === "garrisoned" ? "주둔 중인 부대는 먼저 주둔을 해제해야 이동할 수 있습니다." : "현재 이동 가능한 부대가 아닙니다.",
       });
       return;
     }
     setSelectedUnit(unitId);
-    setSheet("move");
+    openSheet("move");
   };
 
   useEffect(() => {
@@ -3391,8 +3389,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     return null;
   };
 
-  // 마커 다이얼로그가 열려 있으면 하단 기능 UI를 숨긴다 (상태는 유지, 닫히면 복원).
-  if (props.markerDialogOpen) {
+  // 지도 또는 전투 화면이 현재 창을 그리는 동안에도 부대 이동과 폴링은 계속 처리한다.
+  if (props.choosingStart || dialog?.kind === "marker" || dialog?.kind === "settings" || dialog?.kind === "start" ||
+      dialog?.kind === "outlawFormation" || dialog?.kind === "castleFormation" || dialog?.kind === "battle") {
     return null;
   }
 
@@ -3422,7 +3421,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <button
               type="button"
               autoFocus
-              onClick={() => setActionDialog(null)}
+              onClick={() => closeDialog("action")}
               className={`${buttonPrimary} mt-3 w-full`}
             >
               확인
@@ -3467,7 +3466,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <button
               type="button"
               autoFocus
-              onClick={() => setScoutResult(null)}
+              onClick={() => closeDialog("scout")}
               className={`${buttonPrimary} mt-3 w-full`}
             >
               확인
@@ -3530,7 +3529,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                     </button>
                   );
                 })()}
-                <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>닫기</button>
+                <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>닫기</button>
               </div>
             </div>
             {selectedUnit ? (
@@ -3641,7 +3640,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   >
                     {aimLock ? "추적 이동" : "여기로 이동"}
                   </button>
-                  <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+                  <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>
                     취소
                   </button>
                 </div>
@@ -3661,8 +3660,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           <button
             type="button"
             onClick={() => {
-              setSheet("castles");
-              onCloseCastle();
+              openSheet("castles");
             }}
             className={`${buttonOriginal} flex items-center justify-center gap-2`}
           >
@@ -3674,8 +3672,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             onClick={() => {
               void refreshUnits();
               void refreshTrainingCastles();
-              setSheet("units");
-              onCloseCastle();
+              openSheet("units");
             }}
             className={`${buttonOriginal} flex items-center justify-center gap-2`}
           >
@@ -3685,8 +3682,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
           <button
             type="button"
             onClick={() => {
-              setSheet("build");
-              onCloseCastle();
+              openSheet("build");
             }}
             className={`${buttonOriginal} flex items-center justify-center gap-2`}
           >
@@ -3707,8 +3703,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             onClick={() => {
               setRankScope("user");
               void refreshRank("user");
-              setSheet("rank");
-              onCloseCastle();
+              openSheet("rank");
             }}
             className={`${buttonOriginal} flex items-center justify-center gap-2`}
           >
@@ -3754,7 +3749,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         <div className={sheetStyle}>
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-base font-black text-slate-900">나의 성</p>
-            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>
               닫기
             </button>
           </div>
@@ -3771,7 +3766,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                     type="button"
                     onClick={() => {
                       onOpenCastle(p.eventKey);
-                      setSheet(null);
                     }}
                     className="w-full rounded-xl border border-[#8e7954]/35 bg-[#fffaf0] px-3 py-1 text-left active:bg-[#e7ddc6]"
                   >
@@ -3790,8 +3784,8 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         </div>
       ) : null}
 
-      <CityView open={cityOpen} onClose={() => setCityOpen(false)} />
-      {cityLoaded && !cityHome && !homePromptDismissed ? (
+      <CityView open={dialog?.kind === "city"} onClose={() => closeDialog("city")} />
+      {dialog?.kind === "homePrompt" && !cityHome ? (
         <div className="fixed inset-0 z-[3700] flex items-end justify-center bg-black/55 p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:items-center">
           <div className="w-full max-w-md rounded-2xl border-2 border-[#8e7954] bg-[#f3ead6] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.6)]">
             <p className="text-lg font-black text-slate-900">영주성을 세울 곳을 정하세요</p>
@@ -3812,7 +3806,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
               className={`${inputStyle} mt-3 w-full`}
             />
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button type="button" onClick={() => setHomePromptDismissed(true)} className={buttonGhost}>
+              <button type="button" onClick={() => closeDialog("homePrompt")} className={buttonGhost}>
                 나중에
               </button>
               <button type="button" onClick={startHomePlacement} className={buttonPrimary}>
@@ -3827,7 +3821,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         <div className={sheetStyle}>
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-base font-black text-slate-900">시즌 랭킹</p>
-            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>
               닫기
             </button>
           </div>
@@ -3947,7 +3941,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <p className="text-base font-black text-slate-900">
               부대 {units.filter((s) => s.state !== "dead").length}/{unitCap}
             </p>
-            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>
               닫기
             </button>
           </div>
@@ -4165,7 +4159,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         <div className={sheetStyle}>
           <div className="mb-1.5 flex items-center justify-between">
             <p className="text-base font-black text-slate-900">축성</p>
-            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("sheet")} className={buttonGhost}>
               닫기
             </button>
           </div>
@@ -4241,7 +4235,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   hp: buildHp,
                   dong: (props.dongCode ?? "").trim(),
                 });
-                setSheet(null);
+                closeDialog("sheet");
               }}
               className={buttonPrimary}
             >
@@ -4257,7 +4251,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
             <p className="text-base font-black text-slate-900">
               {detailLoading ? "불러오는 중…" : (detail?.name ?? castleKey)}
             </p>
-            <button type="button" onClick={onCloseCastle} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("castle")} className={buttonGhost}>
               닫기
             </button>
           </div>
@@ -4336,7 +4330,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setSheet("manage")}
+                    onClick={() => openDialog({ kind: "manage", castleKey })}
                     className={buttonGhost}
                   >
                     관리
@@ -4392,7 +4386,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
                           }
                           const reason = explainTrainingBlock(castleKey);
                           if (reason) {
-                            setActionDialog({ title: "부대 훈련을 시작할 수 없습니다", message: reason });
+                            showActionDialog({ title: "부대 훈련을 시작할 수 없습니다", message: reason });
                             return;
                           }
                           void startUnitTraining(castleKey, detail.name);
@@ -4435,7 +4429,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         <div className={sheetStyle}>
           <div className="mb-2 flex items-center justify-between">
             <p className="text-base font-black text-slate-900">성 관리</p>
-            <button type="button" onClick={() => setSheet(null)} className={buttonGhost}>
+            <button type="button" onClick={() => closeDialog("manage")} className={buttonGhost}>
               닫기
             </button>
           </div>
