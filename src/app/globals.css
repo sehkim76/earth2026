@@ -945,22 +945,77 @@
 .res-node--empty { opacity: 0.4; filter: grayscale(1); }
 .res-node--busy .res-node__label::after { content: " · 채집 중"; color: #fde68a; }
 
-/* 일꾼 부대 */
+/* 일꾼 부대: 농부 (걷기·곡괭이질·도끼질·짐 지고 귀환) */
 .gather-worker {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 3px;
   white-space: nowrap;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, 0.5));
 }
-.gather-worker__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 9999px;
-  border: 2px solid #2b2118;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+.gather-worker__face { line-height: 0; }
+.gather-worker--west .gather-worker__face { transform: scaleX(-1); }
+.gather-worker .farmer * { transform-box: view-box; }
+.gather-worker .farmer__leg--back,
+.gather-worker .farmer__leg--front { transform-origin: 17px 27px; }
+.gather-worker .farmer__tool { transform-origin: 19px 20px; transform: rotate(-28deg); }
+.gather-worker .farmer__sack,
+.gather-worker .farmer__fx { opacity: 0; }
+/* 걷기 */
+.gather-worker--walk .farmer__upper,
+.gather-worker--carry .farmer__upper { animation: farmer-bob 0.5s ease-in-out infinite; }
+.gather-worker--walk .farmer__leg--front,
+.gather-worker--carry .farmer__leg--front { animation: farmer-step 0.5s ease-in-out infinite alternate; }
+.gather-worker--walk .farmer__leg--back,
+.gather-worker--carry .farmer__leg--back { animation: farmer-step 0.5s ease-in-out infinite alternate-reverse; }
+.gather-worker--carry .farmer__sack { opacity: 1; animation: farmer-bob 0.5s ease-in-out infinite; }
+/* 곡괭이질 (금·석재·철광석) */
+.gather-worker--mine .farmer__tool { animation: farmer-swing-pick 0.9s cubic-bezier(0.5, 0, 0.75, 0.4) infinite; }
+.gather-worker--mine .farmer__upper { animation: farmer-lean 0.9s cubic-bezier(0.5, 0, 0.75, 0.4) infinite; transform-origin: 17px 27px; }
+.gather-worker--mine .farmer__fx { animation: farmer-fx 0.9s linear infinite; }
+/* 도끼질 (나무) */
+.gather-worker--chop .farmer__tool { animation: farmer-swing-axe 1.1s cubic-bezier(0.55, 0, 0.8, 0.35) infinite; }
+.gather-worker--chop .farmer__upper { animation: farmer-lean 1.1s cubic-bezier(0.55, 0, 0.8, 0.35) infinite; transform-origin: 17px 27px; }
+.gather-worker--chop .farmer__fx { animation: farmer-fx 1.1s linear infinite; }
+.gather-worker--chop .farmer__fx path { stroke: #c08a4a; stroke-width: 1.8; }
+@keyframes farmer-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.2px); }
+}
+@keyframes farmer-step {
+  from { transform: rotate(-22deg); }
+  to { transform: rotate(22deg); }
+}
+@keyframes farmer-swing-pick {
+  0% { transform: rotate(-95deg); }
+  55% { transform: rotate(-95deg); }
+  78% { transform: rotate(62deg); }
+  100% { transform: rotate(-95deg); }
+}
+@keyframes farmer-swing-axe {
+  0% { transform: rotate(-110deg); }
+  50% { transform: rotate(-110deg); }
+  76% { transform: rotate(48deg); }
+  100% { transform: rotate(-110deg); }
+}
+@keyframes farmer-lean {
+  0%, 55% { transform: rotate(-4deg); }
+  78% { transform: rotate(8deg); }
+  100% { transform: rotate(-4deg); }
+}
+@keyframes farmer-fx {
+  0%, 76% { opacity: 0; }
+  80% { opacity: 1; }
+  95% { opacity: 0; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gather-worker .farmer * { animation: none !important; }
 }
 .gather-worker__label {
+  margin-top: -2px;
   border-radius: 6px;
+  box-shadow: 0 0 0 1.5px var(--worker-color, #fff4d8);
   padding: 0 4px;
   font-size: 10px;
   font-weight: 900;

@@ -632,6 +632,30 @@ const RESOURCE_NODE_SVG: Readonly<Record<ResourceKind, string>> = {
   iron: '<svg width="26" height="26" viewBox="0 0 26 26"><path d="M3 20 L8 9 L14 12 L19 6 L23 20z" fill="#5b6770" stroke="#1d252b" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 16 h3 M15 14 h3" stroke="#cfd6dc" stroke-width="2" stroke-linecap="round"/></svg>',
 };
 
+/** 일꾼(농부) SVG — 밀짚모자·작업복. 금·석재·철광석은 곡괭이, 나무는 도끼 (독자 디자인) */
+const FARMER_TOOL_SVG: Readonly<Record<"pick" | "axe", string>> = {
+  pick: '<path d="M18 21 L29 7" stroke="#7a4a1f" stroke-width="2.2" stroke-linecap="round"/><path d="M23 4.5 Q30 4 33.5 10" fill="none" stroke="#5b6770" stroke-width="2.6" stroke-linecap="round"/><path d="M23 4.5 Q30 4 33.5 10" fill="none" stroke="#cfd6dc" stroke-width="1" stroke-linecap="round"/>',
+  axe: '<path d="M18 21 L29 7" stroke="#7a4a1f" stroke-width="2.2" stroke-linecap="round"/><path d="M26.5 6.5 L31 3.5 Q35 8 32 12.5 L28.5 10z" fill="#aab4bc" stroke="#2b2118" stroke-width="1.2" stroke-linejoin="round"/>',
+};
+const farmerSvg = (tool: "pick" | "axe"): string =>
+  '<svg class="farmer" width="38" height="40" viewBox="0 0 38 40" aria-hidden="true">' +
+  '<ellipse cx="17" cy="38.5" rx="8" ry="1.6" fill="rgba(0,0,0,0.35)"/>' +
+  '<g class="farmer__fx"><path d="M31 30 l2 -3 M33 32 l3 -1 M30 33 l1 3" stroke="#fde68a" stroke-width="1.4" stroke-linecap="round"/></g>' +
+  '<g class="farmer__sack"><path d="M6 17 Q2 18 3 25 Q5 29 10 27 L11 19z" fill="#c9a66b" stroke="#2b2118" stroke-width="1.2" stroke-linejoin="round"/></g>' +
+  '<g class="farmer__leg farmer__leg--back"><path d="M15 27 L13.5 36" stroke="#3b4b6b" stroke-width="3.2" stroke-linecap="round"/><path d="M12 36.5 h3.5" stroke="#3a2614" stroke-width="2.4" stroke-linecap="round"/></g>' +
+  '<g class="farmer__leg farmer__leg--front"><path d="M19 27 L20.5 36" stroke="#4a5d82" stroke-width="3.2" stroke-linecap="round"/><path d="M19.5 36.5 h3.5" stroke="#3a2614" stroke-width="2.4" stroke-linecap="round"/></g>' +
+  '<g class="farmer__upper">' +
+  '<path d="M12 17 Q17 15 22 17 L21.5 28 H12.5z" fill="#5f8f4e" stroke="#2b2118" stroke-width="1.2" stroke-linejoin="round"/>' +
+  '<path d="M14 17.5 V27 M20 17.5 V27" stroke="#3f6b35" stroke-width="1"/>' +
+  '<circle cx="17" cy="12" r="4" fill="#f2c79b" stroke="#2b2118" stroke-width="1.1"/>' +
+  '<circle cx="18.7" cy="11.6" r="0.6" fill="#2b2118"/>' +
+  '<path d="M10.5 10 Q17 8.5 23.5 10" fill="none" stroke="#2b2118" stroke-width="2.6" stroke-linecap="round"/>' +
+  '<path d="M10.5 10 Q17 8.5 23.5 10" fill="none" stroke="#e9c46a" stroke-width="1.6" stroke-linecap="round"/>' +
+  '<path d="M13.5 9.6 Q14 5.5 17 5.5 Q20 5.5 20.5 9.4z" fill="#e9c46a" stroke="#2b2118" stroke-width="1.1" stroke-linejoin="round"/>' +
+  '<path d="M13.8 8.2 H20.2" stroke="#c0392b" stroke-width="1"/>' +
+  '<g class="farmer__tool">' + FARMER_TOOL_SVG[tool] + '<circle cx="19" cy="20" r="1.8" fill="#f2c79b" stroke="#2b2118" stroke-width="0.9"/></g>' +
+  '</g></svg>';
+
 type TerritoryRelation = "mine" | "alliance" | "nap" | "war" | "none";
 const isTerritoryRelation = (v: unknown): v is TerritoryRelation =>
   v === "mine" || v === "alliance" || v === "nap" || v === "war" || v === "none";
@@ -7813,7 +7837,7 @@ const isMapPerfEnabled = (): boolean => {
             const travelMin = dist / workerSpeedMps(c.state) / 60;
             const gatherMin = load / gatherRatePerSec(c.state) / 60;
             lines.push(`영주성에서 ${(dist / 1000).toFixed(1)}km${dist > 4000 ? " (4km 초과: 보낼 수 없음)" : ""}`);
-            lines.push(`일꾼 1회: ${Math.floor(load).toLocaleString("ko-KR")} 운반 · 왕복 ${Math.ceil(travelMin * 2)}분 + 채집 ${Math.ceil(gatherMin)}분`);
+            lines.push(`일꾼 1회: ${Math.floor(load).toLocaleString("ko-KR")} 운반 · 왕복 약 ${Math.ceil(travelMin * 2 * 1.3)}분(길 따라) + 채집 ${Math.ceil(gatherMin)}분`);
           } else {
             lines.push("영주성을 세우면 일꾼을 보낼 수 있습니다.");
           }
@@ -7862,31 +7886,40 @@ const isMapPerfEnabled = (): boolean => {
     }
     const color: Record<ResourceKind, string> = { gold: "#f1c40f", stone: "#cfd6dc", wood: "#8fbf6a", iron: "#9fb4cc" };
     const workers = gathers.map((g) => {
-      L.polyline(
-        [
-          [g.fromLat, g.fromLon],
-          [g.lat, g.lon],
-        ],
-        { color: color[g.kind], weight: 2, dashArray: "4 6", opacity: 0.85, interactive: false },
-      ).addTo(layer);
+      // 도로 경로 (옛 데이터는 직선)
+      const line: Array<[number, number]> =
+        g.path && g.path.length >= 2
+          ? g.path
+          : [
+              [g.fromLat, g.fromLon],
+              [g.lat, g.lon],
+            ];
+      L.polyline(line, { color: color[g.kind], weight: 2.5, dashArray: "4 6", opacity: 0.85, interactive: false }).addTo(layer);
+      const tool = g.kind === "wood" ? "axe" : "pick";
       const icon = L.divIcon({
         className: "map-gather-worker",
-        html: `<div class="map-rotation-upright"><div class="gather-worker"><span class="gather-worker__dot" style="background:${color[g.kind]}"></span><span class="gather-worker__label"></span></div></div>`,
-        iconSize: [80, 22],
-        iconAnchor: [40, 11],
+        html: `<div class="map-rotation-upright"><div class="gather-worker gather-worker--${tool}" style="--worker-color:${color[g.kind]}"><div class="gather-worker__face">${farmerSvg(tool)}</div><span class="gather-worker__label"></span></div></div>`,
+        iconSize: [80, 56],
+        iconAnchor: [40, 40],
       });
       const p = gatherPhase(g, serverNow());
       const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false }).addTo(layer);
       return { g, marker };
     });
+    // 위치는 1초마다 경로를 따라 옮기고, 걸음·곡괭이질·도끼질은 CSS 애니메이션으로 움직인다
     const tick = (): void => {
       const now = serverNow();
       for (const { g, marker } of workers) {
         const p = gatherPhase(g, now);
         marker.setLatLng([p.lat, p.lon]);
-        const el = marker.getElement()?.querySelector(".gather-worker__label");
-        const text = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} 채집` : "귀환 중";
-        if (el && el.textContent !== text) el.textContent = text;
+        const root = marker.getElement()?.querySelector<HTMLElement>(".gather-worker");
+        if (!root) continue;
+        const mode = p.phase === "gathering" ? (g.kind === "wood" ? "chop" : "mine") : p.phase === "returning" ? "carry" : "walk";
+        const cls = `gather-worker gather-worker--${g.kind === "wood" ? "axe" : "pick"} gather-worker--${mode}${p.dir < 0 ? " gather-worker--west" : ""}`;
+        if (root.className !== cls) root.className = cls;
+        const label = root.querySelector(".gather-worker__label");
+        const text = p.phase === "going" ? "일꾼 이동" : p.phase === "gathering" ? `${RESOURCE_LABEL[g.kind]} ${g.kind === "wood" ? "벌목" : "채굴"}` : "귀환 중";
+        if (label && label.textContent !== text) label.textContent = text;
       }
     };
     tick();

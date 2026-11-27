@@ -61,7 +61,7 @@ function RollingNumber({ value }: { value: number }) {
 /** 영토전 모드 좌상단 플레이어 대시. */
 export default function TerritoryDash() {
   const [me, setMe] = useState<TerritoryMe | null>(null);
-  // 금·석재·나무·철 (성 내정 갱신 알림으로 받는다)
+  // 금·석재·나무·철광석 (성 내정 갱신 알림으로 받는다)
   const [res, setRes] = useState<{ gold: number; stone: number; wood: number; iron: number } | null>(null);
   useEffect(() => {
     const apply = (v: CityViewData | null): void => {
@@ -145,7 +145,7 @@ export default function TerritoryDash() {
         <div className="flex items-center gap-2 border-t border-[#b9995d]/30 bg-[#1c2c28] px-2.5 py-1 text-[11px] font-black tabular-nums" aria-label="자원">
           <span title="석재" className="text-[#cfd6dc]">석재 {fmtNum(res.stone)}</span>
           <span title="나무" className="text-[#b8d98a]">나무 {fmtNum(res.wood)}</span>
-          <span title="철" className="text-[#9fb4cc]">철 {fmtNum(res.iron)}</span>
+          <span title="철광석" className="text-[#9fb4cc]">철광석 {fmtNum(res.iron)}</span>
         </div>
       ) : null}
     </section>

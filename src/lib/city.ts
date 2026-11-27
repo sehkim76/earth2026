@@ -1,6 +1,6 @@
 // 영주성 내정 (순수 모듈: 서버·화면 공용). React/Next/Prisma import 금지.
 //
-// - 자원: 금(MissionUser.score, 옛 영향력) + 석재·나무·철(TerritoryCity.data.res)
+// - 자원: 금(MissionUser.score, 옛 영향력) + 석재·나무·철광석(TerritoryCity.data.res)
 // - 건물: 본관이 다른 건물 레벨 상한. 생산 건물은 시간당 자원 생산(lazy 정산).
 // - 연구: 학당 레벨까지 기술 레벨.
 // - 병력: 보병·궁병·기병·마법. 군사 건물에서 훈련 → 예비 병력 → 지휘관(영주·부대)에 배치.
@@ -12,7 +12,7 @@ export const RESOURCE_LABEL: Readonly<Record<ResourceKind, string>> = {
   gold: "금",
   stone: "석재",
   wood: "나무",
-  iron: "철",
+  iron: "철광석",
 };
 
 export type Cost = Partial<Record<ResourceKind, number>>;
@@ -67,11 +67,11 @@ export const MAX_BUILDING_LEVEL = 10;
 
 export const BUILDINGS: readonly BuildingDef[] = [
   { key: "keep", name: "본관", category: "core", desc: "영주성의 중심. 다른 건물은 본관 레벨까지만 올릴 수 있고, 지휘관 병력 상한이 늘어납니다.", baseCost: { wood: 300, stone: 300, gold: 100 }, baseSec: 90 },
-  { key: "storehouse", name: "창고", category: "core", desc: "석재·나무·철을 쌓아 둘 수 있는 양이 늘어납니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60 },
+  { key: "storehouse", name: "창고", category: "core", desc: "석재·나무·철광석을 쌓아 둘 수 있는 양이 늘어납니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60 },
   { key: "camp", name: "일꾼 막사", category: "core", desc: "자원지로 보낼 수 있는 일꾼 부대 수와 한 번에 나르는 양이 늘어납니다.", baseCost: { wood: 180, stone: 120 }, baseSec: 60 },
   { key: "sawmill", name: "벌목장", category: "production", desc: "시간마다 나무를 생산합니다.", baseCost: { wood: 100, stone: 120 }, baseSec: 45, produces: "wood" },
   { key: "quarry", name: "채석장", category: "production", desc: "시간마다 석재를 생산합니다.", baseCost: { wood: 140, stone: 80 }, baseSec: 45, produces: "stone" },
-  { key: "forge", name: "제철소", category: "production", desc: "시간마다 철을 생산합니다.", baseCost: { wood: 160, stone: 160 }, baseSec: 60, produces: "iron" },
+  { key: "forge", name: "제철소", category: "production", desc: "시간마다 철광석을 생산합니다.", baseCost: { wood: 160, stone: 160 }, baseSec: 60, produces: "iron" },
   { key: "mint", name: "주조소", category: "production", desc: "시간마다 금을 주조합니다.", baseCost: { wood: 200, stone: 200, iron: 80 }, baseSec: 75, produces: "gold" },
   { key: "academy", name: "학당", category: "research", desc: "기술을 연구합니다. 학당 레벨까지 기술 레벨을 올릴 수 있습니다.", baseCost: { wood: 250, stone: 250, gold: 80 }, baseSec: 90 },
   { key: "barracks", name: "병영", category: "military", desc: "보병을 훈련합니다. 레벨이 오르면 한 번에 더 많이, 더 빨리 훈련합니다.", baseCost: { wood: 200, stone: 150 }, baseSec: 60, trains: "infantry" },
@@ -236,6 +236,8 @@ export interface GatherJob {
   /** 실어 오는 양 (회수하면 채집한 만큼으로 줄어든다) */
   amount: number;
   recalled?: boolean;
+  /** 도로 경로 [lat, lon][] (영주성 → 채집 지점). 없으면 직선 (옛 데이터) */
+  path?: Array<[number, number]>;
 }
 
 export interface CityState {
@@ -335,7 +337,7 @@ export function parseCityState(raw: unknown, now: number): CityState {
   };
 }
 
-/** 창고 상한 (석재·나무·철 각각) */
+/** 창고 상한 (석재·나무·철광석 각각) */
 export const storageCap = (storehouseLevel: number): number => 2000 + Math.max(0, storehouseLevel) * 3000;
 /** 금 상한 (금은 창고와 별개, 전역 상한) */
 export const GOLD_CAP = 200_000;
@@ -527,14 +529,68 @@ export function nodeById(id: string, now: number): ResourceNode | null {
 export const distanceM = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): number =>
   Math.hypot((b.lon - a.lon) * 111320 * Math.cos((a.lat * Math.PI) / 180), (b.lat - a.lat) * 110540);
 
-/** 일꾼 부대의 현재 위치·단계 (화면 표시용) */
-export function gatherPhase(g: GatherJob, now: number): { phase: "going" | "gathering" | "returning"; lat: number; lon: number } {
-  const lerp = (a: number, b: number, t: number): number => a + (b - a) * Math.max(0, Math.min(1, t));
+/** 경로 총 길이(m) */
+export function pathLengthM(path: ReadonlyArray<readonly [number, number]>): number {
+  let sum = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1] as readonly [number, number];
+    const b = path[i] as readonly [number, number];
+    sum += distanceM({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+  }
+  return sum;
+}
+
+/** 경로 앞에서 d(m) 지점까지 자른 경로 (끝점 = 그 지점) */
+export function truncatePath(path: ReadonlyArray<readonly [number, number]>, d: number): Array<[number, number]> {
+  const out: Array<[number, number]> = [];
+  if (path.length === 0) return out;
+  const first = path[0] as readonly [number, number];
+  out.push([first[0], first[1]]);
+  let left = Math.max(0, d);
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1] as readonly [number, number];
+    const b = path[i] as readonly [number, number];
+    const seg = distanceM({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+    if (seg >= left) {
+      const t = seg > 0 ? left / seg : 0;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      return out;
+    }
+    left -= seg;
+    out.push([b[0], b[1]]);
+  }
+  return out;
+}
+
+/** 경로 위 비율 t(0~1) 지점과 진행 방향(동쪽이면 1, 서쪽이면 -1) */
+function pointAlong(path: ReadonlyArray<readonly [number, number]>, t: number): { lat: number; lon: number; dir: 1 | -1 } {
+  const total = pathLengthM(path);
+  const cut = truncatePath(path, total * Math.max(0, Math.min(1, t)));
+  const end = cut[cut.length - 1] ?? [0, 0];
+  const prev = cut.length >= 2 ? (cut[cut.length - 2] as [number, number]) : (path[1] ?? end);
+  const dLon = cut.length >= 2 ? end[1] - prev[1] : prev[1] - end[1];
+  return { lat: end[0], lon: end[1], dir: dLon < 0 ? -1 : 1 };
+}
+
+export type GatherPhaseKind = "going" | "gathering" | "returning";
+
+/** 일꾼 부대의 현재 위치·단계 (화면 표시용). 도로 경로가 있으면 경로를 따라 움직인다. */
+export function gatherPhase(g: GatherJob, now: number): { phase: GatherPhaseKind; lat: number; lon: number; dir: 1 | -1 } {
+  const path: Array<[number, number]> =
+    g.path && g.path.length >= 2
+      ? g.path
+      : [
+          [g.fromLat, g.fromLon],
+          [g.lat, g.lon],
+        ];
   if (now < g.arriveAt) {
     const t = (now - g.startedAt) / Math.max(1, g.arriveAt - g.startedAt);
-    return { phase: "going", lat: lerp(g.fromLat, g.lat, t), lon: lerp(g.fromLon, g.lon, t) };
+    return { phase: "going", ...pointAlong(path, t) };
   }
-  if (now < g.doneAt) return { phase: "gathering", lat: g.lat, lon: g.lon };
+  if (now < g.doneAt) {
+    const face = pointAlong(path, 1);
+    return { phase: "gathering", lat: g.lat, lon: g.lon, dir: face.dir };
+  }
   const t = (now - g.doneAt) / Math.max(1, g.returnAt - g.doneAt);
-  return { phase: "returning", lat: lerp(g.lat, g.fromLat, t), lon: lerp(g.lon, g.fromLon, t) };
+  return { phase: "returning", ...pointAlong([...path].reverse(), t) };
 }

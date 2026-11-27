@@ -2,6 +2,7 @@
 // 잠금: city:<userId> (성 상태만 다룬다). 다른 사용자 잠금과 함께 잡을 땐 사용자 잠금 → city 순서.
 
 import prisma from "@/lib/prismadb";
+import { findServerRoute } from "@/lib/server-graph";
 import { listCommanders, toJsonObject } from "@/lib/battle-server";
 import type { CommanderListItem } from "@/lib/battle";
 import {
@@ -26,6 +27,8 @@ import {
   nodeById,
   nodeEpoch,
   parseCityState,
+  pathLengthM,
+  truncatePath,
   payNonGold,
   researchCost,
   researchMs,
@@ -54,8 +57,74 @@ import {
   type Tx,
 } from "@/lib/territory";
 
-/** 일꾼을 보낼 수 있는 최대 거리 (영주성 기준) */
+/** 일꾼을 보낼 수 있는 최대 거리 (영주성 기준 직선) */
 export const GATHER_MAX_DISTANCE_M = 4000;
+/** 도로로 잰 최대 편도 거리 */
+export const GATHER_MAX_ROAD_M = 7000;
+/** 도로 경로 양끝이 영주성·자원지에서 벗어나도 되는 거리 (도로 스냅 반경) */
+const ROUTE_END_TOLERANCE_M = 500;
+
+/** 경로 솎음 (일직선 위 점 제거, 최대 MAX_ROUTE_POINTS점) — 성 데이터 크기를 줄인다. */
+const MAX_ROUTE_POINTS = 300;
+function thinRoute(points: ReadonlyArray<{ lat: number; lon: number }>): Array<[number, number]> {
+  const pts = points.map((p): [number, number] => [Math.round(p.lat * 1e6) / 1e6, Math.round(p.lon * 1e6) / 1e6]);
+  if (pts.length <= 2) return pts;
+  const kx = 111320 * Math.cos(((pts[0] as [number, number])[0] * Math.PI) / 180);
+  const perp = (p: [number, number], a: [number, number], b: [number, number]): number => {
+    const bx = (b[1] - a[1]) * kx;
+    const by = (b[0] - a[0]) * 110540;
+    const px = (p[1] - a[1]) * kx;
+    const py = (p[0] - a[0]) * 110540;
+    const len2 = bx * bx + by * by;
+    const t = len2 > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / len2)) : 0;
+    return Math.hypot(px - bx * t, py - by * t);
+  };
+  for (const eps of [2, 5, 10, 20, 40]) {
+    const keep = new Set<number>([0, pts.length - 1]);
+    const stack: Array<[number, number]> = [[0, pts.length - 1]];
+    while (stack.length > 0) {
+      const [s, e] = stack.pop() as [number, number];
+      let dmax = 0;
+      let imax = -1;
+      for (let i = s + 1; i < e; i++) {
+        const d = perp(pts[i] as [number, number], pts[s] as [number, number], pts[e] as [number, number]);
+        if (d > dmax) {
+          dmax = d;
+          imax = i;
+        }
+      }
+      if (imax !== -1 && dmax > eps) {
+        keep.add(imax);
+        stack.push([s, imax], [imax, e]);
+      }
+    }
+    const out = pts.filter((_, i) => keep.has(i));
+    if (out.length <= MAX_ROUTE_POINTS) return out;
+  }
+  const step = Math.ceil(pts.length / MAX_ROUTE_POINTS);
+  return pts.filter((_, i) => i === 0 || i === pts.length - 1 || i % step === 0);
+}
+
+/**
+ * 일꾼 파견 전 도로 경로 찾기 (잠금 밖, 수 초 걸릴 수 있다).
+ * 무법자·부대와 같은 서버 도로 그래프를 쓴다. 호출 전 setGraphBaseUrl·setRasterBaseUrl 주입 필요.
+ */
+export async function planGatherRoute(userId: string, missionKey: string, nodeId: string): Promise<Array<[number, number]>> {
+  const now = Date.now();
+  const home = await findHomeCastle(prisma, userId, missionKey);
+  if (!home) throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
+  const node = nodeById(nodeId, now);
+  if (!node) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
+  const dist = distanceM(home, node);
+  if (dist > GATHER_MAX_DISTANCE_M) {
+    throw new CityError("too_far", 400, `영주성에서 너무 멉니다 (${(dist / 1000).toFixed(1)}km, 최대 ${GATHER_MAX_DISTANCE_M / 1000}km).`);
+  }
+  const result = await findServerRoute(home.lat, home.lon, node.lat, node.lon);
+  if (!result.ok || result.path.length < 2) {
+    throw new CityError("no_road", 409, "자원지까지 가는 길을 찾지 못했습니다.");
+  }
+  return thinRoute(result.path);
+}
 
 export class CityError extends Error {
   constructor(
@@ -183,7 +252,7 @@ export type CityAction =
   | { type: "research"; tech: TechKey }
   | { type: "train"; troop: TroopKind; count: number }
   | { type: "assign"; commanderId: string; troops: TroopCounts }
-  | { type: "gather"; nodeId: string }
+  | { type: "gather"; nodeId: string; route?: Array<[number, number]> }
   | { type: "recall"; gatherId: string };
 
 /** 잠금 안에서 정산 → (행동) → 저장. 행동이 없으면 조회. */
@@ -301,7 +370,22 @@ function applyAction(
       if (dist > GATHER_MAX_DISTANCE_M) {
         throw new CityError("too_far", 400, `영주성에서 너무 멉니다 (${(dist / 1000).toFixed(1)}km, 최대 ${GATHER_MAX_DISTANCE_M / 1000}km).`);
       }
-      const travelMs = Math.round((dist / workerSpeedMps(state)) * 1000);
+      // 일꾼은 도로로만 다닌다: 잠금 밖에서 찾은 도로 경로가 영주성·자원지 양끝에 닿는지 확인한다.
+      const route = action.route;
+      if (!route || route.length < 2) throw new CityError("no_road", 409, "자원지까지 가는 길을 찾지 못했습니다.");
+      const head = route[0] as [number, number];
+      const tail = route[route.length - 1] as [number, number];
+      if (
+        distanceM(home, { lat: head[0], lon: head[1] }) > ROUTE_END_TOLERANCE_M ||
+        distanceM(node, { lat: tail[0], lon: tail[1] }) > ROUTE_END_TOLERANCE_M
+      ) {
+        throw new CityError("no_road", 409, "자원지 근처에 길이 없습니다.");
+      }
+      const roadM = pathLengthM(route);
+      if (roadM > GATHER_MAX_ROAD_M) {
+        throw new CityError("too_far", 400, `길로 ${(roadM / 1000).toFixed(1)}km라 너무 멉니다 (최대 ${GATHER_MAX_ROAD_M / 1000}km).`);
+      }
+      const travelMs = Math.round((roadM / workerSpeedMps(state)) * 1000);
       const load = Math.min(gatherLoad(state.buildings.camp), remain);
       const gatherMs = Math.round((load / gatherRatePerSec(state)) * 1000);
       state.nodeUsed[node.id] = (state.nodeUsed[node.id] ?? 0) + load;
@@ -311,15 +395,17 @@ function applyAction(
         id: `g${now.toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
         nodeId: node.id,
         kind: node.kind,
-        lat: node.lat,
-        lon: node.lon,
-        fromLat: home.lat,
-        fromLon: home.lon,
+        // 채집 지점 = 자원지 옆 도로 끝
+        lat: tail[0],
+        lon: tail[1],
+        fromLat: head[0],
+        fromLon: head[1],
         startedAt: now,
         arriveAt,
         doneAt,
         returnAt: doneAt + travelMs,
         amount: load,
+        path: route,
       });
       events.push("일꾼 부대 출발");
       return 0;
@@ -333,10 +419,17 @@ function applyAction(
       let backMs: number;
       if (now < g.arriveAt) {
         backMs = now - g.startedAt;
-        // 가는 길에 돌아서면 지금 위치에서 돌아온다
+        // 가는 길에 돌아서면 지금 위치에서 온 길을 되짚어 돌아온다
         const t = (now - g.startedAt) / Math.max(1, g.arriveAt - g.startedAt);
-        g.lat = g.fromLat + (g.lat - g.fromLat) * t;
-        g.lon = g.fromLon + (g.lon - g.fromLon) * t;
+        if (g.path && g.path.length >= 2) {
+          g.path = truncatePath(g.path, pathLengthM(g.path) * t);
+          const end = g.path[g.path.length - 1] as [number, number];
+          g.lat = end[0];
+          g.lon = end[1];
+        } else {
+          g.lat = g.fromLat + (g.lat - g.fromLat) * t;
+          g.lon = g.fromLon + (g.lon - g.fromLon) * t;
+        }
       } else {
         carried = Math.min(g.amount, Math.floor(((now - g.arriveAt) / 1000) * rate));
         backMs = g.arriveAt - g.startedAt;

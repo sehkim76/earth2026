@@ -334,7 +334,7 @@ export function CityView({ open, onClose }: CityViewProps) {
             <p className="rounded-xl bg-black/35 px-3 py-1.5 text-center text-xs font-bold text-[#f3e8ce]">
               일꾼 부대 {s.gathers.length}/{gatherParties(s.buildings.camp)} · 1회 운반 {fmtNum(gatherLoad(s.buildings.camp))}
               <br />
-              지도에서 자원지(금·석재·나무·철)를 눌러 일꾼을 보내세요. 영주성에서 4km 안만 갈 수 있습니다.
+              지도에서 자원지(금·석재·나무·철광석)를 눌러 일꾼을 보내세요. 일꾼은 길로만 다니며, 영주성에서 4km 안만 갈 수 있습니다.
             </p>
             {s.gathers.length === 0 ? (
               <p className="py-6 text-center text-sm font-bold text-[#f3e8ce]">나가 있는 일꾼이 없습니다.</p>
@@ -419,7 +419,7 @@ function BuildingSheet({
   const effect = (level: number): string => {
     const at = { ...s, buildings: { ...s.buildings, [k]: level } };
     if (def.produces) return `${RESOURCE_LABEL[def.produces]} ${fmtNum(productionPerHour(at)[def.produces])}/시간`;
-    if (k === "storehouse") return `석재·나무·철 각 ${fmtNum(storageCap(level))}까지`;
+    if (k === "storehouse") return `석재·나무·철광석 각 ${fmtNum(storageCap(level))}까지`;
     if (k === "camp") return `일꾼 부대 ${gatherParties(level)} · 운반 ${fmtNum(gatherLoad(level))}`;
     if (k === "keep") return `지휘관 병력 상한 +${Math.max(0, level - 1) * 30} (건물 최대 Lv.${level})`;
     if (k === "academy") return `기술 최대 Lv.${Math.min(level, MAX_TECH_LEVEL)}`;

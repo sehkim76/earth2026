@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 
 import { isBuildingKey, isTechKey, TROOP_KINDS, type TroopCounts, type TroopKind } from "@/lib/city";
-import { CityError, runCity, type CityAction } from "@/lib/city-server";
+import { CityError, planGatherRoute, runCity, type CityAction } from "@/lib/city-server";
+import { setGraphBaseUrl } from "@/lib/server-graph";
+import { setRasterBaseUrl } from "@/lib/server-walkable";
 import { requireSessionUserId, resolveTerritoryContext, territoryDisabledResponse } from "@/lib/territory";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +52,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const action = parseAction(body);
   if (!action) return NextResponse.json({ ok: false, code: "invalid", message: "잘못된 요청입니다." }, { status: 400 });
   try {
+    if (action.type === "gather") {
+      // 일꾼은 도로로만 다닌다 — 잠금 밖에서 경로를 먼저 찾는다 (클라이언트가 보낸 경로는 받지 않는다)
+      const origin = new URL(request.url).origin;
+      setGraphBaseUrl(origin);
+      setRasterBaseUrl(origin);
+      action.route = await planGatherRoute(userId, ctx.missionKey, action.nodeId);
+    }
     const v = await runCity(userId, ctx.missionKey, action);
     return NextResponse.json({ ok: true, ...v });
   } catch (error) {
