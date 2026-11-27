@@ -2,6 +2,7 @@
 // 잠금: city:<userId> (성 상태만 다룬다). 다른 사용자 잠금과 함께 잡을 땐 사용자 잠금 → city 순서.
 
 import prisma from "@/lib/prismadb";
+import { availableGold, bankNodeById, loadBankStock, lockBankMine, releaseGold, reserveGold, saveBankStock } from "@/lib/bank-mines";
 import { nodeById } from "@/lib/resource-nodes";
 import { findServerRoute } from "@/lib/server-graph";
 import { listCommanders, toJsonObject } from "@/lib/battle-server";
@@ -118,7 +119,7 @@ export async function planGatherRoute(userId: string, missionKey: string, nodeId
   const now = Date.now();
   const home = await findHomeCastle(prisma, userId, missionKey);
   if (!home) throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
-  const node = await nodeById(nodeId, now);
+  const node = bankNodeById(nodeId) ?? await nodeById(nodeId, now);
   if (!node) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
   const dist = distanceM(home, node);
   if (dist > GATHER_MAX_DISTANCE_M) {
@@ -307,10 +308,15 @@ export type CityAction =
 /** 잠금 안에서 정산 → (행동) → 저장. 행동이 없으면 조회. */
 export async function runCity(userId: string, missionKey: string, action: CityAction | null): Promise<CityView> {
   const workerRoute = action?.type === "workerMove" ? await planWorkerRoute(userId, missionKey, action) : null;
-  const gatherNode = action?.type === "gather" ? await nodeById(action.nodeId, Date.now()) : null;
+  const gatherNode = action?.type === "gather" ? (bankNodeById(action.nodeId) ?? await nodeById(action.nodeId, Date.now())) : null;
   return withNamedLock(`city:${userId}`, async (tx) => {
+    const loaded = await loadCityRow(tx, userId, missionKey, Date.now());
+    const priorJob = action?.type === "recall" || action?.type === "workerMove"
+      ? loaded.gathers.find(job => job.id === action.gatherId) : undefined;
+    const mineId = gatherNode?.mine ? gatherNode.id : priorJob?.nodeId.startsWith("bank:") ? priorJob.nodeId : null;
+    if (mineId) await lockBankMine(tx, missionKey, mineId);
     const now = Date.now();
-    const loaded = await loadCityRow(tx, userId, missionKey, now);
+    const stock = mineId ? await loadBankStock(tx, missionKey, mineId, now) : null;
     const settled = settleCity(loaded, now);
     const state = settled.state;
     await grantGold(tx, userId, settled.goldGain);
@@ -323,7 +329,17 @@ export async function runCity(userId: string, missionKey: string, action: CityAc
       if (!home && action.type !== "assign") {
         throw new CityError("no_home", 409, "먼저 영주성을 세우세요.");
       }
+      if (stock && gatherNode?.mine) {
+        gatherNode.mine.available = availableGold(stock);
+        if (stock.respawnAt !== null) throw new CityError("cooldown", 409, "금광이 고갈됐습니다. 재생성된 뒤 파견하세요.");
+        if (!gatherNode.mine.available) throw new CityError("reserved", 409, "남은 금은 다른 일꾼이 채굴 중입니다.");
+      }
       const goldCost = applyAction(state, action, now, home, commanders, events, gatherNode, workerRoute);
+      if (stock && mineId) {
+        if (action.type === "gather") reserveGold(stock, state.gathers[state.gathers.length - 1]!);
+        else if (priorJob) releaseGold(stock, priorJob.id, now);
+        await saveBankStock(tx, missionKey, mineId, stock);
+      }
       if (goldCost > 0) {
         const ok = await spendInfluence(tx, userId, goldCost);
         // 금이 모자라면 트랜잭션 전체를 되돌린다 (석재 등 차감도 저장 전이라 함께 취소)
@@ -416,8 +432,8 @@ function applyAction(
       }
       const node = gatherNode;
       if (!node || node.expiresAt <= now) throw new CityError("gone", 404, "자원지가 사라졌습니다.");
-      if (state.gathers.some((g) => g.nodeId === node.id)) throw new CityError("busy", 409, "이미 일꾼이 가 있는 자원지입니다.");
-      const remain = node.amount - (state.nodeUsed[node.id] ?? 0);
+      if (state.gathers.some((g) => g.nodeId === node.id && (!node.mine || (!g.recalled && g.doneAt > now)))) throw new CityError("busy", 409, "이미 일꾼이 가 있는 자원지입니다.");
+      const remain = node.mine?.available ?? (node.amount - (state.nodeUsed[node.id] ?? 0));
       if (remain <= 0) throw new CityError("empty", 409, "다 캐낸 자원지입니다.");
       const dist = distanceM(home, node);
       if (dist > GATHER_MAX_DISTANCE_M) {
@@ -441,14 +457,14 @@ function applyAction(
       const travelMs = Math.round((roadM / workerSpeedMps(state)) * 1000);
       const load = Math.min(gatherLoad(state.buildings.camp), remain);
       const gatherMs = Math.round((load / gatherRatePerSec(state)) * 1000);
-      state.nodeUsed[node.id] = (state.nodeUsed[node.id] ?? 0) + load;
+      if (!node.mine) state.nodeUsed[node.id] = (state.nodeUsed[node.id] ?? 0) + load;
       const arriveAt = now + travelMs;
       const doneAt = arriveAt + gatherMs;
       let slot = 0;
       while (state.gathers.some(g => g.slot === slot)) slot++;
       state.gathers.push({
         slot,
-        id: `g${now.toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+        id: crypto.randomUUID(),
         nodeId: node.id,
         kind: node.kind,
         // 채집 지점 = 자원지 옆 도로 끝
@@ -479,7 +495,7 @@ function applyAction(
       if (current && (current[0] !== head[0] || current[1] !== head[1])) path.unshift(current);
       const tail = path[path.length - 1]!;
       const amount = g ? workerCargo(g, now) : 0;
-      if (g?.nodeId) state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - amount));
+      if (g?.nodeId && !g.nodeId.startsWith("bank:")) state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - amount));
       const job = {
         id: g?.id ?? crypto.randomUUID(), slot: action.slot, nodeId: "", order: "move" as const,
         homeTrail: trail, kind: g?.kind ?? "wood", fromLat: path[0]![0], fromLon: path[0]![1], lat: tail[0], lon: tail[1],
@@ -525,7 +541,7 @@ function applyAction(
         carried = workerCargo(g, now);
         backMs = g.arriveAt - g.startedAt;
       }
-      state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - carried));
+      if (!g.nodeId.startsWith("bank:")) state.nodeUsed[g.nodeId] = Math.max(0, (state.nodeUsed[g.nodeId] ?? 0) - (g.amount - carried));
       g.amount = carried;
       g.doneAt = now;
       g.arriveAt = Math.min(g.arriveAt, now);

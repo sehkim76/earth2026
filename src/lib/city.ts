@@ -509,7 +509,15 @@ export const NODE_CELL_LON = 0.0125;
 /** 자원지 재생성 주기 */
 export const NODE_EPOCH_MS = 6 * 3600_000;
 
+export interface BankMineView {
+  name: string;
+  remaining: number;
+  available: number;
+  respawnAt: number | null;
+}
+
 export interface ResourceNode {
+  mine?: BankMineView;
   id: string;
   kind: ResourceKind;
   level: 1 | 2 | 3;
@@ -566,7 +574,7 @@ export const WORKER_PHASE_LABEL: Record<GatherPhaseKind, string> = {
   going: "이동 중", gathering: "채집 중", waiting: "현장 대기", returning: "귀환 중",
 };
 
-export function workerCargo(g: GatherJob, now: number): number {
+export function workerCargo(g: Pick<GatherJob, "order" | "doneAt" | "recalled" | "amount" | "arriveAt">, now: number): number {
   if (g.order === "move" || now >= g.doneAt || g.recalled) return g.amount;
   const share = Math.max(0, now - g.arriveAt) / Math.max(1, g.doneAt - g.arriveAt);
   return Math.min(g.amount, Math.floor(g.amount * share));

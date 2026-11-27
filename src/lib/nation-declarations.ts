@@ -23,6 +23,18 @@ export async function proposeNation(userId: string, missionKey: string, castleKe
       where: { missionKey, seasonId, dong, status: { in: ["pending", "approved"] } },
     });
     if (active) throw new DeclarationError(409, active.status === "pending" ? "이미 이 지역에서 동의를 받고 있습니다." : "이미 국가가 선포된 지역입니다.");
+    // 국호는 시즌이나 동이 바뀌어도 같은 미션에서만 유일하다. 부결된 선포는 이름을 반환한다.
+    const duplicates = await tx.$queryRaw<{ taken: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM "TerritoryNation"
+        WHERE "missionKey" = ${missionKey} AND lower(normalize(btrim(name), NFC)) = lower(normalize(btrim(${name}), NFC))
+        UNION ALL
+        SELECT 1 FROM "TerritoryDeclaration"
+        WHERE "missionKey" = ${missionKey} AND status IN ('pending', 'approved')
+          AND lower(normalize(btrim(name), NFC)) = lower(normalize(btrim(${name}), NFC))
+      ) AS taken
+    `;
+    if (duplicates[0]?.taken) throw new DeclarationError(409, "이 미션에서 이미 사용 중인 국호입니다. 다른 이름을 입력해 주세요.");
     const bounds = dongBboxServer(dong);
     if (!bounds) throw new DeclarationError(503, "행정동 경계를 확인할 수 없어 선포를 보류했습니다. 다시 시도해 주세요.");
     const owners = castles.filter(c => c.meta?.dong === dong).flatMap(c => c.meta?.owner ? [c.meta.owner] : []);

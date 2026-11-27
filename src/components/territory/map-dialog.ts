@@ -9,6 +9,7 @@ export interface MarkerPanel {
   pvpTarget?: { type: "unit" | "lord"; ownerId: string; targetId: string; name: string };
   /** 자원지 (일꾼 보내기 버튼) */
   resourceNodeId?: string;
+  bankMineId?: string;
   eventKey?: string;
   isProximity?: boolean;
   lat?: number;

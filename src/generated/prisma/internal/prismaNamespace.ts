@@ -423,7 +423,8 @@ export const ModelName = {
   TerritorySeasonRecord: 'TerritorySeasonRecord',
   TerritoryNeutralUnit: 'TerritoryNeutralUnit',
   VersionTable: 'VersionTable',
-  TerritoryCity: 'TerritoryCity'
+  TerritoryCity: 'TerritoryCity',
+  TerritoryGoldMine: 'TerritoryGoldMine'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -439,7 +440,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryDeclaration" | "territoryDeclarationVote" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable" | "territoryCity"
+    modelProps: "aRMissionEvent" | "aRMissionEventPoolTable" | "aRMissionGPS" | "aRMissionUserScore" | "addressableResourceWithThumbnail" | "cMSCategoryNameTable" | "cMSTable" | "elevenLabsAgentWidgetTable" | "lockTable" | "missionResources" | "missionScenario" | "missionStatus" | "missionTable" | "missionTeam" | "missionUser" | "noticeTable" | "prefabInstanceTable" | "profileTable" | "subscriberTable" | "territoryNeutralTrail" | "territoryNation" | "territoryDeclaration" | "territoryDeclarationVote" | "territoryNationMember" | "territoryDiplomacy" | "territorySiege" | "territorySeasonRecord" | "territoryNeutralUnit" | "versionTable" | "territoryCity" | "territoryGoldMine"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -2663,6 +2664,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    TerritoryGoldMine: {
+      payload: Prisma.$TerritoryGoldMinePayload<ExtArgs>
+      fields: Prisma.TerritoryGoldMineFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.TerritoryGoldMineFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.TerritoryGoldMineFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        findFirst: {
+          args: Prisma.TerritoryGoldMineFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.TerritoryGoldMineFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        findMany: {
+          args: Prisma.TerritoryGoldMineFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>[]
+        }
+        create: {
+          args: Prisma.TerritoryGoldMineCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        createMany: {
+          args: Prisma.TerritoryGoldMineCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.TerritoryGoldMineCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>[]
+        }
+        delete: {
+          args: Prisma.TerritoryGoldMineDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        update: {
+          args: Prisma.TerritoryGoldMineUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        deleteMany: {
+          args: Prisma.TerritoryGoldMineDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.TerritoryGoldMineUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.TerritoryGoldMineUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>[]
+        }
+        upsert: {
+          args: Prisma.TerritoryGoldMineUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$TerritoryGoldMinePayload>
+        }
+        aggregate: {
+          args: Prisma.TerritoryGoldMineAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateTerritoryGoldMine>
+        }
+        groupBy: {
+          args: Prisma.TerritoryGoldMineGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryGoldMineGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.TerritoryGoldMineCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.TerritoryGoldMineCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -3113,6 +3188,17 @@ export const TerritoryCityScalarFieldEnum = {
 export type TerritoryCityScalarFieldEnum = (typeof TerritoryCityScalarFieldEnum)[keyof typeof TerritoryCityScalarFieldEnum]
 
 
+export const TerritoryGoldMineScalarFieldEnum = {
+  missionKey: 'missionKey',
+  nodeId: 'nodeId',
+  mined: 'mined',
+  reservations: 'reservations',
+  respawnAt: 'respawnAt'
+} as const
+
+export type TerritoryGoldMineScalarFieldEnum = (typeof TerritoryGoldMineScalarFieldEnum)[keyof typeof TerritoryGoldMineScalarFieldEnum]
+
+
 export const SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -3384,6 +3470,7 @@ export type GlobalOmitConfig = {
   territoryNeutralUnit?: Prisma.TerritoryNeutralUnitOmit
   versionTable?: Prisma.VersionTableOmit
   territoryCity?: Prisma.TerritoryCityOmit
+  territoryGoldMine?: Prisma.TerritoryGoldMineOmit
 }
 
 /* Types for Logging */

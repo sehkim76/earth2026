@@ -7529,12 +7529,13 @@ const isMapPerfEnabled = (): boolean => {
     const clear = (): void => {
       for (const remove of removers.splice(0)) remove();
     };
-    const openResource = (node: ResourceNode, label: string, remain: number, busy: boolean): void => {
+    const resourcePanel = (node: ResourceNode, label: string, remain: number, busy: boolean): MarkerPanel => {
       const c = cityForMapRef.current;
       const lines = [`매장량: ${Math.floor(remain).toLocaleString("ko-KR")} / ${node.amount.toLocaleString("ko-KR")}`];
+      if (node.mine?.name) lines.push(`은행: ${node.mine.name}`);
       if (c?.home) {
         const dist = cityDistanceM(c.home, node);
-        const load = Math.min(gatherLoad(c.state.buildings.camp), remain);
+        const load = Math.min(gatherLoad(c.state.buildings.camp), node.mine?.available ?? remain);
         const travelMin = dist / workerSpeedMps(c.state) / 60;
         const gatherMin = load / gatherRatePerSec(c.state) / 60;
         lines.push(`영주성에서 ${(dist / 1000).toFixed(1)}km${dist > 4000 ? " (4km 초과: 보낼 수 없음)" : ""}`);
@@ -7542,30 +7543,39 @@ const isMapPerfEnabled = (): boolean => {
       } else {
         lines.push("영주성을 세우면 일꾼을 보낼 수 있습니다.");
       }
-      lines.push(`사라지기까지 ${Math.max(1, Math.ceil((node.expiresAt - serverNow()) / 60_000))}분`);
-      showMarkerPanel({
-        title: `${label} 자원지`,
+      if (node.mine) {
+        if (node.mine.respawnAt) lines.push(`재생성까지: ${Math.max(1, Math.ceil((node.mine.respawnAt - serverNow()) / 1000))}초`);
+        else if (!node.mine.available) lines.push("상태: 남은 금 채굴 중");
+        else lines.push("재생성: 고갈 후 15분");
+      } else lines.push(`사라지기까지 ${Math.max(1, Math.ceil((node.expiresAt - serverNow()) / 60_000))}분`);
+      return {
+        title: node.mine ? "은행 금광" : `${label} 자원지`,
+        bankMineId: node.mine ? node.id : undefined,
         lines,
-        resourceNodeId: remain > 0 && !busy ? node.id : undefined,
+        resourceNodeId: (node.mine?.available ?? remain) > 0 && !busy ? node.id : undefined,
         lat: node.lat,
         lon: node.lon,
-      });
+      };
     };
+    let deadlineTimer: number | undefined;
     const render = async (): Promise<void> => {
       const version = ++revision;
       const bounds = map && isLeafletMapLoaded(map) ? map.getBounds() : globe?.getBounds();
       const rect = viewer && !viewer.isDestroyed() ? viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid) : null;
       let nodes: ResourceNode[];
       try {
-        if (bounds) {
-          nodes = await nodesInBounds(bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast(), serverNow(), 300);
-        } else if (rect) {
-          const deg = 180 / Math.PI;
-          nodes = await nodesInBounds(rect.south * deg, rect.west * deg, rect.north * deg, rect.east * deg, serverNow(), 300);
-        } else {
-          clear();
-          return;
-        }
+        const deg = 180 / Math.PI;
+        const area = bounds ? { south: bounds.getSouth(), west: bounds.getWest(), north: bounds.getNorth(), east: bounds.getEast() } :
+          rect ? { south: rect.south * deg, west: rect.west * deg, north: rect.north * deg, east: rect.east * deg } : null;
+        if (!area) { clear(); return; }
+        const params = new URLSearchParams(Object.entries(area).map(([key, value]) => [key, String(value)]));
+        const [roadsides, mines] = await Promise.all([
+          nodesInBounds(area.south, area.west, area.north, area.east, serverNow(), 300),
+          fetch(`/api/city/mines?${params}`, { cache: "no-store" })
+            .then(async response => response.ok ? (await response.json()).mines as ResourceNode[] : [])
+            .catch((): ResourceNode[] => []),
+        ]);
+        nodes = roadsides.concat(Array.isArray(mines) ? mines : []);
       } catch {
         return;
       }
@@ -7573,11 +7583,15 @@ const isMapPerfEnabled = (): boolean => {
       clear();
       const city = cityForMapRef.current;
       const used = city?.state.nodeUsed ?? {};
-      const working = new Set((city?.state.gathers ?? []).map(gather => gather.nodeId));
+      const working = new Set((city?.state.gathers ?? []).filter(g => !g.nodeId.startsWith("bank:") || (!g.recalled && g.doneAt > serverNow())).map(g => g.nodeId));
+      let nextRespawn = Infinity;
+      const bankPanels = new Map<string, MarkerPanel>();
       for (const node of nodes) {
-        const remain = Math.max(0, node.amount - (used[node.id] ?? 0));
+        const remain = node.mine?.remaining ?? Math.max(0, node.amount - (used[node.id] ?? 0));
         const busy = working.has(node.id);
-        const label = `${RESOURCE_LABEL[node.kind]} Lv.${node.level}`;
+        const label = node.mine ? "금광" : `${RESOURCE_LABEL[node.kind]} Lv.${node.level}`;
+        if (node.mine?.respawnAt) nextRespawn = Math.min(nextRespawn, node.mine.respawnAt);
+        if (node.mine) bankPanels.set(node.id, resourcePanel(node, label, remain, busy));
         const shell = document.createElement("div");
         shell.className = "resource-site" + (map ? " map-rotation-upright" : "");
         const button = document.createElement("button");
@@ -7591,11 +7605,11 @@ const isMapPerfEnabled = (): boolean => {
         image.draggable = false;
         const caption = document.createElement("span");
         caption.className = "res-node__label";
-        caption.textContent = label;
+        caption.textContent = node.mine?.respawnAt ? `금광 · 재생성 ${Math.max(1, Math.ceil((node.mine.respawnAt - serverNow()) / 60000))}분` : label;
         button.append(image, caption);
         button.onclick = (event): void => {
           event.stopPropagation();
-          openResource(node, label, remain, busy);
+          showMarkerPanel(resourcePanel(node, label, remain, busy));
         };
         shell.append(button);
         if (map && L) {
@@ -7615,15 +7629,23 @@ const isMapPerfEnabled = (): boolean => {
           removers.push(() => { cesiumMarkers.delete(entry); shell.remove(); });
         }
       }
+      setDialog(current => {
+        const id = current?.kind === "marker" && current.panel.bankMineId;
+        const panel = id ? bankPanels.get(id) : null;
+        return panel ? { kind: "marker", panel } : current;
+      });
+      window.clearTimeout(deadlineTimer);
+      if (Number.isFinite(nextRespawn)) deadlineTimer = window.setTimeout(() => void render(), Math.max(250, nextRespawn - serverNow() + 100));
     };
     const update = (): void => { void render(); };
     update();
     map?.on("moveend", update);
     globe?.on("moveend", update);
     const unsubscribe = viewer?.camera.moveEnd.addEventListener(update);
-    const timer = window.setInterval(update, 60_000);
+    const timer = window.setInterval(update, 15_000);
     return () => {
       revision++;
+      window.clearTimeout(deadlineTimer);
       map?.off("moveend", update);
       globe?.off("moveend", update);
       unsubscribe?.();
@@ -7776,7 +7798,7 @@ const isMapPerfEnabled = (): boolean => {
     const r = await cityAction({ type: "gather", nodeId });
     setPlacementNotice({ id: Date.now(), message: r.ok ? "일꾼 부대를 보냈습니다." : r.message });
     if (r.ok) {
-      setDialog((current) => current?.kind === "marker" && current.panel === panel ? null : current);
+      setDialog((current) => current?.kind === "marker" && current.panel.resourceNodeId === nodeId ? null : current);
     }
   }, []);
 
@@ -9006,6 +9028,12 @@ const isMapPerfEnabled = (): boolean => {
       data-territory-map={territoryEnabled || undefined}
       aria-label="현재 위치 지도"
     >
+      {showResourceNodes && (
+        <div className="absolute bottom-0 left-1 z-[1000] flex gap-1 rounded bg-black/70 px-1 text-[9px] text-white">
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">은행 위치 © OpenStreetMap contributors · ODbL</a>
+          <a href="/map-assets/bank-mines.json" download>좌표 자료</a>
+        </div>
+      )}
       {viewportDebugLines.length > 0 ? (
         <div className="pointer-events-none fixed left-2 top-24 z-[5000] max-w-[92vw] overflow-hidden rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-tight text-lime-200">
           {viewportDebugLines.map((line, i) => (

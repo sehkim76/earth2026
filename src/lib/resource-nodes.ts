@@ -64,6 +64,7 @@ function nodesInCell(cx: number, cy: number, epoch: number, band: RoadsideBand):
   for (let i = 0; i < Math.min(count, sites.length); i++) {
     const r = rand01(seed, 10 + i);
     const kind: ResourceKind = r < 0.32 ? "wood" : r < 0.6 ? "stone" : r < 0.85 ? "iron" : "gold";
+    if (kind === "gold") continue; // 금은 은행 영업점의 고정 광맥에서만 생성한다.
     const lr = rand01(seed, 20 + i);
     const level = (lr < 0.6 ? 1 : lr < 0.9 ? 2 : 3) as 1 | 2 | 3;
     const site = sites[(first + i) % sites.length];
@@ -118,6 +119,5 @@ export async function nodeById(id: string, now: number): Promise<ResourceNode | 
   const [cx, cy, epoch, idx] = [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])];
   if (epoch !== nodeEpoch(now) || idx > 1 || ![cx, cy].every(Number.isSafeInteger)) return null;
   const band = await loadBand(Math.floor(cy / BLOCK));
-  const node = nodesInCell(cx, cy, epoch, band)[idx];
-  return node?.id === id ? node : null;
+  return nodesInCell(cx, cy, epoch, band).find(node => node.id === id) ?? null;
 }

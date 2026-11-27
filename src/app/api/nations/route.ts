@@ -37,7 +37,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     if (body?.action === "vote" && typeof body.id === "string" && typeof body.consent === "boolean") {
       await voteOnNation(userId, ctx.missionKey, body.id, body.consent);
     } else if (body?.action === "propose" && typeof body.castleKey === "string" && typeof body.name === "string") {
-      const name = body.name.trim();
+      const name = body.name.trim().normalize("NFC");
       if (name.length < 2 || name.length > 30) throw new DeclarationError(400, "국호를 2~30자로 입력해 주세요.");
       setRasterBaseUrl(new URL(request.url).origin);
       await ensureDongBoundary();
@@ -46,6 +46,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof DeclarationError) return NextResponse.json({ ok: false, message: error.message }, { status: error.status });
+    if (error && typeof error === "object" && "code" in error && error.code === "P2002") {
+      return NextResponse.json({ ok: false, message: "동시에 접수된 선포와 중복됩니다. 국호와 지역을 확인해 주세요." }, { status: 409 });
+    }
     console.error("[nation-declaration]", error);
     return NextResponse.json({ ok: false, message: "국가 선포 내용을 저장하지 못했습니다." }, { status: 500 });
   }

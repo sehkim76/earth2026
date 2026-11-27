@@ -195,5 +195,10 @@ export type VersionTable = Prisma.VersionTableModel
  * 영주성 내정 (사용자별 건물·자원(석재·나무·철)·연구·병력·일꾼 채집). 금은 MissionUser.score.
  */
 export type TerritoryCity = Prisma.TerritoryCityModel
+/**
+ * Model TerritoryGoldMine
+ * 해당 미션의 은행 금광. 예약된 물량은 일꾼이 실제로 캔 시각에 정산한다.
+ */
+export type TerritoryGoldMine = Prisma.TerritoryGoldMineModel
 
 
