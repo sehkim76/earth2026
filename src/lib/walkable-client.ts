@@ -214,7 +214,7 @@ export interface WalkableGrid {
 
 /** 래스터 격자 해상도. 버퍼는 WALKABLE_BUFFER_M을 그대로 굽는다. */
 const GRID_CELL_M = 5;
-const GRID_TILE_CELLS = 800;
+export const GRID_TILE_CELLS = 800;
 // 모든 동이 같은 격자 원점/해상도를 사용해야 중복 도로의 윤곽이 일치한다.
 const GRID_REFERENCE_LAT = 36;
 
@@ -446,7 +446,7 @@ const contourCache = new Map<string, WalkableContour[]>();
 const CONTOUR_CACHE_LIMIT = 8;
 
 /** 윤곽 조회 (캐시, 없으면 빌드). */
-export const getWalkableContours = (needsPaint: GridFull[]): WalkableContour[] => {
+const getWalkableContours = (needsPaint: GridFull[]): WalkableContour[] => {
   const contourSig = needsPaint.map((grid) => grid.key).sort().join(",");
   let contours = contourCache.get(contourSig);
   if (!contours) {
@@ -749,8 +749,6 @@ const mergeOverlayTiles = (grids: GridFull[]): GridFull[] => {
     }
     out.push(cached.grid);
   }
-  // 페인트는 호출자(레이어)가 담당한다. 여기서 전부 그리면 첫 표시가 블로킹된다.
-  // 위성 레이어는 보이는 타일 채움만 동기 + 테두리 idle, globe/cesium은 합성 시점에 그린다.
   return out;
 };
 
