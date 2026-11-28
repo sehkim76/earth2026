@@ -126,6 +126,7 @@ import {
   WALKABLE_BORDER_WIDTH_PX,
 } from "@/lib/walkable-overlay";
 import type { WalkableSurface } from "@/lib/walkable-surface";
+import { mapPollingActive, noteMapActivity, pollActiveMap } from "@/lib/map-polling";
 import { nodesInBounds } from "@/lib/resource-nodes";
 import { useNationCouncil } from "@/components/territory/nation-council";
 import TerritoryDash from "@/components/territory/TerritoryDash";
@@ -1398,6 +1399,7 @@ export default function CurrentLocationMap({
         settle();
         return;
       }
+      noteMapActivity();
       setPlayerMoveTick((t) => t + 1);
     }, 500);
     return () => window.clearInterval(id);
@@ -1620,26 +1622,13 @@ export default function CurrentLocationMap({
         // 조회 실패 시 기존 색 유지
       }
     };
-    void load();
-    // 탭이 숨겨진 동안은 폴링을 쉬고, 다시 보이면 즉시 갱신한다.
-    const timer = window.setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-      void load();
-    }, 30000);
-    const onVisible = (): void => {
-      if (document.visibilityState === "visible") {
-        void load();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("nation-territory-changed", onVisible);
+    const stopPolling = pollActiveMap(load, 30_000);
+    const onNationChange = (): void => { if (mapPollingActive()) void load(); };
+    window.addEventListener("nation-territory-changed", onNationChange);
     return () => {
-      window.removeEventListener("nation-territory-changed", onVisible);
+      window.removeEventListener("nation-territory-changed", onNationChange);
       cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
+      stopPolling();
     };
   }, [territoryEnabled]);
 
@@ -3727,6 +3716,7 @@ interface UnitMoveAnimation {
     setErrorMessage(null);
     setPermissionState(null);
 
+    let activityLocation = locationRef.current;
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy } = pos.coords;
@@ -3738,6 +3728,13 @@ interface UnitMoveAnimation {
         };
 
         locationRef.current = nextLocation;
+        if (!activityLocation) activityLocation = nextLocation;
+        if (!territoryEnabledRef.current &&
+            calculateDistance(activityLocation.lat, activityLocation.lon, latitude, longitude) >
+              Math.max(15, accuracy || 0, activityLocation.accuracy || 0)) {
+          activityLocation = nextLocation;
+          noteMapActivity();
+        }
         setLocation(nextLocation);
         try {
           window.sessionStorage.setItem(locationStorageKey, JSON.stringify(nextLocation));
@@ -6358,7 +6355,7 @@ interface UnitMoveAnimation {
         }
       }
 
-      if (cancelled) {
+      if (cancelled || !mapPollingActive()) {
         return;
       }
 
@@ -6485,26 +6482,10 @@ interface UnitMoveAnimation {
       }
     };
 
-    // 탭이 숨겨진 동안은 위치 기록·주변 플레이어 폴링을 쉬고, 다시 보이면 즉시 갱신한다.
-    const timerId = window.setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-      void syncNearbyPlayers();
-    }, NEARBY_PLAYERS_POLL_INTERVAL_MS);
-    const onVisible = (): void => {
-      if (!cancelled && document.visibilityState === "visible") {
-        void syncNearbyPlayers();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-
-    void syncNearbyPlayers();
-
+    const stopPolling = pollActiveMap(syncNearbyPlayers, NEARBY_PLAYERS_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(timerId);
-      document.removeEventListener("visibilitychange", onVisible);
+      stopPolling();
       cancelAnimationFrame(frame);
       samples.clear();
       markerMap.forEach((entry) => {
@@ -7456,6 +7437,11 @@ const isMapPerfEnabled = (): boolean => {
     };
   }, []);
   const showResourceNodes = territoryEnabled && zoomLevel >= 14;
+  // Production ticks change the city snapshot without changing any resource marker.
+  const resourceStockKey = JSON.stringify([
+    cityForMap?.state.nodeUsed ?? {},
+    cityForMap?.state.gathers.map(job => [job.id, job.doneAt, job.recalled]) ?? [],
+  ]);
   useEffect(() => {
     if (!showResourceNodes) return;
     const map = mapStyle === "satellite" && isMapReady ? mapInstanceRef.current : null;
@@ -7501,6 +7487,7 @@ const isMapPerfEnabled = (): boolean => {
     };
     let deadlineTimer: number | undefined;
     const render = async (): Promise<void> => {
+      if (!mapPollingActive()) return;
       const version = ++revision;
       const bounds = map && isLeafletMapLoaded(map) ? map.getBounds() : globe?.getBounds();
       const rect = viewer && !viewer.isDestroyed() ? viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid) : null;
@@ -7580,21 +7567,20 @@ const isMapPerfEnabled = (): boolean => {
       if (Number.isFinite(nextRespawn)) deadlineTimer = window.setTimeout(() => void render(), Math.max(250, nextRespawn - serverNow() + 100));
     };
     const update = (): void => { void render(); };
-    update();
+    const stopPolling = pollActiveMap(render, 15_000);
     map?.on("moveend", update);
     globe?.on("moveend", update);
     const unsubscribe = viewer?.camera.moveEnd.addEventListener(update);
-    const timer = window.setInterval(update, 15_000);
     return () => {
       revision++;
       window.clearTimeout(deadlineTimer);
       map?.off("moveend", update);
       globe?.off("moveend", update);
       unsubscribe?.();
-      window.clearInterval(timer);
+      stopPolling();
       clear();
     };
-  }, [showResourceNodes, mapStyle, isMapReady, isGlobeReady, isCesiumReady, cityForMap, showMarkerPanel]);
+  }, [showResourceNodes, mapStyle, isMapReady, isGlobeReady, isCesiumReady, resourceStockKey, showMarkerPanel]);
   // 일꾼 부대: 영주성 ↔ 자원지 점선 + 움직이는 일꾼 표시
   const [visibleWorkers, setVisibleWorkers] = useState<VisibleWorker[]>([]);
   const selectedWorker = dialog?.kind === "worker" ? dialog.selection : null;

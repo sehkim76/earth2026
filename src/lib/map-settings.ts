@@ -43,7 +43,7 @@ const isJsonObject = (value: unknown): value is { [key: string]: JsonValue } => 
   return typeof value === "object" && value !== null && !Array.isArray(value) && isJsonValue(value);
 };
 
-const parsePlayerCharacter = (value: unknown): PlayerCharacter => {
+export const parsePlayerCharacter = (value: unknown): PlayerCharacter => {
   if (value === "walking" || value === "fallenAngel") {
     return value;
   }

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { pollActiveMap } from "@/lib/map-polling";
+
 interface Proclamation {
   id: string;
   name: string;
@@ -41,14 +43,10 @@ export function useNationCouncil(enabled: boolean) {
   }, [enabled]);
   useEffect(() => {
     if (!enabled) return;
-    const visible = (): void => { if (!document.hidden) void refresh(); };
-    visible();
-    const timer = window.setInterval(visible, 15000);
-    document.addEventListener("visibilitychange", visible);
+    const stopPolling = pollActiveMap(refresh, 15_000);
     return () => {
       sequence.current++;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", visible);
+      stopPolling();
     };
   }, [enabled, refresh]);
   const nation = snapshot?.nation;

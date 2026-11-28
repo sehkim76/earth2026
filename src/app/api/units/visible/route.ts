@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { RESOURCE_KINDS, type GatherJob, type VisibleWorker } from "@/lib/city";
 import prisma from "@/lib/prismadb";
+import { storedUnitArray } from "@/lib/unit-query";
 import { loadUnits, positionAtMoveTarget } from "@/lib/units";
 import {
   requireSessionUserId,
@@ -48,16 +49,25 @@ export async function GET() {
   try {
     const now = Date.now();
     const [rows, workers] = await Promise.all([
-      prisma.missionUser.findMany({
-        where: { ARMissionKey: ctx.missionKey, userId: { not: userId } },
-        select: { userId: true, nickname: true, data: true },
-        take: 200,
-      }),
+      prisma.$queryRaw<{ userId: string; nickname: string; units: unknown }[]>`
+        SELECT owners."userId", owners.nickname,
+               jsonb_agg(jsonb_build_object(
+                 'id', u->'id', 'name', u->'name', 'state', u->'state',
+                 'lat', u->'lat', 'lon', u->'lon', 'hq', u->'hq',
+                 'lastMoveAt', u->'lastMoveAt', 'moveTarget', u->'moveTarget',
+                 'injuredUntil', u->'injuredUntil'
+               ) ORDER BY slot) AS units
+        FROM (SELECT "userId", nickname, ${storedUnitArray} AS army
+              FROM "MissionUser" WHERE "ARMissionKey" = ${ctx.missionKey} AND "userId" <> ${userId}
+              ORDER BY "userId" LIMIT 200) owners
+        CROSS JOIN LATERAL jsonb_array_elements(owners.army) WITH ORDINALITY AS roster(u, slot)
+        WHERE u->>'state' IN ('field', 'garrisoned')
+        GROUP BY owners."userId", owners.nickname ORDER BY owners."userId"
+      `,
       readVisibleWorkers(userId, ctx.missionKey, now),
     ]);
     const units = rows.flatMap((row) =>
-      loadUnits(row.data)
-        .filter((unit) => unit.state === "field" || unit.state === "garrisoned")
+      loadUnits(row)
         .filter(
           (unit) =>
             Number.isFinite(unit.lat) &&

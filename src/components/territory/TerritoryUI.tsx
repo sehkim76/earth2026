@@ -6,6 +6,7 @@ import { gatherParties, gatherPhase, WORKER_PHASE_LABEL, type VisibleWorker } fr
 import { noteServerTime, serverNow } from "@/lib/server-clock";
 import { NationCouncil, type NationCouncilState } from "@/components/territory/nation-council";
 import { territoryOwnerColor } from "@/lib/territory-colors";
+import { mapPollingActive, noteMapActivity, pollActiveMap } from "@/lib/map-polling";
 import { CITY_EVENT, fetchCity, type CityHome, type CityViewData } from "@/components/city/city-client";
 import { CityView } from "@/components/city/CityView";
 import type { BattleTargetRequest } from "@/components/battle/BattleHost";
@@ -846,6 +847,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const [cityHome, setCityHome] = useState<CityHome | null>(null);
   const [cityLoaded, setCityLoaded] = useState(false);
   const firstCityView = useRef(true);
+  const cityOpen = dialog?.kind === "city";
   const defaultHomeName = `${props.playerNickname}의 성`;
   const [homeName, setHomeName] = useState(defaultHomeName);
   useEffect(() => {
@@ -859,19 +861,13 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       setCityLoaded(true);
     };
     window.addEventListener(CITY_EVENT, on);
-    const load = (): void => {
-      if (!document.hidden) void fetchCity();
-    };
-    const first = window.setTimeout(load, 0);
-    const id = window.setInterval(load, 30_000);
-    document.addEventListener("visibilitychange", load);
     return () => {
       window.removeEventListener(CITY_EVENT, on);
-      window.clearTimeout(first);
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", load);
     };
   }, [openDialog]);
+  useEffect(() => {
+    if (!cityOpen) return pollActiveMap(fetchCity, 30_000);
+  }, [cityOpen]);
   const openCity = (): void => {
     openDialog({ kind: cityLoaded && !cityHome ? "homePrompt" : "city" });
   };
@@ -940,13 +936,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
         // 계산 실패 시 색 없이 레벨만 표시
       }
     };
-    void load();
-    const id = window.setInterval(() => void load(), 60_000);
-    document.addEventListener("visibilitychange", load);
+    const stopPolling = pollActiveMap(load, 60_000);
     return () => {
       alive = false;
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", load);
+      stopPolling();
     };
   }, [commandersNonce]);
   const toNeutralMarks = (rows: NeutralUnitRow[]): Parameters<TerritoryUIProps["onUnitMarks"]>[0] =>
@@ -1111,7 +1104,6 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   }, []);
 
   useEffect(() => {
-    void refreshUnits();
     void refreshTrainingCastles();
     let cancelled = false;
     void fetch("/api/territory/me")
@@ -1130,42 +1122,9 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       cancelled = true;
       workerRequestRef.current = null;
     };
-  }, [refreshUnits, refreshTrainingCastles]);
+  }, [refreshTrainingCastles]);
 
-  useEffect(() => {
-    // DB 커넥션 고갈(1040) 방지: 폴링은 15초 간격으로 제한한다.
-    // 탭이 숨겨진 동안에는 폴링을 멈추고, 다시 보이면 즉시 1회 갱신 후 재개한다.
-    let timerId: number | null = null;
-    const start = (): void => {
-      if (timerId === null) {
-        timerId = window.setInterval(() => {
-          void refreshUnits();
-        }, 15_000);
-      }
-    };
-    const stop = (): void => {
-      if (timerId !== null) {
-        window.clearInterval(timerId);
-        timerId = null;
-      }
-    };
-    const onVisibilityChange = (): void => {
-      if (document.hidden) {
-        stop();
-      } else {
-        void refreshUnits();
-        start();
-      }
-    };
-    if (!document.hidden) {
-      start();
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [refreshUnits]);
+  useEffect(() => pollActiveMap(refreshUnits, 15_000), [refreshUnits]);
 
   // 훈련 중이면 별도 폴링 대신 가장 이른 훈련 완료 시각에 맞춰 1회 갱신한다.
   const earliestTrainingCompleteAt = units.reduce<number | null>((earliest, unit) => {
@@ -1190,7 +1149,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       const delay = Math.max(0, earliestTrainingCompleteAt - Date.now()) + 500;
       timerId = window.setTimeout(() => {
         timerId = null;
-        void refreshUnits();
+        if (mapPollingActive()) void refreshUnits();
       }, delay);
     };
     // 숨김 중에는 예약하지 않는다 (다시 보이면 15초 폴링 effect가 즉시 갱신한다).
@@ -1204,41 +1163,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
     };
   }, [earliestTrainingCompleteAt, refreshUnits]);
 
-  useEffect(() => {
-    // 중립 부대 폴링 (선택 동 기준, 15초). 스폰·배회는 서버가 lazy 처리한다.
-    // 탭이 숨겨진 동안에는 폴링을 멈추고, 다시 보이면 즉시 1회 갱신 후 재개한다.
-    let timerId: number | null = null;
-    const start = (): void => {
-      if (timerId === null) {
-        timerId = window.setInterval(() => {
-          void refreshNeutralUnits();
-        }, 15_000);
-      }
-    };
-    const stop = (): void => {
-      if (timerId !== null) {
-        window.clearInterval(timerId);
-        timerId = null;
-      }
-    };
-    const onVisibilityChange = (): void => {
-      if (document.hidden) {
-        stop();
-      } else {
-        void refreshNeutralUnits();
-        start();
-      }
-    };
-    void refreshNeutralUnits();
-    if (!document.hidden) {
-      start();
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
-  }, [refreshNeutralUnits]);
+  useEffect(() => pollActiveMap(refreshNeutralUnits, 15_000), [refreshNeutralUnits]);
 
   useEffect(() => {
     if (!props.neutralRefreshNonce) {
@@ -1256,6 +1181,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
       return;
     }
     const timerId = window.setInterval(() => {
+      noteMapActivity();
       setMoveNow(Date.now());
     }, 500);
     return () => window.clearInterval(timerId);
@@ -1664,7 +1590,7 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const chaseTickRef = useRef<() => void>(() => {});
   useEffect(() => {
     chaseTickRef.current = (): void => {
-      if (chaseRef.current.size === 0 || document.hidden) {
+      if (chaseRef.current.size === 0 || !mapPollingActive()) {
         return;
       }
       const getPos = props.getTrackTargetPosition;

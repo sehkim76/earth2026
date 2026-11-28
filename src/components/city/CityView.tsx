@@ -48,6 +48,7 @@ import {
 } from "@/lib/city";
 
 import { BuildingIcon, ResourceIcon } from "@/components/city/CityIcons";
+import { mapPollingActive, pollActiveMap } from "@/lib/map-polling";
 import { cityAction, fetchCity, fmtNum, fmtRemain, type CityViewData } from "@/components/city/city-client";
 import type { CitySceneLot } from "@/components/city/CityScene3D";
 import type { CityDistrict } from "@/components/city/city-scene-engine";
@@ -125,7 +126,7 @@ export function CityView({ open, onClose }: CityViewProps) {
     if (!open) return;
     const id = window.setInterval(() => {
       setTick((t) => t + 1);
-      if (!view) return;
+      if (!view || !mapPollingActive()) return;
       const now = serverNow(view);
       const s = view.state;
       const ends = [
@@ -141,21 +142,14 @@ export function CityView({ open, onClose }: CityViewProps) {
 
   useEffect(() => {
     if (!open || busy) return;
-    let pending = false;
     let cancelled = false;
-    const id = window.setInterval(async () => {
-      if (pending || document.visibilityState === "hidden") return;
-      pending = true;
-      try {
-        const r = await fetchCity();
-        if (r.ok && !cancelled) setView((current) => !current || r.view.now >= current.now ? r.view : current);
-      } finally {
-        pending = false;
-      }
-    }, 15_000);
+    const stopPolling = pollActiveMap(async () => {
+      const r = await fetchCity();
+      if (r.ok && !cancelled) setView((current) => !current || r.view.now >= current.now ? r.view : current);
+    }, 15_000, false);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, [open, busy]);
 

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import prisma from "@/lib/prismadb";
+import { storedUnitArray } from "@/lib/unit-query";
 import {
   UNIT_CAP_BY_CLASS,
   loadUnits,
@@ -33,11 +34,10 @@ export async function GET(request: Request) {
   // 락 없이 먼저 읽고, 확정(훈련 완료·만료 주문서)할 부대가 있을 때만 락을 잡는다.
   // 확정 대상이 없으면 락 안 경로도 쓰기 없이 같은 목록을 돌려주므로 응답이 동일하다.
   const loadSettledUnits = async (): Promise<Unit[]> => {
-    const snapshot = await prisma.missionUser.findUnique({
-      where: { userId },
-      select: { data: true },
-    });
-    const snapUnits = loadUnits(snapshot?.data);
+    const [snapshot] = await prisma.$queryRaw<{ units: unknown }[]>`
+      SELECT ${storedUnitArray} AS units FROM "MissionUser" WHERE "userId" = ${userId}
+    `;
+    const snapUnits = loadUnits(snapshot);
     const snapNow = Date.now();
     const needsSettle = snapUnits.some(
       (unit) =>
@@ -113,6 +113,7 @@ export async function GET(request: Request) {
         await tx.missionUser.update({
           where: { userId },
           data: { data: withUnits(row?.data, updatedUnits) },
+          select: { userId: true },
         });
       }
       return updatedUnits;

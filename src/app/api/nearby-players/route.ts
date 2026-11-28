@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
 import { authOptions } from "@/lib/auth";
-import { extractMapUserSettingsFromData } from "@/lib/map-settings";
+import { parsePlayerCharacter } from "@/lib/map-settings";
 import { playerTitles } from "@/lib/nations";
 import prisma from "@/lib/prismadb";
 
@@ -35,15 +35,6 @@ const toNumber = (value: unknown): number | null => {
 
   const fallback = Number(value);
   return Number.isFinite(fallback) ? fallback : null;
-};
-
-/** data.lordInjuredUntil (부상 중일 때만) */
-const readLordInjuredUntil = (data: unknown): number | null => {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return null;
-  }
-  const v = (data as Record<string, unknown>).lordInjuredUntil;
-  return typeof v === "number" && Number.isFinite(v) && v > Date.now() ? v : null;
 };
 
 const parseFiniteNumber = (value: string | null): number | null => {
@@ -100,7 +91,11 @@ export async function GET(request: Request) {
            lat,
            lon,
            location_updated_at AS "updatedAt",
-           data
+           CASE WHEN jsonb_typeof(data->'mapSettings') = 'object'
+                THEN data #>> '{mapSettings,selectedCharacter}'
+                ELSE data->>'selectedCharacter' END AS "selectedCharacter",
+           CASE WHEN jsonb_typeof(data->'lordInjuredUntil') = 'number'
+                THEN data->'lordInjuredUntil' END AS "injuredUntil"
     FROM "MissionUser"
     WHERE "userId" <> ${userId}
       AND "ARMissionKey" = ${missionKey}
@@ -117,7 +112,8 @@ export async function GET(request: Request) {
     lat: unknown;
     lon: unknown;
     updatedAt: Date;
-    data: unknown;
+    selectedCharacter: unknown;
+    injuredUntil: unknown;
   }[];
 
   const titles = await playerTitles(prisma, missionKey, rows.map(r => r.userId));
@@ -136,8 +132,9 @@ export async function GET(request: Request) {
         lat: latValue,
         lon: lonValue,
         updatedAt: row.updatedAt.toISOString(),
-        selectedCharacter: extractMapUserSettingsFromData(row.data).selectedCharacter,
-        injuredUntil: readLordInjuredUntil(row.data),
+        selectedCharacter: parsePlayerCharacter(row.selectedCharacter),
+        injuredUntil: typeof row.injuredUntil === "number" && Number.isFinite(row.injuredUntil) && row.injuredUntil > Date.now()
+          ? row.injuredUntil : null,
       };
     })
     .filter((player): player is NearbyPlayerResponse => player !== null);
