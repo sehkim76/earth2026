@@ -34,7 +34,7 @@ interface BattleHostProps {
   enabled: boolean;
   outlawRequest: OutlawBattleRequest | null;
   onOutlawRequestDone: () => void;
-  /** 전투가 시작됨 (무법자 패널 닫기, 고정 해제 신호 생략) */
+  /** 전투가 시작됨 */
   onBattleStarted: (wildId: number | null) => void;
   /** 결과를 확인하고 닫음 (무법자·부대 새로고침) */
   onBattleFinished: () => void;

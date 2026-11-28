@@ -2344,15 +2344,11 @@ interface UnitMoveAnimation {
   // 중립성과 동일 조건: 플레이어 20km 이내 동 또는 선택 동만.
   const [wildSeeds, setWildSeeds] = useState<Array<{ dong: string; lat: number; lon: number }>>([]);
   const [neutralRefreshNonce, setNeutralRefreshNonce] = useState(0);
-  // 무법자 토벌(카드 전투) 요청과, 전투 중인 무법자 (패널을 닫아도 고정 해제 신호를 보내지 않는다).
   const outlawBattleRequest = dialog?.kind === "outlawFormation" ? dialog.request : null;
-  const battleWildRef = useRef<number | null>(null);
   const clearOutlawBattleRequest = useCallback(() => closeDialog("outlawFormation"), [closeDialog]);
   // 「토벌」·「공격」: 공격 거리 밖이면 지휘관이 먼저 다가간다 (TerritoryUI가 처리 후 onAttackReady).
   const [attackApproach, setAttackApproach] = useState<AttackApproachRequest | null>(null);
   const clearAttackApproach = useCallback(() => setAttackApproach(null), []);
-  // 추적(추적 이동·토벌 이동) 중인 대상 id. 추적 중인 무법자는 패널이 열려 있어도 멈추지 않는다.
-  const [chasedTrackIds, setChasedTrackIds] = useState<string[]>([]);
   // 성 공성(오토배틀) 요청 + 전투 후 성 상세 갱신.
   const castleBattleRequest = dialog?.kind === "castleFormation" ? dialog.request : null;
   const clearCastleBattleRequest = useCallback(() => closeDialog("castleFormation"), [closeDialog]);
@@ -3525,59 +3521,6 @@ interface UnitMoveAnimation {
   }, [openDialog]);
 
   const closeMarkerPanel = useCallback((): void => closeDialog("marker"), [closeDialog]);
-
-  // 무법자 다이얼로그가 열린 동안 해당 개체를 서버에서 멈춘다 (닫으면 재개).
-  // 클라이언트 종료 등으로 재개 신호가 못 와도 TTL(서버 300초) 만료 후 자동 재개된다.
-  // 백그라운드 탭은 타이머가 1분 단위로 몰려 실행되므로 30초마다 연장하고,
-  // 탭이 다시 보이는 즉시 연장해 TTL이 중간에 풀리지 않게 한다.
-  // 멈추는 대상: 편성 창이 열린 무법자, 또는 패널이 열렸지만 추적 중이 아닌 무법자.
-  const panelWildId = markerPanel?.wildId;
-  const pickerWildId = outlawBattleRequest?.target.type === "outlaw" ? outlawBattleRequest.target.wildId : undefined;
-  const holdWildId =
-    pickerWildId ??
-    (panelWildId !== undefined && !chasedTrackIds.includes(`neutral-${panelWildId}`) ? panelWildId : undefined);
-  useEffect(() => {
-    const wildId = holdWildId;
-    if (!territoryEnabled || wildId === undefined || !Number.isFinite(wildId)) {
-      return;
-    }
-    let stopped = false;
-    const hold = (on: boolean): void => {
-      void fetch("/api/neutral-units/hold", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: wildId, hold: on }),
-      })
-        .then(() => {
-          // 서버가 고정한 위치를 다음 폴링(최대 15초)까지 기다리지 않고 바로 반영한다.
-          if (on && !stopped) {
-            setNeutralRefreshNonce((n) => n + 1);
-          }
-        })
-        .catch(() => undefined);
-    };
-    hold(true);
-    const timerId = window.setInterval(() => {
-      if (!stopped) {
-        hold(true);
-      }
-    }, 30_000);
-    const onVisible = (): void => {
-      if (!stopped && document.visibilityState === "visible") {
-        hold(true);
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      stopped = true;
-      window.clearInterval(timerId);
-      document.removeEventListener("visibilitychange", onVisible);
-      // 전투가 시작된 무법자는 서버가 전투 동안 고정하므로 해제하지 않는다.
-      if (battleWildRef.current !== wildId) {
-        hold(false);
-      }
-    };
-  }, [territoryEnabled, holdWildId]);
 
   // 패널이 열린 비소유 개체(무법자·중립성·적성) 마커에 적색 테두리를 표시한다.
   // 소유 개체(아군 부대·아성)는 기존 선택 표시를 그대로 둔다.
@@ -6604,7 +6547,6 @@ interface UnitMoveAnimation {
   // 공격 거리 안에 들어왔다: 영주가 선두면 서버 위치 판정을 위해 현재 위치를 바로 기록한 뒤 편성 창을 연다.
   const handleAttackReady = useCallback(
     (target: OutlawBattleRequest["target"], leadId: string): void => {
-      // 편성 창이 열리면 pickerWildId가 무법자 정지 상태를 이어받는다.
       const open = (): void => {
         openDialog({ kind: "outlawFormation", request: { target, nonce: Date.now(), leadId } });
       };
@@ -9030,8 +8972,9 @@ const isMapPerfEnabled = (): boolean => {
     >
       {showResourceNodes && (
         <div className="absolute bottom-0 left-1 z-[1000] flex gap-1 rounded bg-black/70 px-1 text-[9px] text-white">
-          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">은행 위치 © OpenStreetMap contributors · ODbL</a>
-          <a href="/map-assets/bank-mines.json" download>좌표 자료</a>
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors · ODbL</a>
+          <a href="/map-assets/bank-mines.json" download>은행 좌표</a>
+          <a href="/map-assets/wooded-roadsides.json" download>수림 도로변 자료</a>
         </div>
       )}
       {viewportDebugLines.length > 0 ? (
@@ -9900,12 +9843,8 @@ const isMapPerfEnabled = (): boolean => {
         onOutlawRequestDone={clearOutlawBattleRequest}
         castleRequest={castleBattleRequest}
         onCastleRequestDone={clearCastleBattleRequest}
-        onBattleStarted={(wildId) => {
-          battleWildRef.current = wildId;
-          openDialog({ kind: "battle" });
-        }}
+        onBattleStarted={() => openDialog({ kind: "battle" })}
         onBattleFinished={() => {
-          battleWildRef.current = null;
           closeDialog("battle");
           setNeutralRefreshNonce((n) => n + 1);
           // 전투 결과(부상·승리 수)를 반영한다.
@@ -9945,7 +9884,6 @@ const isMapPerfEnabled = (): boolean => {
           findTrackTargetAtCenter={findTrackTargetAtCenter}
           getTrackTargetPosition={getTrackTargetPosition}
           attackApproach={attackApproach}
-          onChaseTargetsChange={setChasedTrackIds}
           onAttackApproachHandled={clearAttackApproach}
           onAttackReady={handleAttackReady}
           onLordSelectedChange={setLordSelected}

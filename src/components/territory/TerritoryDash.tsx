@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { CITY_EVENT, fmtNum, lastCityView, type CityViewData } from "@/components/city/city-client";
+import { ResourceIcon } from "@/components/city/CityIcons";
+import { DashboardIcon } from "@/components/territory/dashboard-icon";
 
 interface TerritoryMe {
   class: string;
@@ -98,7 +100,7 @@ export default function TerritoryDash({ title }: { title: string }) {
   if (!me) {
     return (
       <div className="joseon-dashboard pointer-events-auto w-max max-w-[72vw] whitespace-nowrap rounded-2xl border border-[#b9995d]/70 bg-[#14201f]/95 p-3 text-[#f3e8ce]">
-        <p className="text-sm font-black">지휘 상황판</p>
+        <p className="flex items-center gap-1 text-sm font-black"><DashboardIcon kind="scroll" />영지 상황판</p>
         <p className="mt-1 text-xs text-[#c8bea8]">전황을 불러오는 중…</p>
       </div>
     );
@@ -110,32 +112,33 @@ export default function TerritoryDash({ title }: { title: string }) {
       className="joseon-dashboard pointer-events-auto w-max max-w-[72vw] overflow-hidden rounded-2xl border border-[#b9995d]/75 bg-[#14201f]/95 text-[#f3e8ce]"
     >
       <header className="flex items-center gap-2 whitespace-nowrap bg-[#1c2c28] px-2.5 py-1.5">
-        <p className="text-xs font-black leading-none">영지 상황판</p>
-        <span className="rounded-md bg-[#344333] px-1.5 py-0.5 text-[11px] font-black text-[#f0d99d]">
+        <p className="flex items-center gap-1 text-xs font-black leading-none"><DashboardIcon kind="scroll" size={20} />영지 상황판</p>
+        <span className="inline-flex items-center gap-1 rounded-md bg-[#344333] px-1.5 py-0.5 text-[11px] font-black text-[#f0d99d]">
+          <DashboardIcon kind={title === "국왕" ? "king" : title === "제후" ? "vassal" : "chief"} />
           {title}
         </span>
       </header>
       <div className="flex items-stretch gap-1 bg-[#263631] p-1">
         <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="보유 성">
-          <span className="text-[10px] font-bold text-[#c8bea8]">성</span>
+          <span className="flex items-center gap-1 text-[11px] font-bold text-[#e3d6bb]"><DashboardIcon kind="gate" />성</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums">{me.ownedCastles}</span>
         </div>
         <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="부대">
-          <span className="text-[10px] font-bold text-[#c8bea8]">부대</span>
+          <span className="flex items-center gap-1 text-[11px] font-bold text-[#e3d6bb]"><DashboardIcon kind="soldier" />부대</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums">{me.unitsAlive}/{me.unitCap}</span>
         </div>
         <div className="flex min-w-0 flex-col justify-center whitespace-nowrap px-2 py-1" title="전투 승리">
-          <span className="text-[10px] font-bold text-[#c8bea8]">승리</span>
+          <span className="flex items-center gap-1 text-[11px] font-bold text-[#e3d6bb]"><DashboardIcon kind="victory" />승리</span>
           <span className="mt-1 text-sm font-black leading-none tabular-nums"><RollingNumber value={me.contribution} /></span>
         </div>
       </div>
-      <div className="flex items-center gap-2 border-t border-[#b9995d]/30 bg-[#1c2c28] px-2.5 py-1 text-[11px] font-black tabular-nums" aria-label="자원">
-        <span title="금" className="text-[#f0d99d]">금 {fmtNum(res?.gold ?? me.influence)}</span>
+      <div className="grid grid-cols-2 items-center gap-x-2 gap-y-0.5 border-t border-[#b9995d]/30 bg-[#1c2c28] px-2.5 py-1 text-[11px] font-black tabular-nums min-[540px]:flex" aria-label="자원">
+        <span title="금" className="inline-flex items-center gap-0.5 whitespace-nowrap text-[#f0d99d]"><ResourceIcon kind="gold" />금 {fmtNum(res?.gold ?? me.influence)}</span>
         {res ? (
           <>
-            <span title="석재" className="text-[#cfd6dc]">석재 {fmtNum(res.stone)}</span>
-            <span title="나무" className="text-[#b8d98a]">나무 {fmtNum(res.wood)}</span>
-            <span title="철광석" className="text-[#9fb4cc]">철광석 {fmtNum(res.iron)}</span>
+            <span title="석재" className="inline-flex items-center gap-0.5 whitespace-nowrap text-[#cfd6dc]"><ResourceIcon kind="stone" />석재 {fmtNum(res.stone)}</span>
+            <span title="나무" className="inline-flex items-center gap-0.5 whitespace-nowrap text-[#b8d98a]"><ResourceIcon kind="wood" />나무 {fmtNum(res.wood)}</span>
+            <span title="철광석" className="inline-flex items-center gap-0.5 whitespace-nowrap text-[#9fb4cc]"><ResourceIcon kind="iron" />철광석 {fmtNum(res.iron)}</span>
           </>
         ) : null}
       </div>

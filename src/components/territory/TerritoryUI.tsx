@@ -77,8 +77,6 @@ interface TerritoryUIProps {
   findTrackTargetAtCenter?: () => TrackTarget | null;
   /** 추적 대상의 현재 위치. 사라졌으면 null. */
   getTrackTargetPosition?: (targetId: string) => { lat: number; lon: number } | null;
-  /** 추적 중인 대상 id 목록이 바뀌면 알린다 (추적 중인 무법자는 멈추지 않게). */
-  onChaseTargetsChange?: (trackIds: string[]) => void;
   /** 공격 요청: 가까운 지휘관이 대상에게 다가간 뒤 전투를 연다 (지도 패널 「토벌」·「공격」). */
   attackApproach?: AttackApproachRequest | null;
   onAttackApproachHandled?: () => void;
@@ -90,7 +88,7 @@ interface TerritoryUIProps {
   playerDongCode?: string | null;
   /** 화면에 보이는 동 시드 (동 코드 + 대표 좌표). */
   wildSeeds?: Array<{ dong: string; lat: number; lon: number }>;
-  /** 값이 바뀌면 무법자 목록을 즉시 다시 조회한다 (일시정지 직후 고정 위치 반영용). */
+  /** 값이 바뀌면 무법자 목록을 즉시 다시 조회한다 (전투 결과 반영용). */
   neutralRefreshNonce?: number;
   /** 축성 2단계: 위치 지정 모드 시작. */
   onStartPlacement: (draft: CastleBuildDraft) => void;
@@ -1631,13 +1629,10 @@ export default function TerritoryUI(props: TerritoryUIProps) {
   const [chaseNames, setChaseNames] = useState<Record<string, string>>({});
   const syncChaseNames = (): void => {
     const next: Record<string, string> = {};
-    const targets: string[] = [];
     chaseRef.current.forEach((entry, id) => {
       next[id] = entry.name;
-      targets.push(entry.targetId);
     });
     setChaseNames(next);
-    props.onChaseTargetsChange?.(targets);
   };
   function startChase(commanderId: string, target: TrackTarget | null): void {
     if (!target) {

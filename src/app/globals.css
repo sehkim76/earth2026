@@ -1078,7 +1078,6 @@
   background: var(--palace-ridge) top/100% 6px no-repeat,linear-gradient(#31594c,#223e36);
   padding-top: .65rem; border-bottom: 2px solid #996546;
 }
-.joseon-dashboard header p::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: .4rem; background: #a54c3b; border: 1px solid #f0be79; }
 .joseon-dashboard header + div { background: #3c3327; }
 .joseon-dashboard [aria-label="자원"] { background: #302c23; }
 [data-territory-map] [data-map-panel="marker"] > div:first-child { background: #31564a; border-bottom: 2px solid #b68d57; }

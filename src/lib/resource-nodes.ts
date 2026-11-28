@@ -4,24 +4,38 @@ import availableBands from "@/lib/resource-roadsides/bands.json";
 interface Site {
   x: number;
   y: number;
+  wooded: boolean;
 }
 type RoadsideBand = Readonly<Record<string, string>>;
+interface BandData {
+  roads: RoadsideBand;
+  woodland: RoadsideBand;
+}
 const BLOCK = 32;
 const decoded = new Map<string, Map<number, Site[]>>();
 
-async function loadBand(row: number): Promise<RoadsideBand> {
-  if (!availableBands.includes(row)) return {};
-  const data = await import(`./resource-roadsides/${row}.json`);
-  return data.default;
+async function loadBand(row: number): Promise<BandData> {
+  if (!availableBands.includes(row)) return { roads: {}, woodland: {} };
+  const [roads, woodland] = await Promise.all([
+    import(`./resource-roadsides/${row}.json`),
+    import("../../public/map-assets/wooded-roadsides.json"),
+  ]);
+  return { roads: roads.default, woodland: woodland.default.blocks };
 }
 
-function sitesInCell(cx: number, cy: number, band: RoadsideBand): Site[] {
+function sitesInCell(cx: number, cy: number, band: BandData): Site[] {
   const col = Math.floor(cx / BLOCK);
-  const packed = band[col];
+  const packed = band.roads[col];
   if (!packed) return [];
   const key = `${col}:${Math.floor(cy / BLOCK)}`;
   let cells = decoded.get(key);
   if (!cells) {
+    const forest = atob(band.woodland[key] ?? "");
+    const woodedSites = new Set<number>();
+    for (let i = 0; i < forest.length; i += 4) {
+      woodedSites.add(forest.charCodeAt(i) | forest.charCodeAt(i + 1) << 8 |
+        forest.charCodeAt(i + 2) << 16 | forest.charCodeAt(i + 3) << 24);
+    }
     cells = new Map<number, Site[]>();
     const data = atob(packed);
     let offset = 0;
@@ -30,7 +44,9 @@ function sitesInCell(cx: number, cy: number, band: RoadsideBand): Site[] {
       const count = data.charCodeAt(offset++);
       const sites: Site[] = [];
       for (let i = 0; i < count; i++) {
-        sites.push({ x: data.charCodeAt(offset++), y: data.charCodeAt(offset++) });
+        const x = data.charCodeAt(offset++);
+        const y = data.charCodeAt(offset++);
+        sites.push({ x, y, wooded: woodedSites.has((cell << 16) | (y << 8) | x) });
       }
       cells.set(cell, sites);
     }
@@ -54,7 +70,7 @@ const rand01 = (seed: number, salt: number): number => hash32(seed, salt) / 4294
 const NODE_AMOUNT: Readonly<Record<ResourceKind, number>> = { gold: 500, stone: 1200, wood: 1500, iron: 900 };
 
 /** 한 격자 칸의 자원지 (0~2곳) */
-function nodesInCell(cx: number, cy: number, epoch: number, band: RoadsideBand): ResourceNode[] {
+function nodesInCell(cx: number, cy: number, epoch: number, band: BandData): ResourceNode[] {
   const sites = sitesInCell(cx, cy, band);
   if (!sites.length) return [];
   const seed = hash32(cx, cy, epoch, 0x7f4a);
@@ -68,6 +84,7 @@ function nodesInCell(cx: number, cy: number, epoch: number, band: RoadsideBand):
     const lr = rand01(seed, 20 + i);
     const level = (lr < 0.6 ? 1 : lr < 0.9 ? 2 : 3) as 1 | 2 | 3;
     const site = sites[(first + i) % sites.length];
+    if (kind === "wood" && !site.wooded) continue;
     const lat = (cy + (site.y + 0.5) / 256) * NODE_CELL_LAT;
     const lon = (cx + (site.x + 0.5) / 256) * NODE_CELL_LON;
     out.push({

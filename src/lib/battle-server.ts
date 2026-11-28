@@ -12,7 +12,7 @@
 // - data.cardCollection 카드 보관함: { [cardId]: count }
 // - data.lordInjuredUntil 영주 부상 해제 시각(ms) / 부대 부상은 units[].injuredUntil
 //
-// 무법자 붙잡기: 전투 시작 시 /api/neutral-units/hold 와 같은 방식으로 현재 위치에 고정하고
+// 무법자 붙잡기: 전투 시작 시 현재 위치에 고정하고
 // (legEndsAt 을 10분 뒤로), 사용하지 않는 quizKey 열에 "battle:<userId>:<battleId>:<만료ms>"
 // 표식을 남겨 다른 사용자가 동시에 같은 무법자와 싸우지 못하게 한다. 행동 요청마다 필요하면 연장한다.
 
